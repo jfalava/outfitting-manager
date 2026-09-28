@@ -1,0 +1,249 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { deflateRawSync } from "node:zlib";
+
+import { describe, expect, test } from "vitest";
+
+import { normalizeCommandAlias } from "@/arguments";
+import {
+  assetNameFor,
+  checksumFromFile,
+  downloadBytes,
+  executableNameFor,
+  executablePath,
+  extractZipBinary,
+  isNewerVersion,
+  latestCliRelease,
+  parseCliVersion,
+} from "@/upgrade";
+import { scheduleWindowsReplacement } from "@/upgrade/install";
+
+function appendBytes(parts: ReadonlyArray<Uint8Array>): Uint8Array {
+  const result = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+function makeZip(fileName: string, contents: string): Uint8Array {
+  const name = new TextEncoder().encode(fileName);
+  const uncompressed = new TextEncoder().encode(contents);
+  const compressed = new Uint8Array(deflateRawSync(uncompressed));
+  const local = new Uint8Array(30 + name.length + compressed.length);
+  const localView = new DataView(local.buffer);
+  localView.setUint32(0, 0x04034b50, true);
+  localView.setUint16(4, 20, true);
+  localView.setUint16(8, 8, true);
+  localView.setUint32(18, compressed.length, true);
+  localView.setUint32(22, uncompressed.length, true);
+  localView.setUint16(26, name.length, true);
+  local.set(name, 30);
+  local.set(compressed, 30 + name.length);
+
+  const central = new Uint8Array(46 + name.length);
+  const centralView = new DataView(central.buffer);
+  centralView.setUint32(0, 0x02014b50, true);
+  centralView.setUint16(4, 20, true);
+  centralView.setUint16(6, 20, true);
+  centralView.setUint16(10, 8, true);
+  centralView.setUint32(20, compressed.length, true);
+  centralView.setUint32(24, uncompressed.length, true);
+  centralView.setUint16(28, name.length, true);
+  central.set(name, 46);
+
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, 1, true);
+  endView.setUint16(10, 1, true);
+  endView.setUint32(12, central.length, true);
+  endView.setUint32(16, local.length, true);
+  return appendBytes([local, central, end]);
+}
+
+describe("self-update command helpers", () => {
+  test("does not normalize retired CLI command names", () => {
+    expect(normalizeCommandAlias(["ugprade"])).toEqual(["ugprade"]);
+    expect(normalizeCommandAlias(["upgrade", "--help"])).toEqual(["upgrade", "--help"]);
+  });
+
+  test("compares stable CLI versions", () => {
+    expect(parseCliVersion("cli-v1.2.3")).toEqual([1, 2, 3]);
+    expect(isNewerVersion("1.3.0", "1.2.9")).toBe(true);
+    expect(isNewerVersion("1.2.3", "1.2.3")).toBe(false);
+    expect(isNewerVersion("1.2.2", "1.2.3")).toBe(false);
+  });
+
+  test("maps supported release assets", () => {
+    expect(assetNameFor("darwin", "arm64")).toBe("outfitting-manager-darwin-arm64.zip");
+    expect(executableNameFor("darwin", "arm64")).toBe("outfitting-manager");
+    expect(assetNameFor("win32", "x64")).toBe("outfitting-manager-windows-x64.zip");
+    expect(executableNameFor("win32", "x64")).toBe("outfitting-manager.exe");
+    expect(() => assetNameFor("win32", "arm64")).toThrow("not supported");
+  });
+
+  test("only accepts the compiled executable as its replacement target", () => {
+    expect(() => executablePath("/repo/index.ts", "/usr/bin/bun")).toThrow("compiled");
+    expect(
+      executablePath(
+        "/$bunfs/root/outfitting-manager",
+        "/Users/test/.local/bin/outfitting-manager",
+      ),
+    ).toBe("/Users/test/.local/bin/outfitting-manager");
+    expect(
+      executablePath(
+        "B:\\~BUN\\root\\outfitting-manager.exe",
+        "C:\\Users\\test\\.local\\bin\\outfitting-manager.exe",
+      ),
+    ).toBe("C:\\Users\\test\\.local\\bin\\outfitting-manager.exe");
+  });
+
+  test("replaces the Windows executable after the current process exits", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const root = await mkdtemp(join(tmpdir(), "outfitting upgrade ' & "));
+    const temporaryPath = join(root, "outfitting-manager.upgrade");
+    const targetPath = join(root, "outfitting-manager.exe");
+    try {
+      await writeFile(temporaryPath, "new", "utf8");
+      await writeFile(targetPath, "old", "utf8");
+      const blocker = Bun.spawn(
+        [
+          "powershell.exe",
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Start-Sleep -Milliseconds 250",
+        ],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+
+      scheduleWindowsReplacement(temporaryPath, targetPath, blocker.pid);
+      await blocker.exited;
+
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && (await readFile(targetPath, "utf8")) !== "new") {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(await readFile(targetPath, "utf8")).toBe("new");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("parses release checksum files", () => {
+    expect(checksumFromFile(`${"A".repeat(64)}  outfitting-manager-linux-x64.zip\n`)).toBe(
+      "a".repeat(64),
+    );
+    expect(() => checksumFromFile("not-a-checksum")).toThrow("invalid");
+  });
+
+  test("extracts the expected executable from a deflated ZIP archive", () => {
+    const archive = makeZip("outfitting-manager", "Mach-O test binary");
+
+    expect(extractZipBinary(archive, "outfitting-manager")).toEqual(
+      new TextEncoder().encode("Mach-O test binary"),
+    );
+    expect(() => extractZipBinary(archive, "unexpected-name")).toThrow("does not contain");
+  });
+
+  test("retries transient download failures", async () => {
+    let attempts = 0;
+    const fetcher = async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new Error("The socket connection was closed unexpectedly.");
+      }
+      return new Response(new Uint8Array([1, 2, 3]));
+    };
+
+    await expect(
+      downloadBytes("https://example.test/asset", "Release asset", fetcher),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    expect(attempts).toBe(3);
+  });
+
+  test("selects a stable CLI release and its zip assets", async () => {
+    const asset = "outfitting-manager-linux-x64.zip";
+    let requestUrl: string | undefined;
+    const fetcher = async (input: string | URL | Request) => {
+      requestUrl = String(input);
+      return new Response(
+        JSON.stringify([
+          { draft: false, prerelease: false, tag_name: "v99.0.0", assets: [] },
+          {
+            draft: false,
+            prerelease: false,
+            tag_name: "cli-v0.2.0",
+            assets: [],
+          },
+          {
+            draft: false,
+            prerelease: false,
+            tag_name: "cli-v0.4.0",
+            assets: [],
+          },
+          {
+            draft: false,
+            prerelease: false,
+            tag_name: "cli-v0.3.0",
+            assets: [
+              {
+                name: asset,
+                browser_download_url: "https://example.test/archive",
+              },
+              {
+                name: `${asset}.sha256`,
+                browser_download_url: "https://example.test/archive-checksum",
+              },
+            ],
+          },
+        ]),
+      );
+    };
+
+    await expect(latestCliRelease(asset, "outfitting-manager", fetcher)).resolves.toEqual({
+      version: "0.3.0",
+      assetUrl: "https://example.test/archive",
+      checksumUrl: "https://example.test/archive-checksum",
+      executableName: "outfitting-manager",
+    });
+    expect(requestUrl).toBe(
+      "https://api.github.com/repos/jfalava/outfitting-manager/releases?per_page=30",
+    );
+  });
+
+  test("rejects releases that only have bare binaries", async () => {
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            draft: false,
+            prerelease: false,
+            tag_name: "cli-v0.3.4",
+            assets: [
+              {
+                name: "outfitting-manager-linux-x64",
+                browser_download_url: "https://example.test/binary",
+              },
+              {
+                name: "outfitting-manager-linux-x64.sha256",
+                browser_download_url: "https://example.test/checksum",
+              },
+            ],
+          },
+        ]),
+      );
+
+    await expect(
+      latestCliRelease("outfitting-manager-linux-x64.zip", "outfitting-manager", fetcher),
+    ).rejects.toThrow("does not contain outfitting-manager-linux-x64.zip");
+  });
+});

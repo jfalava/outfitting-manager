@@ -1,0 +1,11 @@
+{
+  "domain": "api.outfitting.example.com",
+  "stackName": "OutfittingManager",
+  "kv": "outfitting-lockfiles",
+  "database": "outfitting-lockfiles",
+  "privateFonts": "outfitting-private-fonts",
+  "workers": {
+    "router": "outfitting-manager-router",
+    "api": "outfitting-api"
+  }
+}

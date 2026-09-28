@@ -1,0 +1,28 @@
+{
+  "name": "@outfitting/api",
+  "version": "0.47.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "bun run lint --fix",
+    "format": "oxfmt",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@outfitting/contract": "workspace:*",
+    "effect": "catalog:effect",
+    "hono": "catalog:backend"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:cloudflare",
+    "@oxlint/plugins": "catalog:build",
+    "@types/node": "catalog:types",
+    "oxfmt": "catalog:build",
+    "oxlint": "catalog:build",
+    "oxlint-tsgolint": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}

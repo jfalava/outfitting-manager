@@ -1,0 +1,63 @@
+import { Option } from "effect";
+import { Flag } from "effect/unstable/cli";
+
+import { type LinuxPackageManager } from "@/platform/linux";
+import { isLinuxProfile, type LinuxProfile } from "@/update/linux";
+
+export const linuxProfileFlag = Flag.String("profile").pipe(
+  Flag.optional,
+  Flag.withDescription("Profile declared in config.toml (defaults to its Linux selection)."),
+);
+
+export const linuxOptionalProfileFlag = Flag.String("profile").pipe(
+  Flag.optional,
+  Flag.withDescription("Linux profile; defaults to config.toml or OUTFITTING_PROFILE."),
+);
+
+export const linuxPackageManagerFlag = Flag.String("package-manager").pipe(
+  Flag.optional,
+  Flag.withDescription("Override distro detection with apt or pacman."),
+);
+
+export const linuxApplyOfflineFlag = Flag.Boolean("offline").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription(
+    "Use the cached manifest and apt packages; remote sources need --no-refresh. pacman installs are refused offline.",
+  ),
+);
+
+export const linuxUpdateOfflineFlag = Flag.Boolean("offline").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription(
+    "Refuse upgrades because network-free package resolution cannot be guaranteed.",
+  ),
+);
+
+export function optionalString(value: Option.Option<string>): string | undefined {
+  return Option.getOrUndefined(value);
+}
+
+export function requestedLinuxPackageManager(
+  value: Option.Option<string>,
+): LinuxPackageManager | undefined {
+  const manager = optionalString(value);
+  if (manager === undefined) {
+    return undefined;
+  }
+  if (manager !== "apt" && manager !== "pacman") {
+    throw new Error(`Unknown Linux package manager \`${manager}\`. Choose: apt or pacman.`);
+  }
+  return manager;
+}
+
+export function requireLinuxProfile(profile: string | undefined): LinuxProfile | undefined {
+  if (profile === undefined) {
+    return undefined;
+  }
+  if (!isLinuxProfile(profile)) {
+    throw new Error(
+      `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
+    );
+  }
+  return profile;
+}

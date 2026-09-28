@@ -1,0 +1,35 @@
+{
+  "name": "@outfitting/iac",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run typecheck",
+    "check": "oxlint --fix",
+    "ci:build": "bun run typecheck",
+    "ci:deploy": "alchemy deploy --yes --adopt",
+    "deploy": "alchemy deploy",
+    "destroy": "alchemy destroy",
+    "dev": "alchemy dev",
+    "format": "oxfmt",
+    "lint": "oxlint",
+    "plan": "alchemy plan",
+    "test": "bun test test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "catalog:effect",
+    "@effect/platform-node": "catalog:effect",
+    "@effect/platform-node-shared": "catalog:effect",
+    "alchemy": "2.0.0-beta.79",
+    "effect": "catalog:effect"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:cloudflare",
+    "@oxlint/plugins": "catalog:build",
+    "@types/node": "catalog:types",
+    "oxfmt": "catalog:build",
+    "oxlint": "catalog:build",
+    "oxlint-tsgolint": "catalog:build",
+    "typescript": "catalog:build"
+  }
+}

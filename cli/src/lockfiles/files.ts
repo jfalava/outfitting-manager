@@ -1,0 +1,134 @@
+import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
+import { dirname, relative, resolve as resolvePath } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+interface GitExecutionError {
+  code?: number | string;
+  stderr?: string;
+}
+
+function isGitExecutionError(cause: unknown): cause is GitExecutionError {
+  return cause instanceof Error;
+}
+
+function isOutsideGitRepository(cause: unknown): boolean {
+  return (
+    isGitExecutionError(cause) &&
+    cause.code === 128 &&
+    cause.stderr?.includes("not a git repository") === true
+  );
+}
+
+function isUntrackedPath(cause: unknown): boolean {
+  return isGitExecutionError(cause) && cause.code === 1;
+}
+
+const OUTPUT_PATHS = {
+  brew: "Brewfile",
+  brewfile: "Brewfile",
+  bun: "bun.lock",
+  "bun-global-inventory": "bun-global-inventory.json",
+  flake: "flake.lock",
+  homebrew: "Brewfile",
+  "homebrew-inventory": "homebrew-inventory.txt",
+  nix: "flake.lock",
+  npm: "package-lock.json",
+  "package-lock": "package-lock.json",
+  "powershell-inventory": "powershell-inventory.json",
+  "private-fonts": "private-fonts-inventory.json",
+  "scoop-inventory": "scoop-inventory.json",
+  windows: "windows.lock.json",
+  winget: "winget.json",
+} as const satisfies Readonly<Record<string, string>>;
+
+type OutputPathKind = keyof typeof OUTPUT_PATHS;
+
+function isOutputPathKind(value: string): value is OutputPathKind {
+  return Object.hasOwn(OUTPUT_PATHS, value);
+}
+
+export function inferOutputPath(kind: string): string | undefined {
+  const normalizedKind = kind.toLowerCase();
+  return isOutputPathKind(normalizedKind) ? OUTPUT_PATHS[normalizedKind] : undefined;
+}
+
+/** Canonical kind names that map to a default local filename. */
+export const KNOWN_LOCKFILE_KINDS = [
+  "bun",
+  "bun-global-inventory",
+  "homebrew-inventory",
+  "nix",
+  "npm",
+  "powershell-inventory",
+  "private-fonts",
+  "scoop-inventory",
+  "windows",
+  "winget",
+] as const satisfies ReadonlyArray<OutputPathKind>;
+
+export type KindSelection =
+  | { readonly mode: "all" }
+  | { readonly mode: "one"; readonly kind: string };
+
+/**
+ * Resolve whether the kind selects every tracked/known lockfile (`all`)
+ * or a single concrete kind name.
+ */
+export function resolveKindSelection(kind: string | undefined): KindSelection {
+  const trimmed = kind?.trim();
+  if (trimmed === undefined || trimmed.toLowerCase() === "all") {
+    return { mode: "all" };
+  }
+  return { mode: "one", kind: trimmed };
+}
+
+export async function isGitTrackedFile(path: string): Promise<boolean> {
+  const requestedPath = resolvePath(path);
+  const absolutePath = await realpath(requestedPath).catch((cause: unknown) => {
+    if (isGitExecutionError(cause) && cause.code === "ENOENT") {
+      return requestedPath;
+    }
+    throw cause;
+  });
+  let root: string;
+
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", dirname(absolutePath), "rev-parse", "--show-toplevel"],
+      { encoding: "utf8" },
+    );
+    root = await realpath(stdout.trim());
+  } catch (cause) {
+    if (isOutsideGitRepository(cause)) {
+      return false;
+    }
+    throw cause;
+  }
+
+  if (!root) {
+    throw new Error(`Git returned an empty repository root for: ${absolutePath}`);
+  }
+
+  const repositoryPath = relative(root, absolutePath);
+  try {
+    await execFileAsync("git", ["-C", root, "ls-files", "--error-unmatch", "--", repositoryPath]);
+    return true;
+  } catch (cause) {
+    if (isUntrackedPath(cause)) {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+export function normalizeSha256(value: string): string {
+  const hash = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error("Expected a 64-character SHA-256 hash.");
+  }
+  return hash;
+}

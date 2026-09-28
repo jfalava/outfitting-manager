@@ -1,0 +1,69 @@
+{
+  "name": "@outfitting/manager-monorepo",
+  "workspaces": {
+    "packages": [
+      "api",
+      "cli",
+      "contract",
+      "iac",
+      "router"
+    ],
+    "catalogs": {
+      "types": {
+        "@types/node": "26.6.2"
+      },
+      "build": {
+        "bun-types": "1.4.2",
+        "@oxlint/plugins": "1.83.0",
+        "oxlint": "1.82.0",
+        "oxfmt": "0.68.0",
+        "vitest": "5.0.1",
+        "oxlint-tsgolint": "7.0.2001",
+        "typescript": "7.0.2",
+        "wrangler": "4.128.0"
+      },
+      "backend": {
+        "hono": "4.13.8"
+      },
+      "cloudflare": {
+        "@cloudflare/workers-types": "5.20260921.1"
+      },
+      "effect": {
+        "effect": "4.0.0-rc.115",
+        "@effect/platform-bun": "4.0.0-rc.115",
+        "@effect/platform-node": "4.0.0-rc.115",
+        "@effect/platform-node-shared": "4.0.0-rc.115"
+      }
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "build": "bun run ci:build",
+    "ci:build": "bun run lint:deploy && bun run --filter @outfitting/iac ci:build",
+    "ci:deploy": "bun run --filter @outfitting/iac ci:deploy",
+    "deploy": "bun run --filter @outfitting/iac deploy",
+    "destroy": "bun run --filter @outfitting/iac destroy",
+    "format": "oxfmt",
+    "format:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac format",
+    "lint:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/iac --filter @outfitting/router lint",
+    "lint:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac lint",
+    "plan": "bun run --filter @outfitting/iac plan",
+    "test:api": "bun run --filter @outfitting/api test",
+    "test:cli": "bun run --filter @outfitting/cli test",
+    "test:contract": "bun run --filter @outfitting/contract test",
+    "test:router": "bun run --filter @outfitting/router test",
+    "typecheck:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac --filter @outfitting/router typecheck",
+    "prepare": "effect-tsgo patch --typescript --oxlint"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.45.0",
+    "@oxlint/plugins": "catalog:build",
+    "oxfmt": "catalog:build",
+    "oxlint": "catalog:build",
+    "oxlint-tsgolint": "catalog:build",
+    "typescript": "catalog:build"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-rc.115"
+  }
+}

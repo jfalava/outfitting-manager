@@ -1,0 +1,36 @@
+# environment variables
+.env
+.env.production
+
+# macOS-specific files
+.DS_Store
+
+# Windows files
+Thumbs.db
+
+# jetbrains setting folder
+.idea/
+.fleet/
+
+# Nix/Home Manager
+result
+result-*
+.direnv/
+**/flake.lock
+!system/oci-agents/flake.lock
+
+# Monorepo
+node_modules/
+.wrangler/
+
+# Alchemy
+.alchemy/
+iac/.env
+
+# Amp orbs
+.amp/portals/*
+outfitting.deploy.json
+dist/
+
+# Local Outfitting Artifacts
+byor.json

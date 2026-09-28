@@ -1,0 +1,225 @@
+import * as cliProgress from "cli-progress";
+import { Console, Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
+
+import {
+  collectDiff,
+  hasDifferences,
+  type DiffPlatform,
+  type DiffProgress,
+  type DiffSection,
+} from "@/diff";
+import { CliFailure } from "@/errors";
+import { tryPromise } from "@/lockfiles/effect";
+import { ui } from "@/ui";
+
+const managerFlag = Flag.String("manager").pipe(
+  Flag.optional,
+  Flag.withDescription("Compare one manager instead of the complete platform set."),
+);
+
+const profileFlag = Flag.String("profile").pipe(
+  Flag.optional,
+  Flag.withDescription(
+    "Profile name; Windows accepts comma-separated profiles, Linux accepts one profile.",
+  ),
+);
+
+const offlineFlag = Flag.Boolean("offline").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Use the validated local BYOR snapshot and skip the remote Nix comparison."),
+);
+
+const refreshFlag = Flag.Boolean("refresh").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Refresh the selected Linux BYOR source before comparing it."),
+);
+
+const jsonFlag = Flag.Boolean("json").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Print the comparison as JSON."),
+);
+
+function platformLabel(platform: DiffPlatform): string {
+  if (platform === "macos") {
+    return "macOS";
+  }
+  return platform === "windows" ? "Windows" : "Linux";
+}
+
+interface DiffProgressRenderer {
+  update: (progress: DiffProgress) => void;
+  finish: () => void;
+}
+
+interface RunDiffOptions {
+  platform: DiffPlatform;
+  manager: Option.Option<string>;
+  profile: Option.Option<string>;
+  offline: boolean;
+  json: boolean;
+  refresh: boolean;
+}
+
+function makeProgressRenderer(platform: DiffPlatform): DiffProgressRenderer {
+  const bar = new cliProgress.SingleBar({
+    format: `${platformLabel(platform)} [{bar}] {percentage}% | {managerProgress} | {status} {manager}{item}`,
+    stream: process.stderr,
+    barsize: 20,
+    hideCursor: true,
+    linewrap: true,
+  });
+  let started = false;
+  return {
+    update: (progress) => {
+      const value =
+        progress.phase === "item" &&
+        progress.itemIndex !== undefined &&
+        progress.itemTotal !== undefined
+          ? progress.completed + progress.itemIndex / progress.itemTotal
+          : progress.completed;
+      const payload = {
+        item:
+          progress.item === undefined
+            ? ""
+            : `: ${progress.item} (${progress.itemIndex}/${progress.itemTotal})`,
+        manager: progress.manager,
+        managerProgress: `${progress.completed}/${progress.total}`,
+        status:
+          progress.phase === "started"
+            ? "loading"
+            : progress.phase === "item"
+              ? "comparing"
+              : "done",
+      };
+      if (!started) {
+        bar.start(progress.total, value, payload);
+        started = true;
+      } else {
+        bar.update(value, payload);
+      }
+    },
+    finish: () => {
+      bar.stop();
+    },
+  };
+}
+
+function printSection(section: DiffSection): Effect.Effect<void> {
+  const label = section.manager;
+  if (section.status === "unavailable") {
+    return Console.log(`${ui.heading("✗")} ${label}: ${section.message ?? "unavailable"}`);
+  }
+  if (section.status === "same") {
+    return Console.log(
+      ui.success(`${label}: in sync${section.message ? ` — ${section.message}` : ""}`),
+    );
+  }
+
+  return Effect.gen(function* () {
+    yield* Console.log(ui.heading(label));
+    for (const item of section.missing) {
+      yield* Console.log(`  ${ui.success(`missing: ${item}`)}`);
+    }
+    for (const item of section.extra) {
+      yield* Console.log(`  ${ui.muted(`extra: ${item}`)}`);
+    }
+    for (const item of section.changed) {
+      yield* Console.log(`  ${ui.key(`changed: ${item}`)}`);
+    }
+    if (section.message !== undefined) {
+      yield* Console.log(`  ${ui.muted(section.message)}`);
+    }
+  });
+}
+
+function printText(result: Awaited<ReturnType<typeof collectDiff>>): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* Console.log(
+      ui.heading(`Comparing ${platformLabel(result.platform)} to ${result.source}`),
+    );
+    yield* Console.log("");
+    for (const section of result.sections) {
+      yield* printSection(section);
+      for (const warning of section.warnings ?? []) {
+        yield* Console.log(ui.muted(`  ${warning}`));
+      }
+    }
+    yield* Console.log("");
+    if (result.unavailable) {
+      yield* Console.log(ui.muted("Comparison incomplete."));
+    } else if (result.differences) {
+      yield* Console.log(ui.muted("Differences found."));
+    } else {
+      yield* Console.log(ui.success("Platform matches the configured repository state."));
+    }
+  });
+}
+
+function runDiff(options: RunDiffOptions) {
+  return Effect.gen(function* () {
+    const progress = makeProgressRenderer(options.platform);
+    const result = yield* tryPromise(() =>
+      collectDiff({
+        platform: options.platform,
+        manager: Option.getOrUndefined(options.manager),
+        profiles: Option.isSome(options.profile) ? options.profile.value.split(",") : undefined,
+        offline: options.offline,
+        refresh: options.refresh,
+        onProgress: progress.update,
+      }),
+    ).pipe(Effect.ensuring(Effect.sync(progress.finish)));
+
+    if (options.json) {
+      yield* Console.log(JSON.stringify(result, null, 2));
+    } else {
+      yield* printText(result);
+    }
+
+    if (hasDifferences(result)) {
+      return yield* new CliFailure({
+        message: result.unavailable ? "Comparison incomplete." : "Differences found.",
+      });
+    }
+  });
+}
+
+function diffDescription(platform: DiffPlatform): string {
+  return platform === "macos"
+    ? "Compare live Homebrew and Nix state with the configured repository."
+    : platform === "windows"
+      ? "Compare live WinGet and Scoop state with the configured repository."
+      : "Check declared Linux apt or pacman packages without reporting unrelated installed packages.";
+}
+
+function makeDiffCommand(platform: DiffPlatform) {
+  if (platform === "linux") {
+    return Command.make(
+      "diff",
+      {
+        manager: managerFlag,
+        profile: profileFlag,
+        offline: offlineFlag,
+        refresh: refreshFlag,
+        json: jsonFlag,
+      },
+      ({ manager, profile, offline, refresh, json }) =>
+        runDiff({ platform, manager, profile, offline, json, refresh }),
+    ).pipe(Command.withDescription(diffDescription(platform)));
+  }
+  return Command.make(
+    "diff",
+    {
+      manager: managerFlag,
+      profile: profileFlag,
+      offline: offlineFlag,
+      json: jsonFlag,
+    },
+    ({ manager, profile, offline, json }) =>
+      runDiff({ platform, manager, profile, offline, json, refresh: false }),
+  ).pipe(Command.withDescription(diffDescription(platform)));
+}
+
+export const makeMacosDiffCommand = () => makeDiffCommand("macos");
+export const makeWindowsDiffCommand = () => makeDiffCommand("windows");
+export const makeLinuxDiffCommand = () => makeDiffCommand("linux");

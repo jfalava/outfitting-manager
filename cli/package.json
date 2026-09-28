@@ -1,0 +1,43 @@
+{
+  "name": "@outfitting/cli",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "outfitting-manager": "index.ts"
+  },
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "build": "mkdir -p dist && bun build --compile index.macos.ts --outfile dist/outfitting-manager",
+    "build:all": "bun run build:darwin-arm64 && bun run build:linux-x64 && bun run build:linux-arm64 && bun run build:windows-x64",
+    "build:darwin-arm64": "mkdir -p dist && bun build --compile --target=bun-darwin-arm64 index.macos.ts --outfile dist/outfitting-manager-cli-darwin-arm64",
+    "build:linux-arm64": "mkdir -p dist && bun build --compile --target=bun-linux-arm64 index.ts --outfile dist/outfitting-manager-cli-linux-arm64",
+    "build:linux-x64": "mkdir -p dist && bun build --compile --target=bun-linux-x64 index.ts --outfile dist/outfitting-manager-cli-linux-x64",
+    "build:windows-x64": "mkdir -p dist && bun build --compile --target=bun-windows-x64 index.windows.ts --outfile dist/outfitting-manager-cli-windows-x64.exe",
+    "check": "bun run lint --fix",
+    "format": "oxfmt",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1136.0",
+    "@effect/platform-bun": "catalog:effect",
+    "@outfitting/contract": "workspace:*",
+    "cli-progress": "3.12.0",
+    "effect": "catalog:effect",
+    "picocolors": "1.1.1",
+    "smol-toml": "1.8.0",
+    "tar-stream": "3.2.1"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "catalog:build",
+    "@types/cli-progress": "3.11.6",
+    "bun-types": "catalog:build",
+    "oxfmt": "catalog:build",
+    "oxlint": "catalog:build",
+    "oxlint-tsgolint": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
