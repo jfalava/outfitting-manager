@@ -1,50 +1,183 @@
 ---
 import DocsLayout from "../layouts/DocsLayout.astro";
-import {
-  getBreadcrumbs,
-  getPrevNext,
-  getSidebar,
-} from "@cloudflare/nimbus-docs";
+import { Icon } from "astro-icon/components";
+import { LinkButton } from "../components/ui/link-button";
+import { Tabs, TabItem } from "../components/ui/tabs";
 import { config } from "virtual:nimbus/config";
 
-const sidebar = await getSidebar("/", { collection: "docs" });
-const breadcrumbs = await getBreadcrumbs("/", { collection: "docs" });
-const prevNext = await getPrevNext("/", { sidebarTree: sidebar });
+const features = [
+  {
+    icon: "ph:package",
+    title: "Declare once, apply anywhere",
+    body: "Describe your packages per profile, then run apply on a new machine to install them.",
+  },
+  {
+    icon: "ph:git-diff",
+    title: "See what drifted",
+    body: "Compare installed packages with your declarations before you change anything.",
+  },
+  {
+    icon: "ph:git-branch",
+    title: "Bring your own setup files",
+    body: "Read setup files from a local folder or a remote Git repository.",
+  },
+  {
+    icon: "ph:arrows-clockwise",
+    title: "Sync state",
+    body: "Push, pull, and inspect saved state across your machines.",
+  },
+];
+
+const platforms = [
+  {
+    name: "Linux",
+    icon: "ph:linux-logo",
+    detail: "apt, pacman, Nix, and Home Manager",
+    href: "/docs/platforms/linux/commands/",
+  },
+  {
+    name: "macOS",
+    icon: "ph:apple-logo",
+    detail: "Homebrew and Nix",
+    href: "/docs/platforms/macos/commands/",
+  },
+  {
+    name: "Windows",
+    icon: "ph:windows-logo",
+    detail: "WinGet and Scoop",
+    href: "/docs/platforms/windows/commands/",
+  },
+];
+
+const guides = [
+  {
+    title: "Installation",
+    body: "Install the CLI on Linux, macOS, or Windows.",
+    href: "/docs/installation/",
+  },
+  {
+    title: "CLI reference",
+    body: "Commands, options, and subcommands.",
+    href: "/docs/cli/",
+  },
+  {
+    title: "Local setup files",
+    body: "Use a folder or checkout on this machine.",
+    href: "/docs/source/local-sources/",
+  },
+  {
+    title: "Remote Git repository",
+    body: "Use and refresh setup files stored in Git.",
+    href: "/docs/source/sparse-artifacts/",
+  },
+  {
+    title: "API",
+    body: "The Outfitting service API.",
+    href: "/docs/api/",
+  },
+];
 ---
 
 <DocsLayout
   title={config.title}
   description={config.description}
-  sidebar={sidebar}
+  sidebar={false}
   headings={false}
-  breadcrumbs={breadcrumbs}
-  prevNext={prevNext}
+  breadcrumbs={[]}
+  prevNext={{}}
+  mode="custom"
 >
-  <h2 id="cli-reference">CLI</h2>
-  <p>
-    Command reference for <code>outfitting-manager</code> on Windows, Linux,
-    and macOS.
-  </p>
-  <p>
-    <a href="/docs/cli/">Browse commands, options, and subcommands.</a>
-  </p>
+  <section class="border-b border-border">
+    <div class="mx-auto max-w-5xl px-6 pb-16 pt-16 sm:pt-24">
+      <p class="font-mono text-xs uppercase tracking-widest text-primary">
+        Outfitting Manager
+      </p>
+      <h1
+        class="mt-4 max-w-3xl text-balance text-foreground"
+        style="font-size: clamp(2.25rem, 6vw, 4rem); font-weight: var(--nb-h1-weight); letter-spacing: var(--nb-h1-tracking); line-height: var(--nb-h1-leading); text-transform: var(--nb-h1-transform);"
+      >
+        Set up any machine from one config
+      </h1>
+      <p class="mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
+        Declare your packages and setup files once, then apply them on Linux,
+        macOS, or Windows.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <LinkButton href="/docs/installation/" variant="primary" size="lg" icon>
+          Get started
+        </LinkButton>
+        <LinkButton href="/docs/cli/" variant="secondary" size="lg">
+          CLI reference
+        </LinkButton>
+      </div>
+    </div>
+  </section>
 
-  <h2 id="source-lifecycle">Source lifecycle</h2>
-  <p>
-    How local checkouts are resolved and remote source artifacts are selected,
-    pulled, refreshed, and removed.
-  </p>
-  <p>
-    <a href="/docs/source/local-sources/">Local sources</a> ·
-    <a href="/docs/source/sparse-artifacts/">Sparse artifact pulls</a>
-  </p>
+  <section class="mx-auto max-w-5xl px-6 py-16">
+    <h2 class="text-foreground" style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking); text-transform: var(--nb-h2-transform); line-height: var(--nb-h2-leading);">Install</h2>
+    <Tabs syncKey="os" class="mt-6 max-w-2xl">
+      <TabItem label="Linux and macOS">
+        <pre class="overflow-x-auto rounded-lg bg-card p-4 font-mono text-sm text-foreground ring ring-border"><code>curl -fsSL https://outfitting.jfa.dev/install.sh | sh</code></pre>
+      </TabItem>
+      <TabItem label="Windows">
+        <pre class="overflow-x-auto rounded-lg bg-card p-4 font-mono text-sm text-foreground ring ring-border"><code>irm https://outfitting.jfa.dev/install.ps1 | iex</code></pre>
+      </TabItem>
+    </Tabs>
+  </section>
 
-  <h2 id="platform-operations">Platform operations</h2>
-  <p>
-    Command guides for Linux, Windows, and macOS, including native package and
-    Nix behavior.
-  </p>
-  <p>
-    <a href="/docs/platforms/linux/commands/">Browse platform command guides.</a>
-  </p>
+  <section class="mx-auto max-w-5xl px-6 pb-16">
+    <h2 class="text-foreground" style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking); text-transform: var(--nb-h2-transform); line-height: var(--nb-h2-leading);">What it does</h2>
+    <div class="mt-6 grid gap-4 sm:grid-cols-2">
+      {features.map((feature) => (
+        <article class="rounded-lg bg-card p-5 shadow-sm ring ring-border">
+          <Icon name={feature.icon} class="mb-2.5 block h-6 w-6 text-primary" />
+          <h3 class="m-0 text-base font-semibold leading-snug text-foreground">
+            {feature.title}
+          </h3>
+          <p class="mt-1.5 text-sm leading-normal text-muted-foreground">
+            {feature.body}
+          </p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-5xl px-6 pb-16">
+    <h2 class="text-foreground" style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking); text-transform: var(--nb-h2-transform); line-height: var(--nb-h2-leading);">Pick your platform</h2>
+    <div class="mt-6 grid divide-y divide-border border-y border-border md:grid-cols-3 md:divide-x md:divide-y-0">
+      {platforms.map((platform) => (
+        <a
+          href={platform.href}
+          class="group flex items-start gap-3 px-0 py-5 no-underline md:px-6 md:first:pl-0 md:last:pr-0"
+        >
+          <Icon name={platform.icon} class="mt-0.5 h-6 w-6 shrink-0 text-foreground" />
+          <span>
+            <span class="block font-semibold text-foreground group-hover:text-primary">
+              {platform.name}
+            </span>
+            <span class="mt-1 block text-sm text-muted-foreground">
+              {platform.detail}
+            </span>
+          </span>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-5xl px-6 pb-24">
+    <h2 class="text-foreground" style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking); text-transform: var(--nb-h2-transform); line-height: var(--nb-h2-leading);">Guides</h2>
+    <ul class="mt-6 grid list-none gap-x-8 gap-y-4 p-0 sm:grid-cols-2">
+      {guides.map((guide) => (
+        <li class="m-0 border-t border-border pt-3">
+          <a
+            href={guide.href}
+            class="font-semibold text-foreground no-underline hover:text-primary"
+          >
+            {guide.title}
+          </a>
+          <p class="mt-1 text-sm text-muted-foreground">{guide.body}</p>
+        </li>
+      ))}
+    </ul>
+  </section>
 </DocsLayout>
