@@ -20,6 +20,8 @@ const forwardApi: Handler<App> = async (c) => {
 
 const DOCS_EXACT_PATHS = new Set([
   "/",
+  "/install.sh",
+  "/install.ps1",
   "/index.md",
   "/index.mdx",
   "/404",

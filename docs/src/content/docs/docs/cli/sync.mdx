@@ -11,11 +11,15 @@ Use `sync` to save and retrieve machine state. It does not install, upgrade, or 
 
 **Syntax:** `outfitting-manager sync configure-worker [<url>]`
 
-Save the service URL for later sync commands. You can also set `OUTFITTING_LOCKFILES_URL`; it takes precedence over the saved URL.
+Set the service URL before using other `sync` commands. Omit `<url>` to enter it at the prompt. Sync commands require a configured URL and do not choose a default. Set `OUTFITTING_LOCKFILES_URL` to override the saved URL.
+
+`provision` saves the URL it creates automatically. Pass `--skip-configure` to skip that step.
 
 ```sh
-outfitting-manager sync configure-worker https://manager.example.com/api
+outfitting-manager sync configure-worker https://example.com/api
 ```
+
+In a headless environment, set `OUTFITTING_LOCKFILES_URL` because the CLI does not use the OS keychain there.
 
 ## `configure-token`
 

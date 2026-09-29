@@ -48,7 +48,7 @@ export async function r2Endpoint(): Promise<string> {
   if (inAmpOrb()) {
     const fromEnv = envValue("OUTFITTING_S3_ENDPOINT");
     if (!fromEnv) {
-      throw new Error("OUTFITTING_S3_ENDPOINT is required in an Amp orb.");
+      throw new Error("OUTFITTING_S3_ENDPOINT is required in a headless environment.");
     }
     return normalizeR2Endpoint(fromEnv);
   }
@@ -109,7 +109,7 @@ export async function r2Credentials(): Promise<R2Credentials> {
     const secretAccessKey = envValue("OUTFITTING_S3_SECRET_KEY");
     if (!accessKeyId || !secretAccessKey) {
       throw new Error(
-        "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in an Amp orb.",
+        "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in a headless environment.",
       );
     }
     return { endpoint, accessKeyId, secretAccessKey };

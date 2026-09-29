@@ -4,6 +4,7 @@
   "knownRoutes": [
     "/",
     "/404",
+    "/docs/api",
     "/docs/cli",
     "/docs/cli/apply",
     "/docs/cli/config",

@@ -82,6 +82,20 @@ describe("manager API/docs router", () => {
     ]);
   });
 
+  test("forwards install scripts through the docs worker", async () => {
+    const API = stubFetcher();
+    const DOCS_WORKER = stubFetcher();
+
+    await hit("/install.sh", { API, DOCS_WORKER });
+    await hit("/install.ps1", { API, DOCS_WORKER });
+
+    expect(API.calls).toEqual([]);
+    expect(DOCS_WORKER.calls.map((call) => call.url)).toEqual([
+      "https://outfitting.jfa.dev/install.sh",
+      "https://outfitting.jfa.dev/install.ps1",
+    ]);
+  });
+
   test("rejects paths outside the API and docs allowlists", async () => {
     const API = stubFetcher();
     const DOCS_WORKER = stubFetcher();

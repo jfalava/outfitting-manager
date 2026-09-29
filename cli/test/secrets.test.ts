@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { r2Credentials } from "@/fonts/keychain";
 import { apiToken, baseUrl } from "@/lockfiles/keychain";
@@ -37,6 +37,8 @@ function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string | undef
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   setEnv({});
 });
 
@@ -49,7 +51,7 @@ describe("orb environment credentials", () => {
     expect(envValue("AMP_ORB")).toBeUndefined();
   });
 
-  test("reads lockfiles credentials from env in an Amp orb", async () => {
+  test("reads lockfiles credentials from env in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
       OUTFITTING_LOCKFILES_TOKEN: "  orb-token  ",
@@ -69,26 +71,38 @@ describe("orb environment credentials", () => {
     expect(await baseUrl()).toBe("https://example.workers.dev/api");
   });
 
-  test("defaults the lockfiles Worker URL in an Amp orb", async () => {
+  test("requires the lockfiles Worker URL in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
-      OUTFITTING_LOCKFILES_TOKEN: "orb-token",
       OUTFITTING_LOCKFILES_URL: undefined,
     });
-    expect(await baseUrl()).toBe("https://outfitting.jfa.dev/api");
+    await expect(baseUrl()).rejects.toThrow("OUTFITTING_LOCKFILES_URL is required in a headless environment.");
   });
 
-  test("requires OUTFITTING_LOCKFILES_TOKEN in an Amp orb", async () => {
+  test("requires an unconfigured Worker URL to be saved with configure-worker", async () => {
+    setEnv({
+      AMP_ORB: undefined,
+      OUTFITTING_LOCKFILES_URL: undefined,
+    });
+    vi.stubGlobal("Bun", {
+      secrets: { get: vi.fn().mockResolvedValue(null) },
+    });
+    await expect(baseUrl()).rejects.toThrow(
+      "Lockfiles Worker URL is not configured. Run 'outfitting-manager sync configure-worker' first.",
+    );
+  });
+
+  test("requires OUTFITTING_LOCKFILES_TOKEN in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
       OUTFITTING_LOCKFILES_TOKEN: undefined,
     });
     await expect(apiToken()).rejects.toThrow(
-      "OUTFITTING_LOCKFILES_TOKEN is required in an Amp orb.",
+      "OUTFITTING_LOCKFILES_TOKEN is required in a headless environment.",
     );
   });
 
-  test("reads R2 credentials from env in an Amp orb", async () => {
+  test("reads R2 credentials from env in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
       OUTFITTING_S3_ENDPOINT: "0123456789abcdef0123456789abcdef",
@@ -102,7 +116,7 @@ describe("orb environment credentials", () => {
     });
   });
 
-  test("requires R2 env vars in an Amp orb", async () => {
+  test("requires R2 env vars in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
       OUTFITTING_S3_ENDPOINT: undefined,
@@ -110,7 +124,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_SECRET_KEY: "secret",
     });
     await expect(r2Credentials()).rejects.toThrow(
-      "OUTFITTING_S3_ENDPOINT is required in an Amp orb.",
+      "OUTFITTING_S3_ENDPOINT is required in a headless environment.",
     );
 
     setEnv({
@@ -120,7 +134,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_SECRET_KEY: "secret",
     });
     await expect(r2Credentials()).rejects.toThrow(
-      "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in an Amp orb.",
+      "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in a headless environment.",
     );
   });
 });

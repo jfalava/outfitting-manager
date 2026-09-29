@@ -8,22 +8,12 @@ Outfitting is a cross-platform bootstrap and maintenance system for personal dev
 
 ### Windows
 
-Run an elevated PowerShell session. The route selects comma-composable profile bundles:
-
 ```powershell
-
+irm https://outfitting.jfa.dev/install.ps1 | iex
 ```
 
-### Linux
-
-The installer detects apt or pacman and defaults to the exclusive `generic-linux` profile:
+### macOS and Linux
 
 ```bash
-
-```
-
-### macOS
-
-```bash
-
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
 ```

@@ -1,0 +1,22 @@
+---
+title: API
+description: The private service the CLI uses to store and retrieve lockfile snapshots.
+---
+
+The Outfitting API stores lockfile snapshots by machine ID and type (called a `kind` in the URLs). The CLI uses it to sync saved state and to publish snapshots created by update and inventory commands. It does not install packages or configure a machine.
+
+## What it provides
+
+- **Save a snapshot — `PUT /api/lockfiles/{machine}/{kind}`.** Store a lockfile for a machine and kind. Used by [`sync push`](/docs/cli/sync/) and automatic Nix, Winget, Scoop, and Windows snapshot flows. An optional `If-Match` header lets a caller avoid replacing a snapshot that has changed since it was read.
+- **Get the current snapshot — `GET /api/lockfiles/{machine}/{kind}`.** Retrieve the saved file. Used by [`sync pull`](/docs/cli/sync/), Nix workflows, and font management when it reads the private-font inventory.
+- **List saved kinds — `GET /api/lockfiles/{machine}`.** See which lockfile kinds are saved for a machine. Used by [`sync list`](/docs/cli/sync/) and by commands that operate on all saved kinds.
+- **View version history — `GET /api/lockfiles/{machine}/{kind}/history`.** List saved versions of one lockfile. Used by [`sync history`](/docs/cli/sync/).
+- **Remove an old version — `DELETE /api/lockfiles/{machine}/{kind}/{hash}`.** Remove a non-current version from the version history. The CLI does not currently expose this operation.
+
+The CLI stores several kinds of machine state, including Nix, Bun/npm, Homebrew, PowerShell, Scoop, Winget, and Windows lockfiles or inventories. Font management uses the API for its inventory; the font archive itself is stored separately.
+
+## Access
+
+The API requires a bearer token and an explicitly configured base URL; the CLI does not choose a default. For an existing deployment, set them with `outfitting-manager sync configure-worker <url>` and `outfitting-manager sync configure-token`. The `provision` command saves the URL and token for the deployment it creates, unless you pass `--skip-configure`.
+
+In a headless environment, provide `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN` as environment variables. Elsewhere, they can also configure the URL and token, and take precedence over saved values. See the [CLI sync guide](/docs/cli/sync/) for examples.

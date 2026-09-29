@@ -5,7 +5,6 @@ import { envValue, inAmpOrb, storedSecret } from "@/secrets";
 const SECRET_SERVICE = "outfitting-lockfiles";
 const TOKEN_SECRET_NAME = "api-token";
 const URL_SECRET_NAME = "worker-url";
-const DEFAULT_WORKER_URL = "https://outfitting.jfa.dev/api";
 
 export function normalizeWorkerUrl(value: string): string {
   let parsed: URL;
@@ -39,7 +38,7 @@ export async function baseUrl(): Promise<string> {
   }
 
   if (inAmpOrb()) {
-    return normalizeWorkerUrl(DEFAULT_WORKER_URL);
+    throw new Error("OUTFITTING_LOCKFILES_URL is required in a headless environment.");
   }
 
   const stored = await storedSecret(SECRET_SERVICE, URL_SECRET_NAME);
@@ -48,12 +47,9 @@ export async function baseUrl(): Promise<string> {
     return normalizeWorkerUrl(stored);
   }
 
-  const value = prompt("Lockfiles Worker URL (stored in your OS keychain):")?.trim();
-  if (!value) {
-    throw new Error("A Worker URL is required.");
-  }
-
-  return storeWorkerUrl(value);
+  throw new Error(
+    "Lockfiles Worker URL is not configured. Run 'outfitting-manager sync configure-worker' first.",
+  );
 }
 
 export async function promptAndStoreApiToken(): Promise<string> {
@@ -78,7 +74,7 @@ export async function apiToken(): Promise<string> {
   }
 
   if (inAmpOrb()) {
-    throw new Error("OUTFITTING_LOCKFILES_TOKEN is required in an Amp orb.");
+    throw new Error("OUTFITTING_LOCKFILES_TOKEN is required in a headless environment.");
   }
 
   // Bun.secrets is experimental and does not isolate credentials between scripts running as the same OS user. That is acceptable for this personal tool, but the keychain entry is not a hard security boundary.
