@@ -6,11 +6,11 @@ import { defineConfig } from "astro/config";
 
 const nimbusConfig = defineNimbusConfig({
   site: "https://outfitting.jfa.dev",
-  title: "Outfitting by JFA",
+  title: "Outfitting Manager by JFA",
   description: "Command reference, source lifecycle, and platform operations for Outfitting.",
   locale: "en",
   github: "https://github.com/jfalava/outfitting-manager",
-  socialImageAlt: "Outfitting by JFA",
+  socialImageAlt: "Outfitting Manager by JFA",
   sidebar: {
     items: [
       {
