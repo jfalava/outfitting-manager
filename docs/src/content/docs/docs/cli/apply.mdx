@@ -5,54 +5,78 @@ sidebar:
   order: 10
 ---
 
-`apply` installs missing declared packages. By default, it reports package installation failures and continues with remaining packages when the platform exposes individual installs. Use `--strict` to fail on the first reported installation failure. Requested pruning is skipped after any install failure. Source validation, package inventory, and removal-safety failures remain fatal. It does not upgrade unrelated installed software. Pruning is opt-in and limited to packages whose Outfitting ownership can be established. Changes are local; publishing state is a separate operation.
+`apply` installs packages declared for the selected profile. It does not upgrade unrelated software. Linux and Windows can also remove packages that are no longer declared; pruning is opt-in. Changes are local and are not uploaded by this command.
+
+On Linux and Windows, installation failures are reported and other packages are still attempted by default. Use `--strict` to stop at the first failure. On macOS, `--strict` makes the command return an error if Homebrew reports an installation failure. Requested pruning is skipped after an installation failure.
+
+### Examples
+
+```sh
+# Install packages for the configured profile
+outfitting-manager apply
+
+# Stop after an installation failure
+outfitting-manager apply --strict
+```
 
 ## macOS
 
 **Syntax:** `outfitting-manager apply [flags]`
 
-Applies the selected profile's Brewfile. Nix activation is handled by [`nix`](/docs/cli/nix/).
+Applies the selected profile's Brewfile. Use [`nix`](/docs/cli/nix/) to build or activate its Nix configuration.
 
-| Option                | Description                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `--machine-id <id>`   | Override the machine ID. The default is derived from user, architecture, and OS.                             |
-| `--repo <path>`       | Override the local source path for this invocation.                                                          |
-| `--profile <profile>` | Select a declared macOS profile; defaults to the configured selection.                                       |
-| `--no-refresh`        | Use the previously validated source without refreshing it.                                                   |
-| `--strict`            | Fail when Homebrew Bundle returns a nonzero result. Homebrew handles individual Brewfile entries internally. |
+| Option                | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `--machine-id <id>`   | Use a different machine ID for this command.                 |
+| `--repo <path>`       | Use a local source directory for this command.               |
+| `--profile <profile>` | Select a macOS profile instead of the configured one.        |
+| `--no-refresh`        | Use the current source without refreshing it.                |
+| `--strict`            | Return an error if Homebrew reports an installation failure. |
+
+```sh
+outfitting-manager apply --profile personal
+```
 
 ## Linux
 
 **Syntax:** `outfitting-manager apply [flags]`
 
-Reconciles the selected profile's apt or pacman declarations. The package manager is detected from the host unless explicitly selected.
+Installs the selected profile's apt or pacman packages. The package manager is detected from the host unless you choose one.
 
-| Option                | Description                                                                 |
-| --------------------- | --------------------------------------------------------------------------- |
-| `--profile <profile>` | Select a Linux profile; defaults to `config.toml` or `OUTFITTING_PROFILE`.  |
-| `--package-manager`   | Override package-manager detection with `apt` or `pacman`.                  |
-| `--prune`             | Remove stale packages proven to have been installed for the active profile. |
-| `--offline`           | Use the cached manifest and apt packages without network access.            |
-| `--yes`               | Apply the displayed installation/removal plan without prompting.            |
-| `--no-refresh`         | Use the configured local source or cached remote snapshot without refreshing. |
-| `--if-configured`     | Skip when the selected profile declares neither apt nor pacman packages.    |
-| `--strict`            | Stop and fail on the first package installation failure.                    |
+```sh
+outfitting-manager apply --package-manager apt
+outfitting-manager apply --profile workstation --prune --yes
+```
 
-For remote sources, combine `--offline` with `--no-refresh`; offline pacman installs are refused.
+| Option                | Description                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `--profile <profile>` | Select a Linux profile. Defaults to the configured profile or `OUTFITTING_PROFILE`. |
+| `--package-manager`   | Choose `apt` or `pacman`. Defaults to host detection.                               |
+| `--prune`             | Remove managed packages no longer listed for this profile.                          |
+| `--offline`           | Install from the local apt cache without downloading packages.                      |
+| `--yes`               | Apply the plan without asking for confirmation.                                     |
+| `--no-refresh`        | Use the current source without refreshing it.                                       |
+| `--if-configured`     | Skip if the profile declares no apt or pacman packages.                             |
+| `--strict`            | Stop at the first installation failure.                                             |
+
+For a remote source, use `--offline` with `--no-refresh`. Offline pacman installs are not supported.
 
 ## Windows
 
 **Syntax:** `outfitting-manager apply [flags]`
 
-Reconciles the selected comma-separated profiles' WinGet and optional Scoop declarations. Applied state remains local.
+Installs packages declared by the selected WinGet and optional Scoop profiles. You can combine Windows profiles by separating their names with commas. Changes are local and are not uploaded by this command.
 
-For installed Scoop packages, `apply` checks declared `.exe` and `.com` `bin` targets and plans a repair when one is missing. Repair uses `scoop update --force` for that package (`--global` for global installs) and may update it to the current bucket version; healthy packages are left alone. Other shim formats, or installed metadata or shims that cannot be checked safely, are warned about and skipped.
+```sh
+outfitting-manager apply --profile work,personal
+outfitting-manager apply --winget-only --profile work
+```
 
-| Option                 | Description                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------- |
-| `--profile <profiles>` | Select comma-separated profiles from the configured source.                               |
-| `--repo <path>`        | Override the local source path for this invocation.                                       |
-| `--winget-only`        | Apply WinGet declarations only; skip Scoop.                                               |
-| `--prune`              | Remove only provably Outfitting-installed packages no longer declared by active profiles. |
-| `--yes`                | Apply the displayed plan without prompting.                                               |
-| `--strict`             | Stop and fail on the first package installation failure.                                  |
+| Option                 | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `--profile <profiles>` | Select comma-separated Windows profiles.                             |
+| `--repo <path>`        | Use a local source directory for this command.                       |
+| `--winget-only`        | Skip Scoop packages.                                                 |
+| `--prune`              | Remove managed packages no longer declared by the selected profiles. |
+| `--yes`                | Apply the plan without asking for confirmation.                      |
+| `--strict`             | Stop at the first installation failure.                              |

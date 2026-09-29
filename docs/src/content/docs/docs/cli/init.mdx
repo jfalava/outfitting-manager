@@ -7,19 +7,27 @@ sidebar:
 
 **Syntax:** `outfitting-manager init [flags]`
 
-`init` prepares runtime state and validates the selected source. It refreshes a configured remote source by default. It does not install, upgrade, remove, or activate packages.
+`init` prepares this machine for Outfitting and checks the selected source. Remote sources are refreshed by default. It does not change installed packages.
 
-| Option | Description |
-| --- | --- |
-| `--machine-id <id>` | Override the machine ID. The default is derived from user, architecture, and OS. |
-| `--repo <path>` | Override the local source path for this invocation. |
-| `--profile <profile>` | Select the platform profile; Windows accepts a comma-separated list. Defaults to the configured selection. |
-| `--no-refresh` | Validate and use the existing source snapshot without refreshing it. |
+```sh
+# Set up the configured source
+outfitting-manager init
+
+# Select a profile and use an already initialized source without refreshing it
+outfitting-manager init --profile workstation --no-refresh
+```
+
+| Option                | Description                                                                       |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `--machine-id <id>`   | Use a different machine ID. By default, one is derived from your user and system. |
+| `--repo <path>`       | Use a local source directory for this command.                                    |
+| `--profile <profile>` | Select a profile. Windows accepts comma-separated profiles.                       |
+| `--no-refresh`        | Use the current source without refreshing it.                                     |
 
 ## Platform behavior
 
-| Platform | State prepared |
-| --- | --- |
-| macOS | State root and selected source; no Nix activation or Homebrew changes. |
-| Linux | State root and selected source; no native package or Home Manager changes. |
-| Windows | State root and selected source. |
+| Platform | What `init` prepares                                                        |
+| -------- | --------------------------------------------------------------------------- |
+| macOS    | The selected source. It does not change Homebrew or activate Nix.           |
+| Linux    | The selected source. It does not install packages or activate Home Manager. |
+| Windows  | The selected source. It does not install packages.                          |

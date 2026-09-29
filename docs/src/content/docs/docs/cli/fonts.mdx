@@ -5,56 +5,84 @@ sidebar:
   order: 40
 ---
 
-`fonts` configures access to the private R2 font archive, reads its inventory, and publishes or removes OpenType font faces.
+Use `fonts` to list, publish, and remove OpenType fonts in the private font archive. Configure the archive credentials before using commands that access it.
 
 ## `configure-endpoint`
 
 **Syntax:** `outfitting-manager fonts configure-endpoint [<endpoint>]`
 
-Stores the R2 S3 endpoint in the OS keychain. The optional endpoint is an HTTPS endpoint or a 32-character Cloudflare account ID.
+Save the archive endpoint for later font commands. Enter an HTTPS endpoint or a 32-character Cloudflare account ID.
+
+```sh
+outfitting-manager fonts configure-endpoint
+```
 
 ## `configure-credentials`
 
 **Syntax:** `outfitting-manager fonts configure-credentials`
 
-Prompts for and stores R2 S3 access keys in the OS keychain.
+Prompt for and save the archive access keys for later font commands.
+
+```sh
+outfitting-manager fonts configure-credentials
+```
 
 ## `list`
 
 **Syntax:** `outfitting-manager fonts list [--repopulate]`
 
-Lists private font faces from the lockfiles inventory. `--repopulate` rebuilds that inventory from the live R2 archive before listing.
+List the available font faces. Use `--repopulate` to refresh the list from the archive first.
+
+```sh
+outfitting-manager fonts list
+outfitting-manager fonts list --repopulate
+```
 
 ## `repopulate`
 
 **Syntax:** `outfitting-manager fonts repopulate [--dry-run]`
 
-Rebuilds the lockfiles inventory from the live R2 font archive. `--dry-run` compares archive and inventory without writing.
+Refresh the font list from the archive. `--dry-run` shows what would change without saving the refreshed list.
+
+```sh
+outfitting-manager fonts repopulate
+outfitting-manager fonts repopulate --dry-run
+```
 
 ## `publish`
 
 **Syntax:** `outfitting-manager fonts publish <dir> [flags]`
 
-Merges OpenType fonts from a directory into the private archive.
+Add OpenType fonts from a directory to the private archive. Review the planned changes before confirming the upload, or use `--dry-run` to preview them.
 
-| Option | Description |
-| --- | --- |
-| `--dry-run` | Print the planned face changes without writing the archive or lockfiles. |
-| `--yes` | Skip the confirmation prompt. |
-| `--replace` | Allow overwriting an existing archive path. |
-| `--keep-names` | Sanitize source filenames instead of using OpenType family/style paths. |
-| `--allow-system-names` | Allow reserved system family names. |
-| `--repopulate` | Rebuild the inventory from the live archive before publishing. |
+```sh
+outfitting-manager fonts publish ~/fonts
+outfitting-manager fonts publish ~/fonts --dry-run
+```
+
+| Option                 | Description                                               |
+| ---------------------- | --------------------------------------------------------- |
+| `--dry-run`            | Preview changes without uploading fonts.                  |
+| `--yes`                | Upload without asking for confirmation.                   |
+| `--replace`            | Replace an existing archive file.                         |
+| `--keep-names`         | Use sanitized source filenames for archive names.         |
+| `--allow-system-names` | Allow reserved system font names.                         |
+| `--repopulate`         | Refresh the font list from the archive before publishing. |
 
 ## `remove`
 
 **Syntax:** `outfitting-manager fonts remove <name...> [flags]`
 
-Removes faces identified by family slug, archive path, or PostScript name.
+Remove one or more font faces by family slug, archive path, or PostScript name.
 
-| Option | Description |
-| --- | --- |
-| `--family` | Treat each name as a whole family to remove. |
-| `--dry-run` | Print the planned face changes without writing the archive or lockfiles. |
-| `--yes` | Skip the confirmation prompt. |
-| `--repopulate` | Rebuild the inventory from the live archive before removing faces. |
+```sh
+outfitting-manager fonts remove "Example Sans"
+outfitting-manager fonts remove "Example Sans" --dry-run
+```
+
+| Option         | Description                                                   |
+| -------------- | ------------------------------------------------------------- |
+| `--family`     | Remove every face in each named family.                       |
+| `--dry-run`    | Preview changes without modifying the archive.                |
+| `--yes`        | Remove faces without asking for confirmation.                 |
+| `--repopulate` | Refresh the font list from the archive before removing faces. |

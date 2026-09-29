@@ -5,37 +5,58 @@ sidebar:
   order: 60
 ---
 
-`nix` is available on macOS and Linux. It operates on the selected `config.toml` profile. A bare `nix` command lists actions without running one. Successful `build`, `test`, `dry-run`, and `switch` actions publish related Nix lock state unless `--no-push` is set. `nix update` always publishes its lock after a successful activation.
+`nix` builds and activates the profile selected in `config.toml`. It is available on macOS and Linux.
+
+**Syntax:** `outfitting-manager nix <action> [flags]`
+
+Successful `build`, `test`, `dry-run`, and `switch` commands publish Nix lock changes unless `--no-push` is set. `nix update` always publishes its lock.
 
 ## `build`
 
-Builds the configured system without activating it. On Linux, builds the Home Manager activation package; on macOS, builds the nix-darwin system.
+Build the configured system without activating it.
+
+```sh
+outfitting-manager nix build
+outfitting-manager nix build --no-push
+```
 
 ## `switch`
 
-Builds and activates the selected Home Manager profile on Linux or nix-darwin system on macOS.
+Build and activate the configured system.
+
+```sh
+outfitting-manager nix switch
+```
 
 ## `test`
 
-Test-builds the configured system without activating it.
+Check that the configured system builds without activating it.
+
+```sh
+outfitting-manager nix test
+```
 
 ## `dry-run`
 
-Runs the Nix dry-run build without activating the configured system.
+Show what Nix would build without activating the configured system.
+
+```sh
+outfitting-manager nix dry-run
+```
 
 ## `update`
 
-Updates every input in the selected flake, builds the updated Home Manager profile on Linux or nix-darwin system on macOS, activates it, then publishes the new lockfile to the lockfiles service. It starts from the latest remote Nix lock when one exists; the source's local `flake.lock` is used to bootstrap a machine without a remote lock. A failed build or activation does not publish the candidate lock.
+Update the flake inputs, build and activate the updated profile, then publish its lock. This command always publishes after a successful activation.
 
 ```sh
-outfitting-manager nix update [--profile <profile>] [--no-refresh] [--if-configured]
+outfitting-manager nix update
 ```
 
 ## Options
 
-| Option | Availability | Description |
-| --- | --- | --- |
-| `--profile <profile>` | macOS, Linux | Override the platform profile selected in `config.toml`. |
-| `--no-refresh` | macOS, Linux | Use the local source without fetching remote changes. |
-| `--no-push` | macOS, Linux | Keep successful Nix lock changes local. |
-| `--if-configured` | Linux | Skip when the selected profile declares no Nix flake. |
+| Option                | Available on                   | Description                                                             |
+| --------------------- | ------------------------------ | ----------------------------------------------------------------------- |
+| `--profile <profile>` | macOS, Linux                   | Select a profile instead of the configured one.                         |
+| `--no-refresh`        | macOS, Linux                   | Use the current source without refreshing it.                           |
+| `--no-push`           | macOS, Linux; not `nix update` | Skip publishing the lock after `build`, `test`, `dry-run`, or `switch`. |
+| `--if-configured`     | Linux                          | Skip if the selected profile does not declare a Nix flake.              |

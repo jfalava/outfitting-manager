@@ -7,10 +7,15 @@ sidebar:
 
 **Syntax:** `outfitting-manager self-update` or `outfitting-manager upgrade`
 
-Checks the latest GitHub release for the current platform, verifies its checksum, and replaces the installed compiled manager binary. It does not update packages managed by Outfitting. `upgrade` is an alias for `self-update`.
+Download and install the latest CLI release for your platform. This does not update your packages. `upgrade` is an alias for `self-update`.
 
-| Platform | Replacement behavior                                                                          |
-| -------- | --------------------------------------------------------------------------------------------- |
-| macOS    | Replaces the executable and restores its executable bit.                                      |
-| Linux    | Replaces the executable and restores its executable bit; release assets target x64 and arm64. |
-| Windows  | Writes a temporary executable and replaces the running executable after the process exits.    |
+```sh
+outfitting-manager self-update
+outfitting-manager upgrade
+```
+
+| Platform | Supported release |
+| -------- | ----------------- |
+| macOS    | Apple silicon     |
+| Linux    | x64 and arm64     |
+| Windows  | x64               |

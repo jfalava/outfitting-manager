@@ -7,20 +7,31 @@ sidebar:
 
 **Syntax:** `outfitting-manager diff [flags]`
 
-`diff` is read-only. It compares platform state with the configured source and returns a nonzero status when differences are found or a required comparison is unavailable.
+`diff` compares installed packages with the selected profile. It does not change your system. It exits with an error if packages differ or the comparison cannot be completed.
 
-| Option | Description |
-| --- | --- |
-| `--manager <name>` | Compare one package manager instead of all managers for the platform. |
-| `--profile <profile>` | Select a profile; Windows accepts comma-separated profiles and Linux accepts one. |
-| `--offline` | Use the validated local source snapshot and skip the remote Nix comparison. |
-| `--refresh` | Linux only: refresh the selected source before comparing. |
-| `--json` | Print the comparison result as JSON. |
+```sh
+# Compare package state on this machine
+outfitting-manager diff
+
+# Print the comparison as JSON
+outfitting-manager diff --json
+
+# Linux: compare one manager for a selected profile
+outfitting-manager diff --manager apt --profile workstation
+```
+
+| Option                | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `--manager <name>`    | Compare only one package manager.                                  |
+| `--profile <profile>` | Select a profile. Windows accepts comma-separated profiles.        |
+| `--offline`           | Use the available local source and skip the remote Nix comparison. |
+| `--refresh`           | Linux only: refresh the source before comparing.                   |
+| `--json`              | Print the results as JSON.                                         |
 
 ## Platform comparison scope
 
-| Platform | Compared state |
-| --- | --- |
-| macOS | Homebrew and Nix system state. |
-| Linux | Declared apt or pacman packages; unrelated installed packages are ignored. |
-| Windows | WinGet and Scoop state. |
+| Platform | Compared packages                                                |
+| -------- | ---------------------------------------------------------------- |
+| macOS    | Homebrew and Nix.                                                |
+| Linux    | Declared apt or pacman packages. Unrelated packages are ignored. |
+| Windows  | WinGet and Scoop.                                                |

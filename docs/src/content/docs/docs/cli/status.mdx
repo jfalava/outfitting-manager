@@ -7,10 +7,14 @@ sidebar:
 
 **Syntax:** `outfitting-manager status`
 
-Read-only inspection of the platform, active profile, configuration path, machine ID, source selection, source checkout state, and remote-source cache validity. It does not fetch a source, inspect package upgrades, write configuration, or contact the lockfiles Worker.
+Show the active platform, profile, configuration file, machine ID, and source status. `status` does not change your configuration or packages, fetch a source, or contact the lockfile service.
 
-| Platform | Profile selection |
-| --- | --- |
-| Linux | One active Linux profile. |
-| macOS | One active macOS profile. |
-| Windows | Comma-composed Windows profiles. |
+```sh
+outfitting-manager status
+```
+
+| Platform | Selected profiles                     |
+| -------- | ------------------------------------- |
+| Linux    | One Linux profile.                    |
+| macOS    | One macOS profile.                    |
+| Windows  | One or more comma-separated profiles. |

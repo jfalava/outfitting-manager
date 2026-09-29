@@ -6,10 +6,14 @@ sidebar:
   order: 110
 ---
 
-`snapshot` is available on macOS and records observed package state without reconciling it against package declarations.
+Use `snapshot` on macOS to save the installed Homebrew packages without changing them.
 
 ## `brew`
 
 **Syntax:** `outfitting-manager snapshot brew`
 
-Captures and pushes the observed Homebrew inventory.
+Save and upload the current Homebrew inventory.
+
+```sh
+outfitting-manager snapshot brew
+```

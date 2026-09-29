@@ -5,20 +5,46 @@ sidebar:
   order: 20
 ---
 
-`config` operates on the machine-local `config.toml`, selected by the global `--config` option or `OUTFITTING_CONFIG` when set.
+Use `config wizard` to set up this machine. Use `config manifest` to create a repository-owned `outfitting.json` file.
 
 ## `wizard`
 
 **Syntax:** `outfitting-manager config wizard [--manifest <path>] [--strict]`
 
-Guides setup for the current platform. It asks which `config.toml` to read or write (pre-filled with the resolved default), selects a local checkout or remote Git source, and collects the profile name(s) and repository-relative manifest or Nix paths for this machine. Pass `--manifest <path>` to import a repo-side BYOR manifest from the selected source; without the flag, the wizard asks whether to import one and defaults to `outfitting.json`. The path is relative to the selected repository root. Local checkouts and remote Git sources are supported. Linux Nix profiles suggest the Home Manager derivation attribute `homeConfigurations.<name>.activationPackage`; custom derivation attributes are also accepted. The extra-path prompt asks you to confirm when the flake has no repository reads outside its own directory. For an existing config, current values are loaded as prompt defaults; press Enter to keep a value or change it in the prompt. Existing `config.toml` declarations and profile selections take precedence over conflicting manifest values; the manifest fills missing defaults. The machine ID override can also be changed; leave it blank for automatic detection. The review shows the complete merged config. Confirming validates and replaces the existing file, preserving its other platform selections and profile declarations. Rewriting normalizes TOML formatting and does not preserve comments.
+Set up or update this machine's `config.toml`. The wizard asks you to choose a source and profiles, then saves the configuration and checks the source. It may offer to install packages or activate Nix; each system change requires confirmation.
 
-The imported JSON is a repo-owned manifest containing only profile and artifact declarations. The wizard copies its declarations into machine-local `config.toml`; it does not retain a live reference, and later manifest edits do not update TOML. Normal commands continue to use TOML as the authoritative configuration. A manifest is optional; without one, declarations are collected interactively as before. After writing, the wizard prepares state and validates or refreshes the selected source. For Linux Nix profiles, it scans reachable `.nix` files for literal relative paths and paths under `OUTFITTING_REPO`. It presents likely paths outside the flake directory for review, adds selected paths to `linux.paths`, refreshes a remote sparse source, and repeats the scan to find transitive references. This scan is heuristic, not a complete Nix dependency resolver; dynamically constructed and runtime-only paths may not be found.
+```sh
+# Set up the default configuration
+outfitting-manager config wizard
 
-Before offering Linux Nix activation, the wizard runs `nix build --dry-run --no-write-lock-file` for the configured output attribute. If Nix reports a missing path within the remote sparse source, the wizard offers to add that path, refresh the source, and retry. A failed preflight or incomplete source scan withholds the activation prompt; the wizard prints a dry-run command to retry after correcting the config. Unselected static path suggestions require a separate confirmation before activation. This check validates Nix evaluation, not runtime-only file reads. Nix lock publishing is disabled during the wizard. Package application and activation each require their own confirmation. By default, package-install failures are reported while setup continues; `--strict` stops at the first package-install failure and is included in the suggested `apply` command if package application is deferred. If source initialization fails, the written config remains so it can be corrected and retried.
+# Import declarations from outfitting.json in the selected source
+outfitting-manager config wizard --manifest outfitting.json
+
+# Stop setup if a package installation fails
+outfitting-manager config wizard --strict
+
+```
+
+| Option              | Description                                                                                                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--manifest <path>` | Import profile and file declarations from a manifest in the selected source. The path is relative to the source root. Values are copied into `config.toml`; later manifest edits are not applied automatically. |
+| `--strict`          | Stop at the first package installation failure instead of continuing.                                                                                                                                           |
 
 ## `manifest`
 
 **Syntax:** `outfitting-manager config manifest [--repo <checkout>] [--force]`
 
-Interactively creates the repo-root `outfitting.json` manifest. Existing `config.toml` declarations seed the prompts and take precedence over conflicting values in an existing manifest; machine ID, source, and selected-machine settings are not written to JSON. Choose one or more platforms and declare their profiles and repository-relative artifacts. The command validates the resulting contract and declared files, then previews the complete JSON before writing. It does not create or modify `config.toml`, initialize a source, or apply packages. `--repo` defaults to the current directory. Existing manifests are never overwritten unless `--force` is passed; forced replacement uses the reviewed file contents and fails if the manifest changes before publication.
+Create or replace a repository's `outfitting.json` manifest. Choose the platforms, profiles, and files to include. The command checks the declared files and shows the JSON for review before writing. It does not change this machine's `config.toml` or install packages.
+
+```sh
+# Create a manifest in the current directory
+outfitting-manager config manifest
+
+# Review and replace a manifest in another checkout
+outfitting-manager config manifest --repo ~/src/dotfiles --force
+```
+
+| Option          | Description                                              |
+| --------------- | -------------------------------------------------------- |
+| `--repo <path>` | Repository directory. Defaults to the current directory. |
+| `--force`       | Allow reviewing and replacing an existing manifest.      |

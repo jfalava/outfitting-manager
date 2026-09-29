@@ -1,15 +1,18 @@
 ---
 title: recover
-description: Resume interrupted macOS Nix operations.
-audience: macos
+description: Resume an interrupted Nix update on macOS or Linux.
 sidebar:
   order: 80
 ---
 
-`recover` is available on macOS for resuming interrupted package-manager operations.
+Use `recover` to resume an interrupted Nix update on macOS or Linux.
 
 ## `nix`
 
 **Syntax:** `outfitting-manager recover nix`
 
-Resumes and publishes an interrupted nix-darwin update from its saved recovery state.
+Resume the update and publish its lock. This command supports nix-darwin on macOS and Home Manager on Linux.
+
+```sh
+outfitting-manager recover nix
+```

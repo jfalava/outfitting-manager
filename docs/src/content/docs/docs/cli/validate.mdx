@@ -7,10 +7,18 @@ sidebar:
 
 **Syntax:** `outfitting-manager validate [flags]`
 
-Validates the machine-local `config.toml`, selected profile declarations, and source paths without applying packages or refreshing the source. A remote source must already have a validated local snapshot. If configuration declares multiple platforms, `--platform` selects the target.
+Check that the configuration, selected profile, and required source files are valid. `validate` does not change installed packages or refresh the source. A remote source must already be available locally. If the configuration includes more than one platform, select one with `--platform`.
 
-| Option | Description |
-| --- | --- |
-| `--repo <path>` | Override the source with a local path; defaults to the configured source. |
-| `--profile <profile>` | Select a profile. Windows accepts comma-separated profiles; required when multiple exclusive profiles exist. |
-| `--platform` | Select `linux`, `windows`, or `macos` when declarations include more than one. |
+```sh
+# Validate the configured platform and profile
+outfitting-manager validate
+
+# Validate a Windows profile
+outfitting-manager validate --platform windows --profile work,personal
+```
+
+| Option                | Description                                                             |
+| --------------------- | ----------------------------------------------------------------------- |
+| `--repo <path>`       | Check a local source directory instead of the configured source.        |
+| `--profile <profile>` | Select a profile. Windows accepts comma-separated profile names.        |
+| `--platform <name>`   | Select `linux`, `windows`, or `macos` when more than one is configured. |

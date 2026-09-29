@@ -6,16 +6,25 @@ sidebar:
   order: 170
 ---
 
-`scoop` is available in the Windows manager build. Operations are recorded in `windows.lock.json` and pushed by default. `--no-push` keeps the updated lock local.
+Use `scoop` on Windows to install or remove packages. Operations are saved and uploaded by default. Use `--no-push` to keep them on this machine.
 
 ## `install`
 
 **Syntax:** `outfitting-manager scoop install <package...> [--no-push] [--strict]`
 
-Installs and tracks one or more Scoop package names. By default, a failed package is recorded and the remaining names are attempted. `--strict` stops at the first failed installation.
+Install and save one or more Scoop packages. Failed installs are recorded and the remaining packages are attempted unless you use `--strict`.
+
+```sh
+outfitting-manager scoop install git
+outfitting-manager scoop install git ripgrep --no-push
+```
 
 ## `uninstall`
 
 **Syntax:** `outfitting-manager scoop uninstall <package...> [--no-push]`
 
-Removes and tracks one or more Scoop package names.
+Remove and save one or more Scoop packages.
+
+```sh
+outfitting-manager scoop uninstall git
+```

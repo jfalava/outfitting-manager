@@ -7,20 +7,30 @@ sidebar:
 
 **Syntax:** `outfitting-manager provision [flags]`
 
-Deploys the manager API, documentation site, shared router, lockfile storage, and private-font bucket. Platform installer Workers are managed by the `machines` repository. Unless `--skip-configure` is set, provision stores the lockfiles API URL and token in the OS keychain after deployment. CLI flags override environment variables and deployment configuration values.
+Deploy the Outfitting service, including its API and documentation site. After deployment, the command configures this machine to use the service unless you pass `--skip-configure`.
 
-| Option | Description |
-| --- | --- |
-| `--deploy-config <path>` | Select the deployment JSON configuration file. |
-| `--domain <hostname>` | Set the manager router hostname (default: `outfitting.jfa.dev`); an empty value uses the Worker URL. |
-| `--stack-name <name>` | Set the Alchemy stack name (default: `OutfittingManager`). |
-| `--api-name <name>` | Set the API Worker name. |
-| `--router-name <name>` | Set the manager API router Worker name. |
-| `--database-name <name>` | Set the D1 database name. |
-| `--kv-title <title>` | Set the KV namespace title. |
-| `--private-fonts <bucket>` | Set the R2 private-fonts bucket name. |
-| `--token <value>` | Set the lockfiles API token; defaults to the environment value or a generated token. |
-| `--skip-configure` | Do not store the Worker URL or token in the OS keychain. |
+```sh
+# Deploy with the default settings
+outfitting-manager provision
 
-Existing CLI installations keep using their configured API URL until it is changed. Provisioning
-without `--skip-configure` stores the newly deployed manager API URL for the current machine.
+# Deploy using a config file and a custom hostname
+outfitting-manager provision --deploy-config outfitting.deploy.json --domain manager.example.com
+
+# Deploy without saving credentials on this machine
+outfitting-manager provision --skip-configure
+```
+
+| Option                     | Description                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `--deploy-config <path>`   | Read deployment settings from this JSON file.                                                          |
+| `--domain <hostname>`      | Set the service hostname. Defaults to `outfitting.jfa.dev`; pass an empty value to use the Worker URL. |
+| `--stack-name <name>`      | Set the Alchemy stack name.                                                                            |
+| `--api-name <name>`        | Set the API Worker name.                                                                               |
+| `--router-name <name>`     | Set the router Worker name.                                                                            |
+| `--database-name <name>`   | Set the D1 database name.                                                                              |
+| `--kv-title <title>`       | Set the KV namespace title.                                                                            |
+| `--private-fonts <bucket>` | Set the private-fonts bucket name.                                                                     |
+| `--token <value>`          | Set the API token. Defaults to the environment value or a generated token.                             |
+| `--skip-configure`         | Deploy without configuring this machine to use the service.                                            |
+
+CLI flags take precedence over environment variables and values in the deployment file. Existing installations keep their current service URL until it is changed.

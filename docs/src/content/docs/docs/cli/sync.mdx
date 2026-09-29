@@ -5,46 +5,75 @@ sidebar:
   order: 140
 ---
 
-`sync` transports remote lock snapshots on all platforms. It does not install, upgrade, or remove packages. The machine ID is resolved from configuration and environment; it is not a positional argument. Default local filenames are relative to the current working directory, not the machine state root.
+Use `sync` to save and retrieve machine state. It does not install, upgrade, or remove packages. It uses this machine's configured or derived ID; `OUTFITTING_MACHINE_ID` overrides it. Default file paths are relative to the current directory.
 
 ## `configure-worker`
 
 **Syntax:** `outfitting-manager sync configure-worker [<url>]`
 
-Stores the lockfiles Worker URL in the OS keychain. The optional URL is the deployed Worker endpoint. `OUTFITTING_LOCKFILES_URL` may be used when keychain storage is unavailable and takes precedence over the stored value.
+Save the service URL for later sync commands. You can also set `OUTFITTING_LOCKFILES_URL`; it takes precedence over the saved URL.
+
+```sh
+outfitting-manager sync configure-worker https://manager.example.com/api
+```
 
 ## `configure-token`
 
 **Syntax:** `outfitting-manager sync configure-token`
 
-Prompts for and stores the Worker API token in the OS keychain. `OUTFITTING_LOCKFILES_TOKEN` may be used when keychain storage is unavailable and takes precedence over the stored value.
+Prompt for and save the service token for later sync commands. You can also set `OUTFITTING_LOCKFILES_TOKEN`; it takes precedence over the saved token.
+
+```sh
+outfitting-manager sync configure-token
+```
 
 ## `push`
 
 **Syntax:** `outfitting-manager sync push [<kind>] [<path>] [--if-match <sha256>]`
 
-Uploads and promotes one lock snapshot or scans known local lock paths in the current working directory and uploads those that exist. A path is required when one kind is selected and omitted when kind is `all`.
+Upload one lock file, or run without arguments to upload known lock files in the current directory. Git-tracked files are not uploaded.
 
-| Argument or option | Description |
-| --- | --- |
-| `<kind>` | Lockfile kind; omitted or `all` selects all known local lock paths. |
-| `<path>` | Source file for a single kind. |
-| `--if-match <sha256>` | Promote only if the current remote hash matches the expected SHA-256. |
+```sh
+# Push all known lock files in the current directory
+outfitting-manager sync push
+
+# Push one lock file
+outfitting-manager sync push nix ./saved-flake.lock
+```
+
+| Argument or option    | Description                                                                    |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `<kind>`              | Lockfile type. Omit it or use `all` to push all known local lock files.        |
+| `<path>`              | File to push. Required for one kind; omit when pushing all kinds.              |
+| `--if-match <sha256>` | Push only if the saved version still has this SHA-256 hash. Use with one kind. |
 
 ## `pull`
 
 **Syntax:** `outfitting-manager sync pull [<kind>] [<out-path>]`
 
-Downloads one lock snapshot or all tracked kinds. Known kinds use their default output path in the current working directory when no path is supplied. An explicit output path is not valid with kind `all`. Pull refuses to overwrite Git-tracked files, but it overwrites existing untracked files without prompting.
+Download one saved lock file, or omit the kind (or pass `all`) to download every saved type. If you do not provide a path, files are written to their default locations in the current directory. Pull refuses to replace a Git-tracked file, but it overwrites other existing files without prompting.
+
+```sh
+# Download a saved lock file to a specific location
+outfitting-manager sync pull nix ./backups/saved-flake.lock
+```
 
 ## `list`
 
 **Syntax:** `outfitting-manager sync list`
 
-Lists lockfile kinds tracked for the resolved machine.
+List the saved lock file types for this machine.
+
+```sh
+outfitting-manager sync list
+```
 
 ## `history`
 
 **Syntax:** `outfitting-manager sync history [<kind>]`
 
-Displays version history for one kind. An omitted kind or `all` selects every tracked kind.
+Show saved versions of one lock file. Omit the type or use `all` to show all types.
+
+```sh
+outfitting-manager sync history nix
+```
