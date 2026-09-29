@@ -1,0 +1,30 @@
+---
+title: Installation
+description: Install the outfitting-manager CLI on Linux, macOS, or Windows.
+---
+
+Install the latest supported CLI release with the command for your platform.
+
+## Linux
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** Supports x64 and arm64. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
+
+## macOS
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** Supports Apple silicon. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
+
+## Windows
+
+```powershell
+irm https://outfitting.jfa.dev/install.ps1 | iex
+```
+
+> **Note:** Supports x64. The installer verifies the ZIP against its SHA-256 file, installs to `%LOCALAPPDATA%\Programs\OutfittingManager`, and adds that directory to your user `PATH`.

@@ -7,6 +7,14 @@ sidebar:
 
 This flow assumes the `workstation` profile declares an `apt` manifest and may declare a Nix flake. Replace `workstation` with the profile selected in `config.toml` or the BYOR source. For a pacman profile, select `pacman` instead of `apt`.
 
+## Install the CLI
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** Supports x64 and arm64. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
+
 ## Provision a Linux profile
 
 ### Prepare and refresh the source

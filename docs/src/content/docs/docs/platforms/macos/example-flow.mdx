@@ -7,6 +7,14 @@ sidebar:
 
 This flow assumes the `workstation` profile declares a Brewfile and may declare a nix-darwin flake. Replace `workstation` with the selected macOS profile.
 
+## Install the CLI
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** Supports Apple silicon. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
+
 ## Prepare and validate the source
 
 ```sh

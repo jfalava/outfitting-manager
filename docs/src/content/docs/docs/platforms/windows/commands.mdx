@@ -7,6 +7,14 @@ sidebar:
 
 These examples cover Windows package commands. See the [CLI reference](/docs/cli/) for shared commands and options.
 
+## Install the CLI
+
+```powershell
+irm https://outfitting.jfa.dev/install.ps1 | iex
+```
+
+> **Note:** Supports x64. The installer verifies the ZIP against its SHA-256 file, installs to `%LOCALAPPDATA%\Programs\OutfittingManager`, and adds that directory to your user `PATH`.
+
 ## `init`
 
 `init` prepares Outfitting on this machine and checks the selected source. It does not change installed packages.

@@ -7,6 +7,14 @@ sidebar:
 
 These examples cover Linux package and Home Manager commands. See the [CLI reference](/docs/cli/) for shared commands and options.
 
+## Install the CLI
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** Supports x64 and arm64. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
+
 ## `init`
 
 `init` prepares Outfitting on this machine and checks the selected source. It does not change installed packages or activate Home Manager.

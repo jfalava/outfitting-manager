@@ -13,6 +13,7 @@ const nimbusConfig = defineNimbusConfig({
   socialImageAlt: "Outfitting Manager by JFA",
   sidebar: {
     items: [
+      { label: "Installation", link: "/docs/installation/" },
       {
         label: "CLI",
         items: [{ autogenerate: { directory: "docs/cli" } }],
