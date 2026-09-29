@@ -1,4 +1,5 @@
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,7 +7,9 @@ import { Effect } from "effect";
 
 import type { ManagerConfig } from "@/config";
 import { physicalPath } from "@/config/repo";
+import { CliFailure } from "@/errors";
 import { pullLockfile } from "@/lockfiles";
+import { WorkerResponseError } from "@/lockfiles/request";
 import { NIX_LOCK_KIND } from "@/update/nix/types";
 
 export interface OpenNixLockResult {
@@ -14,6 +17,10 @@ export interface OpenNixLockResult {
   lockDir: string;
   /** Path to the pulled or fallback flake.lock; empty when no lock exists yet. */
   lockPath: string;
+  /** Where the selected lock came from. */
+  source: "remote" | "fallback" | "missing";
+  /** SHA-256 of the remote lock, for compare-and-swap publication. */
+  baseHash?: string;
   /** Warning emitted when the remote lock was unavailable. */
   warning?: string;
 }
@@ -23,6 +30,27 @@ export interface OpenNixLockOptions {
   fallbackPath?: string;
   /** Continue without a lock when neither remote nor local state exists. */
   allowMissing?: boolean;
+  /** Treat remote failures other than a missing lock as fatal. */
+  failOnRemoteError?: boolean;
+}
+
+function responseStatus(cause: unknown): number | undefined {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current instanceof WorkerResponseError) {
+      return current.status;
+    }
+    if (current instanceof Error && "cause" in current) {
+      current = current.cause;
+      continue;
+    }
+    if (current instanceof CliFailure && current.cause !== undefined) {
+      current = current.cause;
+      continue;
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -53,9 +81,24 @@ export async function openNixLock(
         outPath: lockPath,
       }),
     );
-    return { lockDir, lockPath };
+    const lock = await readFile(lockPath);
+    return {
+      lockDir,
+      lockPath,
+      source: "remote",
+      baseHash: createHash("sha256").update(lock).digest("hex"),
+    };
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
+    const status = responseStatus(cause);
+
+    if (options.failOnRemoteError && status !== 404) {
+      await closeNixLock(lockDir);
+      throw new Error(
+        `Could not pull the remote Nix lock for ${config.machineId}: ${message}. Check the lockfile service configuration and connectivity, then retry.`,
+        { cause },
+      );
+    }
 
     if (options.fallbackPath !== undefined) {
       try {
@@ -63,6 +106,7 @@ export async function openNixLock(
         return {
           lockDir,
           lockPath,
+          source: "fallback",
           warning: `Remote Nix lock unavailable (${message}); using the local flake.lock and will publish it after success.`,
         };
       } catch {
@@ -75,6 +119,7 @@ export async function openNixLock(
       return {
         lockDir: "",
         lockPath: "",
+        source: "missing",
         warning: `Remote Nix lock unavailable (${message}); continuing with the local flake and will publish its lock after success.`,
       };
     }

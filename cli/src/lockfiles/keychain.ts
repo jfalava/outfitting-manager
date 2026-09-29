@@ -1,10 +1,11 @@
 import { maskedPrompt } from "@/lockfiles/masked-prompt";
+import type { LockfileCredentials } from "@/lockfiles/types";
 import { envValue, inAmpOrb, storedSecret } from "@/secrets";
 
 const SECRET_SERVICE = "outfitting-lockfiles";
 const TOKEN_SECRET_NAME = "api-token";
 const URL_SECRET_NAME = "worker-url";
-const DEFAULT_WORKER_URL = "https://api.outfitting.jfa.dev/api";
+const DEFAULT_WORKER_URL = "https://outfitting.jfa.dev/api";
 
 export function normalizeWorkerUrl(value: string): string {
   let parsed: URL;
@@ -84,4 +85,11 @@ export async function apiToken(): Promise<string> {
   const token = await storedSecret(SECRET_SERVICE, TOKEN_SECRET_NAME);
 
   return token || promptAndStoreApiToken();
+}
+
+export async function resolveLockfileCredentials(): Promise<LockfileCredentials> {
+  return {
+    workerUrl: await baseUrl(),
+    token: await apiToken(),
+  };
 }

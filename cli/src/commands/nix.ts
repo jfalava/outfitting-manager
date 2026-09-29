@@ -37,6 +37,17 @@ const macosFlags = {
   profile: profileFlag,
 };
 
+const linuxUpdateFlags = {
+  noRefresh: noRefreshFlag,
+  profile: profileFlag,
+  ifConfigured: ifConfiguredFlag,
+};
+
+const macosUpdateFlags = {
+  noRefresh: noRefreshFlag,
+  profile: profileFlag,
+};
+
 const actionDescriptions = {
   build: {
     macos: "Build the nix-darwin system without activating.",
@@ -54,12 +65,19 @@ const actionDescriptions = {
     macos: "Dry-run the nix-darwin build without activating.",
     linux: "Dry-run the Home Manager build without activating.",
   },
+  update: {
+    macos: "Update flake inputs, build, and activate the nix-darwin system.",
+    linux: "Update flake inputs, build, and activate the Home Manager profile.",
+  },
 } as const satisfies Record<NixAction, Record<"macos" | "linux", string>>;
 
-/** Build, test, dry-run, or activate the configured Nix profile. */
+/** Build, test, dry-run, update, or activate the configured Nix profile. */
 export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux">) {
   const flags = platform === "linux" ? linuxFlags : macosFlags;
-  const actions = NIX_ACTIONS.map((action) =>
+  const updateFlags = platform === "linux" ? linuxUpdateFlags : macosUpdateFlags;
+  const actions = NIX_ACTIONS.filter(
+    (action): action is Exclude<NixAction, "update"> => action !== "update",
+  ).map((action) =>
     Command.make(action, flags, (values) =>
       updateNix({
         action,
@@ -70,13 +88,21 @@ export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux"
       }),
     ).pipe(Command.withDescription(actionDescriptions[action][platform])),
   );
+  const updateCommand = Command.make("update", updateFlags, (values) =>
+    updateNix({
+      action: "update",
+      noRefresh: values.noRefresh,
+      profile: optionalString(values.profile),
+      ifConfigured: "ifConfigured" in values && values.ifConfigured === true,
+    }),
+  ).pipe(Command.withDescription(actionDescriptions.update[platform]));
 
   return Command.make("nix").pipe(
     Command.withDescription(
       platform === "macos"
-        ? "Build, test, dry-run, or activate the nix-darwin profile."
-        : "Build, test, dry-run, or activate the Home Manager profile.",
+        ? "Build, test, dry-run, update, or activate the nix-darwin profile."
+        : "Build, test, dry-run, update, or activate the Home Manager profile.",
     ),
-    Command.withSubcommands(actions),
+    Command.withSubcommands([...actions, updateCommand]),
   );
 }

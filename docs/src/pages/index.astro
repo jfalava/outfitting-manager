@@ -1,0 +1,50 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+import {
+  getBreadcrumbs,
+  getPrevNext,
+  getSidebar,
+} from "@cloudflare/nimbus-docs";
+import { config } from "virtual:nimbus/config";
+
+const sidebar = await getSidebar("/", { collection: "docs" });
+const breadcrumbs = await getBreadcrumbs("/", { collection: "docs" });
+const prevNext = await getPrevNext("/", { sidebarTree: sidebar });
+---
+
+<DocsLayout
+  title={config.title}
+  description={config.description}
+  sidebar={sidebar}
+  headings={false}
+  breadcrumbs={breadcrumbs}
+  prevNext={prevNext}
+>
+  <h2 id="cli-reference">CLI</h2>
+  <p>
+    Command reference for <code>outfitting-manager</code> on Windows, Linux,
+    and macOS.
+  </p>
+  <p>
+    <a href="/docs/cli/">Browse commands, options, and subcommands.</a>
+  </p>
+
+  <h2 id="source-lifecycle">Source lifecycle</h2>
+  <p>
+    How local checkouts are resolved and remote source artifacts are selected,
+    pulled, refreshed, and removed.
+  </p>
+  <p>
+    <a href="/docs/source/local-sources/">Local sources</a> ·
+    <a href="/docs/source/sparse-artifacts/">Sparse artifact pulls</a>
+  </p>
+
+  <h2 id="platform-operations">Platform operations</h2>
+  <p>
+    Command guides for Linux, Windows, and macOS, including native package and
+    Nix behavior.
+  </p>
+  <p>
+    <a href="/docs/platforms/linux/commands/">Browse platform command guides.</a>
+  </p>
+</DocsLayout>

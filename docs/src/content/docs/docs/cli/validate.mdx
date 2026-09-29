@@ -1,0 +1,16 @@
+---
+title: validate
+description: Validate config.toml declarations and the selected source.
+sidebar:
+  order: 160
+---
+
+**Syntax:** `outfitting-manager validate [flags]`
+
+Validates the machine-local `config.toml`, selected profile declarations, and source paths without applying packages or refreshing the source. A remote source must already have a validated local snapshot. If configuration declares multiple platforms, `--platform` selects the target.
+
+| Option | Description |
+| --- | --- |
+| `--repo <path>` | Override the source with a local path; defaults to the configured source. |
+| `--profile <profile>` | Select a profile. Windows accepts comma-separated profiles; required when multiple exclusive profiles exist. |
+| `--platform` | Select `linux`, `windows`, or `macos` when declarations include more than one. |

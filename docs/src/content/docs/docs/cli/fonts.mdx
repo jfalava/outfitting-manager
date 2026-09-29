@@ -1,0 +1,60 @@
+---
+title: fonts
+description: Manage private fonts stored in the R2 archive.
+sidebar:
+  order: 40
+---
+
+`fonts` configures access to the private R2 font archive, reads its inventory, and publishes or removes OpenType font faces.
+
+## `configure-endpoint`
+
+**Syntax:** `outfitting-manager fonts configure-endpoint [<endpoint>]`
+
+Stores the R2 S3 endpoint in the OS keychain. The optional endpoint is an HTTPS endpoint or a 32-character Cloudflare account ID.
+
+## `configure-credentials`
+
+**Syntax:** `outfitting-manager fonts configure-credentials`
+
+Prompts for and stores R2 S3 access keys in the OS keychain.
+
+## `list`
+
+**Syntax:** `outfitting-manager fonts list [--repopulate]`
+
+Lists private font faces from the lockfiles inventory. `--repopulate` rebuilds that inventory from the live R2 archive before listing.
+
+## `repopulate`
+
+**Syntax:** `outfitting-manager fonts repopulate [--dry-run]`
+
+Rebuilds the lockfiles inventory from the live R2 font archive. `--dry-run` compares archive and inventory without writing.
+
+## `publish`
+
+**Syntax:** `outfitting-manager fonts publish <dir> [flags]`
+
+Merges OpenType fonts from a directory into the private archive.
+
+| Option | Description |
+| --- | --- |
+| `--dry-run` | Print the planned face changes without writing the archive or lockfiles. |
+| `--yes` | Skip the confirmation prompt. |
+| `--replace` | Allow overwriting an existing archive path. |
+| `--keep-names` | Sanitize source filenames instead of using OpenType family/style paths. |
+| `--allow-system-names` | Allow reserved system family names. |
+| `--repopulate` | Rebuild the inventory from the live archive before publishing. |
+
+## `remove`
+
+**Syntax:** `outfitting-manager fonts remove <name...> [flags]`
+
+Removes faces identified by family slug, archive path, or PostScript name.
+
+| Option | Description |
+| --- | --- |
+| `--family` | Treat each name as a whole family to remove. |
+| `--dry-run` | Print the planned face changes without writing the archive or lockfiles. |
+| `--yes` | Skip the confirmation prompt. |
+| `--repopulate` | Rebuild the inventory from the live archive before removing faces. |

@@ -36,13 +36,13 @@ function withCleanEnv(run: () => void): void {
   }
 }
 
-test("defaults to the separate manager API stack", () => {
+test("defaults the manager API router to the bare outfitting hostname", () => {
   withCleanEnv(() => {
     const config = loadDeployConfig({
       configPath: join(tmpdir(), "missing-outfitting-deploy.json"),
     });
     expect(config.stackName).toBe("OutfittingManager");
-    expect(config.domain).toBe("api.outfitting.jfa.dev");
+    expect(config.domain).toBe("outfitting.jfa.dev");
     expect(config.workers).toEqual({
       router: "outfitting-manager-router",
       api: "outfitting-api",

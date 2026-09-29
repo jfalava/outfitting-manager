@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { Console, Effect } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
@@ -7,7 +9,7 @@ import { pushLockfile } from "@/lockfiles";
 import { tryPromise } from "@/lockfiles/effect";
 import { which } from "@/process";
 import { ui } from "@/ui";
-import { activateNixSystem } from "@/update/nix/activate";
+import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
 import {
   clearNixRecovery,
@@ -26,8 +28,20 @@ export interface RecoverNixOptions {
   which?: typeof which;
   build?: typeof buildNixSystem;
   activate?: typeof activateNixSystem;
+  activateHomeManager?: typeof activateHomeManager;
   push?: typeof pushLockfile;
   ensureSymlinks?: typeof ensureNixSymlinks;
+}
+
+function validateRecoveryRepo(repo: OutfittingRepo): Effect.Effect<void, CliFailure> {
+  if (repo.flakeKind === "none" || repo.flakePath.length === 0) {
+    return Effect.fail(
+      new CliFailure({
+        message: "The recovery checkpoint's BYOR profile does not declare a Nix flake.",
+      }),
+    );
+  }
+  return Effect.void;
 }
 
 function recoveryIfMatch(baseHash: string): string | undefined {
@@ -47,16 +61,17 @@ function activatePreparedNix(
       return yield* new CliFailure({ message: "nix is not installed or not in PATH." });
     }
 
-    const platform = process.platform === "darwin" ? "macos" : "linux";
+    const platform = state.platform ?? (process.platform === "darwin" ? "macos" : "linux");
     const repo =
       options.repo ??
       (yield* tryPromise(() =>
         resolveOutfittingRepo({
           config,
-          profile: configuredProfile(config, platform),
+          profile: configuredProfile(config, platform, state.profile),
           platform,
         }),
       ));
+    yield* validateRecoveryRepo(repo);
     const ensureSymlinks = options.ensureSymlinks ?? ensureNixSymlinks;
     yield* tryPromise(() => ensureSymlinks(repo));
 
@@ -67,16 +82,27 @@ function activatePreparedNix(
       build({
         repo,
         lockPath: state.lockPath,
+        outputLockPath: join(recoveryDir, "build-flake.lock"),
         mode: "build",
       }),
     );
-    yield* Console.log(ui.heading("Activating the recovered nix-darwin system…"));
-    yield* tryPromise(() => activate({ systemConfig }));
+    if (repo.flakeKind === "home-manager") {
+      const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        OUTFITTING_REPO: repo.root,
+      };
+      yield* Console.log(ui.heading("Activating the recovered Home Manager profile…"));
+      yield* tryPromise(() => activateHomeManagerFn({ activationPackage: systemConfig, env }));
+    } else {
+      yield* Console.log(ui.heading("Activating the recovered nix-darwin system…"));
+      yield* tryPromise(() => activate({ systemConfig }));
+    }
     yield* tryPromise(() => setNixRecoveryPhase("activated", recoveryDir));
   });
 }
 
-/** Resume a prepared nix-darwin checkpoint, then publish its lock atomically. */
+/** Resume a prepared Nix checkpoint, then publish its lock with compare-and-swap. */
 export const recoverNix = (options: RecoverNixOptions = {}) =>
   Effect.gen(function* () {
     const recoveryDir = options.recoveryDir ?? defaultNixRecoveryDir();
@@ -88,6 +114,17 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
     }
 
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
+    const platform = process.platform === "darwin" ? "macos" : "linux";
+    if (state.platform !== undefined && state.platform !== platform) {
+      return yield* new CliFailure({
+        message: `Nix recovery checkpoint belongs to ${state.platform}, not ${platform}.`,
+      });
+    }
+    if (state.machine !== undefined && state.machine !== config.machineId) {
+      return yield* new CliFailure({
+        message: `Nix recovery checkpoint belongs to ${state.machine}; current machine is ${config.machineId}.`,
+      });
+    }
     const push = options.push ?? pushLockfile;
 
     if (state.phase === "prepared") {

@@ -90,13 +90,33 @@ export default Alchemy.Stack(
       })),
     });
 
+    const docsAssets = yield* Cloudflare.Website.StaticSite("OutfittingManagerDocsAssets", {
+      name: "outfitting-manager-docs-assets",
+      cwd: "../docs",
+      command: "bun run build",
+      outdir: "dist",
+      workersDev: false,
+      compatibility,
+      assets: { notFoundHandling: "404-page" },
+    });
+    const docsWorker = yield* Cloudflare.Worker("OutfittingManagerDocs", {
+      name: "outfitting-manager-docs",
+      main: "../docs/src/worker.ts",
+      workersDev: false,
+      observability: debugObservability,
+      compatibility,
+      env: {
+        DOCS_ASSETS: docsAssets,
+      },
+    });
+
     const routerBase = {
       name: routerName,
       main: "../router/src/index.ts",
       workersDev: deployDomain === undefined,
       observability: debugObservability,
       compatibility,
-      env: { API: api },
+      env: { API: api, DOCS_WORKER: docsWorker },
     };
     const routerProps =
       deployDomain === undefined ? routerBase : { ...routerBase, domain: { name: deployDomain } };

@@ -12,7 +12,7 @@ import {
 } from "@/lockfiles/files";
 import { resolveLockfileMachine } from "@/lockfiles/machine";
 import { request } from "@/lockfiles/request";
-import type { PushLockfileOptions } from "@/lockfiles/types";
+import type { LockfileCredentials, PushLockfileOptions } from "@/lockfiles/types";
 import { ui } from "@/ui";
 
 const pushOne = ({
@@ -20,11 +20,13 @@ const pushOne = ({
   kind,
   path,
   ifMatch: requestedIfMatch,
+  credentials,
 }: {
   machine: string;
   kind: string;
   path: string;
   ifMatch?: string;
+  credentials?: LockfileCredentials;
 }) =>
   Effect.gen(function* () {
     const ifMatch = requestedIfMatch
@@ -55,11 +57,15 @@ const pushOne = ({
 
     const body = yield* tryPromise(() => file.arrayBuffer());
     const response = yield* tryPromise(() =>
-      request(["lockfiles", machine, kind], {
-        method: "PUT",
-        body,
-        headers,
-      }),
+      request(
+        ["lockfiles", machine, kind],
+        {
+          method: "PUT",
+          body,
+          headers,
+        },
+        credentials,
+      ),
     );
     const result = yield* tryPromise(async () => {
       const raw: unknown = await response.json();
@@ -86,6 +92,7 @@ export const pushLockfile = ({
   kind,
   path,
   ifMatch: requestedIfMatch,
+  credentials,
 }: PushLockfileOptions) =>
   Effect.gen(function* () {
     const machine = yield* resolveLockfileMachine(requestedMachine);
@@ -102,6 +109,7 @@ export const pushLockfile = ({
         kind: selection.kind,
         path,
         ifMatch: requestedIfMatch,
+        credentials,
       });
       return undefined;
     }
@@ -131,7 +139,7 @@ export const pushLockfile = ({
         yield* Console.log(ui.muted(`Skipped Git-tracked ${selectedKind} at ${localPath}.`));
         continue;
       }
-      yield* pushOne({ machine, kind: selectedKind, path: localPath });
+      yield* pushOne({ machine, kind: selectedKind, path: localPath, credentials });
       pushed += 1;
     }
 

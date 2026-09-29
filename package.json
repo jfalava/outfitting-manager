@@ -5,6 +5,7 @@
       "api",
       "cli",
       "contract",
+      "docs",
       "iac",
       "router"
     ],
@@ -44,15 +45,15 @@
     "deploy": "bun run --filter @outfitting/iac deploy",
     "destroy": "bun run --filter @outfitting/iac destroy",
     "format": "oxfmt",
-    "format:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac format",
-    "lint:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/iac --filter @outfitting/router lint",
-    "lint:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac lint",
+    "format:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac format",
+    "lint:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router lint",
+    "lint:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac lint",
     "plan": "bun run --filter @outfitting/iac plan",
     "test:api": "bun run --filter @outfitting/api test",
     "test:cli": "bun run --filter @outfitting/cli test",
     "test:contract": "bun run --filter @outfitting/contract test",
     "test:router": "bun run --filter @outfitting/router test",
-    "typecheck:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/iac --filter @outfitting/router typecheck",
+    "typecheck:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router typecheck",
     "prepare": "effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {

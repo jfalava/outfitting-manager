@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { Effect } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   inferOutputPath,
@@ -13,6 +13,7 @@ import {
   normalizeSha256,
   normalizeWorkerUrl,
   pullLockfile,
+  pushLockfile,
   resolveKindSelection,
 } from "@/lockfiles";
 
@@ -66,6 +67,52 @@ describe("lockfiles command helpers", () => {
     expect(() => normalizeWorkerUrl("file:///tmp/worker")).toThrow(
       "Worker URL must use HTTP or HTTPS.",
     );
+  });
+
+  test("push uses the supplied lockfile credential snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "outfitting-lockfiles-push-test-"));
+    const path = join(directory, "flake.lock");
+    const contents = '{ "version": 7 }\n';
+    await writeFile(path, contents);
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://lockfiles.example/api/lockfiles/test-machine/nix");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer snapshot-token");
+      return new Response(
+        JSON.stringify({
+          hash: "a".repeat(64),
+          size: new TextEncoder().encode(contents).byteLength,
+        }),
+        { status: 200 },
+      );
+    });
+    const bytes = new TextEncoder().encode(contents);
+    const body = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(body).set(bytes);
+    vi.stubGlobal("Bun", {
+      file: () => ({
+        exists: async () => true,
+        arrayBuffer: async () => body,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await Effect.runPromise(
+        pushLockfile({
+          machine: "test-machine",
+          kind: "nix",
+          path,
+          credentials: {
+            workerUrl: "https://lockfiles.example/api",
+            token: "snapshot-token",
+          },
+        }),
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("validates and normalizes SHA-256 preconditions", () => {

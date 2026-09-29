@@ -1,0 +1,36 @@
+---
+title: update
+description: Upgrade installed packages through one native package manager.
+sidebar:
+  order: 150
+---
+
+`update` upgrades already-installed packages through one native package manager. It does not install missing declarations or prune packages. Use [`apply`](/docs/cli/apply/) for declared package presence and [`nix`](/docs/cli/nix/) for Nix builds and activation.
+
+## macOS
+
+**Syntax:** `outfitting-manager update [--no-push]`
+
+Upgrades installed Homebrew packages and publishes the observed Homebrew inventory unless `--no-push` is set.
+
+## Linux
+
+**Syntax:** `outfitting-manager update [--package-manager <apt|pacman>] [--offline]`
+
+Upgrades installed native packages. The manager is detected from the host unless selected explicitly. `--offline` refuses to run because network-free package resolution cannot be guaranteed.
+
+| Option | Description |
+| --- | --- |
+| `--package-manager` | Override package-manager detection with `apt` or `pacman`. |
+| `--offline` | Refuse the update because network-free package resolution cannot be guaranteed. |
+
+## Windows
+
+**Syntax:** `outfitting-manager update --package-manager <winget|scoop> [--no-push]`
+
+Upgrades installed packages through exactly one selected manager. A package manager must be specified. Successful package operations are recorded; `--no-push` keeps the update state local.
+
+| Option | Description |
+| --- | --- |
+| `--package-manager` | Select `winget` or `scoop`. Required. |
+| `--no-push` | Write local update state without uploading `windows.lock.json`. |

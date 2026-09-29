@@ -6,6 +6,7 @@ import { makeLinuxDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
 import { makeNixCommand } from "@/commands/nix";
 import { provisionCommand } from "@/commands/provision";
+import { recoverCommand } from "@/commands/recover";
 import { makeSelfUpdateCommand } from "@/commands/self-update";
 import { linuxInitCommand } from "@/commands/setup/linux";
 import { sourceCommand } from "@/commands/source";
@@ -29,6 +30,7 @@ export const makeLinuxRootCommand = (currentVersion: string) =>
       makeLinuxUpdateCommand(),
       makeLinuxDiffCommand(),
       makeLinuxApplyCommand(),
+      recoverCommand,
       syncCommand,
       makeStatusCommand("linux"),
       fontsCommand,

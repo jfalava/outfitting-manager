@@ -1,0 +1,50 @@
+---
+title: sync
+description: Push, pull, and inspect remote lock snapshots.
+sidebar:
+  order: 140
+---
+
+`sync` transports remote lock snapshots on all platforms. It does not install, upgrade, or remove packages. The machine ID is resolved from configuration and environment; it is not a positional argument. Default local filenames are relative to the current working directory, not the machine state root.
+
+## `configure-worker`
+
+**Syntax:** `outfitting-manager sync configure-worker [<url>]`
+
+Stores the lockfiles Worker URL in the OS keychain. The optional URL is the deployed Worker endpoint. `OUTFITTING_LOCKFILES_URL` may be used when keychain storage is unavailable and takes precedence over the stored value.
+
+## `configure-token`
+
+**Syntax:** `outfitting-manager sync configure-token`
+
+Prompts for and stores the Worker API token in the OS keychain. `OUTFITTING_LOCKFILES_TOKEN` may be used when keychain storage is unavailable and takes precedence over the stored value.
+
+## `push`
+
+**Syntax:** `outfitting-manager sync push [<kind>] [<path>] [--if-match <sha256>]`
+
+Uploads and promotes one lock snapshot or scans known local lock paths in the current working directory and uploads those that exist. A path is required when one kind is selected and omitted when kind is `all`.
+
+| Argument or option | Description |
+| --- | --- |
+| `<kind>` | Lockfile kind; omitted or `all` selects all known local lock paths. |
+| `<path>` | Source file for a single kind. |
+| `--if-match <sha256>` | Promote only if the current remote hash matches the expected SHA-256. |
+
+## `pull`
+
+**Syntax:** `outfitting-manager sync pull [<kind>] [<out-path>]`
+
+Downloads one lock snapshot or all tracked kinds. Known kinds use their default output path in the current working directory when no path is supplied. An explicit output path is not valid with kind `all`. Pull refuses to overwrite Git-tracked files, but it overwrites existing untracked files without prompting.
+
+## `list`
+
+**Syntax:** `outfitting-manager sync list`
+
+Lists lockfile kinds tracked for the resolved machine.
+
+## `history`
+
+**Syntax:** `outfitting-manager sync history [<kind>]`
+
+Displays version history for one kind. An omitted kind or `all` selects every tracked kind.

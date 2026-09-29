@@ -1,8 +1,8 @@
 # Outfitting Manager IaC
 
-Alchemy stack for the manager API, its `/api` router, lockfile KV/D1 storage, private-font R2
-bucket, and API token binding. Documentation and installer workers are deployed from
-`jfalava/outfitting`.
+Alchemy stack for the manager API, docs site, shared router, lockfile KV/D1 storage, private-font R2
+bucket, and API token binding. Platform installer Workers and their hostnames are deployed from
+`jfalava/machines`.
 
 ## Configuration
 
@@ -16,10 +16,11 @@ Precedence is **CLI flags → environment → `outfitting.deploy.json` → defau
 | API                 | `outfitting-api`            |
 | KV and D1           | `outfitting-lockfiles`      |
 | Private-font bucket | `outfitting-private-fonts`  |
-| API hostname        | `api.outfitting.jfa.dev`    |
+| API/docs hostname   | `outfitting.jfa.dev`        |
 
-The router strips `/api` and forwards only API requests. The private-font bucket is owned by this
-stack; the installer Worker in `jfalava/outfitting` binds to that bucket by physical name.
+The router strips `/api` and forwards API requests, then sends allowlisted docs paths to the docs
+Worker. The private-font bucket is owned by this stack; the installer Worker in `jfalava/machines`
+binds to that bucket by physical name.
 
 ## Commands
 
@@ -27,6 +28,5 @@ stack; the installer Worker in `jfalava/outfitting` binds to that bucket by phys
 - `bun run test:api` and `bun run test:router` test its request paths.
 - `bun run ci:deploy` deploys the stack non-interactively.
 
-**Migration warning:** existing Cloudflare resources and Alchemy state were provisioned by
-`jfalava/outfitting`. Do not deploy or destroy this stack until the resource ownership, live lockfile
-data, token, font bucket, and hostname transfer have been reviewed and migrated deliberately.
+The API and docs share `outfitting.jfa.dev`; `/api` is the API path and the root serves docs. Do not
+bind `api.outfitting.jfa.dev` or move installer hostnames onto the manager router.

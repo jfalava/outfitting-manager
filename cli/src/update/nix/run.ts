@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { Console, Effect } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
-import { resolveOutfittingRepo, type OutfittingRepo } from "@/config/repo";
+import { physicalPath, resolveOutfittingRepo, type OutfittingRepo } from "@/config/repo";
 import { CliFailure } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
-import { pullLockfile, pushLockfile } from "@/lockfiles";
+import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/lockfiles";
 import { tryPromise } from "@/lockfiles/effect";
 import { isGitTrackedFile } from "@/lockfiles/files";
 import { which } from "@/process";
@@ -20,9 +20,15 @@ import { isLinuxProfile, prepareLinuxSource } from "@/update/linux-source";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
-import { readNixRecovery } from "@/update/nix/recovery";
+import {
+  clearNixRecovery,
+  prepareNixRecovery,
+  readNixRecovery,
+  setNixRecoveryPhase,
+} from "@/update/nix/recovery";
 import { ensureNixSymlinks } from "@/update/nix/symlinks";
 import { NIX_LOCK_KIND, type NixAction } from "@/update/nix/types";
+import { updateNixLock } from "@/update/nix/update-lock";
 
 export interface UpdateNixOptions {
   action: NixAction;
@@ -188,30 +194,30 @@ async function stageNixLockForPush(lockPath: string): Promise<{
   }
 }
 
-function openActionLock(repo: OutfittingRepo, config: ManagerConfig) {
+function openActionLock(repo: OutfittingRepo, config: ManagerConfig, failOnRemoteError = false) {
   return Effect.gen(function* () {
-    if (repo.flakeKind === "macos") {
-      const fallbackPath = yield* tryPromise(() => localFlakeLockPath(repo));
-      const lock = yield* tryPromise(() =>
-        openNixLock(config, pullLockfile, {
-          fallbackPath,
-          allowMissing: true,
-        }),
-      );
-      return {
-        lockPath: lock.lockPath.length > 0 ? lock.lockPath : undefined,
-        lockDir: lock.lockDir.length > 0 ? lock.lockDir : undefined,
-        warning: lock.warning,
-      };
-    }
-    // Home Manager: prefer the flake's checked-in lock (matches bootstrap).
-    const lockPath = yield* tryPromise(() => localFlakeLockPath(repo));
-    return { lockPath, lockDir: undefined as string | undefined, warning: undefined };
+    const fallbackPath = yield* tryPromise(() => localFlakeLockPath(repo));
+    const lock = yield* tryPromise(() =>
+      openNixLock(config, pullLockfile, {
+        fallbackPath,
+        allowMissing: true,
+        failOnRemoteError,
+      }),
+    );
+    return {
+      lockPath: lock.lockPath.length > 0 ? lock.lockPath : undefined,
+      lockDir: lock.lockDir.length > 0 ? lock.lockDir : undefined,
+      baseHash: lock.baseHash,
+      source: lock.source,
+      warning: lock.warning,
+    };
   });
 }
 
+type NonUpdateNixAction = Exclude<NixAction, "update">;
+
 function runNixAction(
-  action: NixAction,
+  action: NonUpdateNixAction,
   repo: OutfittingRepo,
   lockPath: string | undefined,
   label: string,
@@ -241,25 +247,113 @@ function runNixAction(
         const systemConfig = yield* tryPromise(() =>
           buildNixSystem({ repo, lockPath, mode: "build" }),
         );
-        if (repo.flakeKind === "home-manager") {
-          yield* Console.log(ui.heading("Activating Home Manager…"));
-          const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            OUTFITTING_REPO: repo.root,
-          };
-          yield* tryPromise(() => activateHomeManager({ activationPackage: systemConfig, env }));
-          yield* Console.log(ui.success("Home Manager switch complete."));
-          return;
-        }
-        yield* Console.log(ui.heading("Activating nix-darwin system…"));
-        yield* tryPromise(() => activateNixSystem({ systemConfig }));
-        yield* Console.log(ui.success("nix-darwin switch complete."));
+        const isHomeManager = repo.flakeKind === "home-manager";
+        yield* Console.log(
+          ui.heading(isHomeManager ? "Activating Home Manager…" : "Activating nix-darwin system…"),
+        );
+        yield* tryPromise(() => activateNixProfile(repo, systemConfig));
+        yield* Console.log(
+          ui.success(
+            isHomeManager ? "Home Manager switch complete." : "nix-darwin switch complete.",
+          ),
+        );
         return;
       }
       default: {
         const exhaustive: never = action;
         return exhaustive;
       }
+    }
+  });
+}
+
+function activateNixProfile(repo: OutfittingRepo, systemConfig: string) {
+  if (repo.flakeKind === "home-manager") {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      OUTFITTING_REPO: repo.root,
+    };
+    return activateHomeManager({ activationPackage: systemConfig, env });
+  }
+  return activateNixSystem({ systemConfig });
+}
+
+function runNixUpdate(
+  options: UpdateNixOptions,
+  config: ManagerConfig,
+  repo: OutfittingRepo,
+  lock: {
+    lockPath?: string;
+    baseHash?: string;
+  },
+) {
+  return Effect.gen(function* () {
+    const paths = yield* tryPromise(async () => {
+      const displayDir = await mkdtemp(join(tmpdir(), "outfitting-nix-update-"));
+      try {
+        return { displayDir, physicalDir: await physicalPath(displayDir) };
+      } catch (cause) {
+        await rm(displayDir, { force: true, recursive: true });
+        throw cause;
+      }
+    });
+    const candidateLockPath = join(paths.physicalDir, "updated-flake.lock");
+    const buildLockPath = join(paths.physicalDir, "build-flake.lock");
+
+    try {
+      yield* Console.log(ui.heading(`Updating flake inputs for ${nixTargetLabel(repo)}…`));
+      yield* tryPromise(() =>
+        updateNixLock({
+          repo,
+          referenceLockPath: lock.lockPath,
+          outputLockPath: candidateLockPath,
+        }),
+      );
+
+      yield* Console.log(ui.heading(`Building updated ${nixTargetLabel(repo)}…`));
+      const systemConfig = yield* tryPromise(() =>
+        buildNixSystem({
+          repo,
+          lockPath: candidateLockPath,
+          outputLockPath: buildLockPath,
+          mode: "build",
+        }),
+      );
+
+      const credentials = yield* tryPromise(() => resolveLockfileCredentials());
+      const platform = process.platform === "darwin" ? "macos" : "linux";
+      const checkpoint = yield* tryPromise(() =>
+        prepareNixRecovery({
+          lockPath: candidateLockPath,
+          baseHash: lock.baseHash ?? "",
+          machine: config.machineId,
+          platform,
+          profile: configuredProfile(config, platform, options.profile),
+        }),
+      );
+
+      yield* Console.log(
+        ui.heading(
+          repo.flakeKind === "home-manager"
+            ? "Activating Home Manager…"
+            : "Activating nix-darwin system…",
+        ),
+      );
+      yield* tryPromise(() => activateNixProfile(repo, systemConfig));
+      yield* tryPromise(() => setNixRecoveryPhase("activated", checkpoint.dir));
+
+      yield* Console.log(ui.heading(`Publishing ${config.machineId}/${NIX_LOCK_KIND}…`));
+      yield* pushLockfile({
+        machine: config.machineId,
+        kind: NIX_LOCK_KIND,
+        path: checkpoint.lockPath,
+        ifMatch: lock.baseHash,
+        credentials,
+      });
+      yield* tryPromise(() => clearNixRecovery(checkpoint.dir));
+      yield* Console.log(ui.success(`Updated and switched ${nixTargetLabel(repo)}.`));
+    } finally {
+      yield* tryPromise(() => rm(paths.displayDir, { force: true, recursive: true }));
     }
   });
 }
@@ -285,12 +379,31 @@ function validateLinuxNixProfile(
   return Effect.void;
 }
 
-/**
- * `nix build|switch|test|dry-run` — no flake-input upgrade in v1.
- * switch builds then activates in-process.
- * macOS prefers the remote canonical lock and bootstraps from the local/generated lock when needed;
- * Home Manager uses the flake's local lock.
- */
+function validateNixUpdateOptions(options: UpdateNixOptions, config: ManagerConfig) {
+  return Effect.gen(function* () {
+    if (options.action === "update" && options.noPush === true) {
+      return yield* new CliFailure({
+        message:
+          "nix update must publish its lock after a successful switch; --no-push is not supported.",
+      });
+    }
+
+    if (options.ifConfigured !== true) {
+      return false;
+    }
+    const profile = configuredProfile(config, "linux", options.profile);
+    const declaration =
+      profile === undefined ? undefined : config.declarations?.profiles[profile]?.linux;
+    if (declaration === undefined || declaration.nix !== undefined) {
+      return false;
+    }
+
+    yield* Console.log(ui.muted(`No Nix flake is declared for ${profile}; skipping.`));
+    return true;
+  });
+}
+
+/** Build, activate, or update the selected platform's configured Nix flake. */
 export const updateNix = (options: UpdateNixOptions) =>
   Effect.gen(function* () {
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
@@ -298,14 +411,8 @@ export const updateNix = (options: UpdateNixOptions) =>
     // Validate the selected BYOR profile before probing Nix.
     yield* validateLinuxNixProfile(options, config);
 
-    if (options.ifConfigured === true) {
-      const profile = configuredProfile(config, "linux", options.profile);
-      const declaration =
-        profile === undefined ? undefined : config.declarations?.profiles[profile]?.linux;
-      if (declaration !== undefined && declaration.nix === undefined) {
-        yield* Console.log(ui.muted(`No Nix flake is declared for ${profile}; skipping.`));
-        return;
-      }
+    if (yield* validateNixUpdateOptions(options, config)) {
+      return;
     }
 
     const nixPath = yield* tryPromise(() => which("nix"));
@@ -316,7 +423,7 @@ export const updateNix = (options: UpdateNixOptions) =>
     const recovery = yield* tryPromise(() => readNixRecovery());
     if (recovery !== undefined) {
       return yield* new CliFailure({
-        message: `An unfinished Nix recovery checkpoint exists at ${recovery.dir}. Run: outfit recover nix`,
+        message: `An unfinished Nix recovery checkpoint exists at ${recovery.dir}. Run: outfitting-manager recover nix`,
       });
     }
 
@@ -337,11 +444,16 @@ function runNixActionWithPublish(
   repo: OutfittingRepo,
 ) {
   return Effect.gen(function* () {
-    const { lockPath, lockDir, warning } = yield* openActionLock(repo, config);
+    const lock = yield* openActionLock(repo, config, options.action === "update");
+    const { lockPath, lockDir, warning } = lock;
     let stagedLockDir: string | undefined;
     try {
       if (warning !== undefined) {
         yield* Console.log(ui.muted(warning));
+      }
+      if (options.action === "update") {
+        yield* runNixUpdate(options, config, repo, lock);
+        return;
       }
       yield* runNixAction(options.action, repo, lockPath, nixTargetLabel(repo));
 

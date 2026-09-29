@@ -1,5 +1,5 @@
 {
-  "domain": "api.outfitting.example.com",
+  "domain": "outfitting.jfa.dev",
   "stackName": "OutfittingManager",
   "kv": "outfitting-lockfiles",
   "database": "outfitting-lockfiles",

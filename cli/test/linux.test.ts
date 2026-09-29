@@ -166,6 +166,17 @@ test("Linux commands expose init, apply, Nix, and native update as distinct oper
     encoding: "utf8",
   });
   expect(`${nix.stdout}\n${nix.stderr}`).toContain("--if-configured");
+
+  const nixUpdate = await execFileAsync("bun", [linuxEntry, "nix", "update", "--help"], {
+    encoding: "utf8",
+  });
+  expect(`${nixUpdate.stdout}\n${nixUpdate.stderr}`).toContain("Update flake inputs");
+  expect(`${nixUpdate.stdout}\n${nixUpdate.stderr}`).not.toContain("--no-push");
+
+  const recoverNix = await execFileAsync("bun", [linuxEntry, "recover", "nix", "--help"], {
+    encoding: "utf8",
+  });
+  expect(`${recoverNix.stdout}\n${recoverNix.stderr}`).toContain("interrupted Nix profile update");
 });
 
 test("Linux init requires a selected source and does not invent a default profile", async () => {

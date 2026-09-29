@@ -9,6 +9,7 @@ import { describe, expect, test } from "vitest";
 import type { ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
 import type { PullLockfileOptions } from "@/lockfiles";
+import { WorkerResponseError } from "@/lockfiles/request";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
 
 const config: ManagerConfig = {
@@ -29,6 +30,8 @@ describe("openNixLock", () => {
     const lock = await openNixLock(config, pull);
     try {
       expect(await readFile(lock.lockPath, "utf8")).toContain('"version": 7');
+      expect(lock.source).toBe("remote");
+      expect(lock.baseHash).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       await closeNixLock(lock.lockDir);
     }
@@ -72,11 +75,72 @@ describe("openNixLock", () => {
   });
 
   test("can continue without either remote or local lock", async () => {
-    const pull = () => Effect.fail(new CliFailure({ message: "Lockfile not found" }));
+    const pull = () =>
+      Effect.fail(
+        new CliFailure({
+          message: "Worker returned 404: Lockfile not found",
+          cause: new WorkerResponseError(404, "Lockfile not found"),
+        }),
+      );
     const lock = await openNixLock(config, pull, { allowMissing: true });
 
     expect(lock.lockDir).toBe("");
     expect(lock.lockPath).toBe("");
+    expect(lock.source).toBe("missing");
     expect(lock.warning).toContain("continuing with the local flake");
+  });
+
+  test("fails an update on service errors instead of falling back to a stale local lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "outfitting-nix-lock-unavailable-"));
+    const fallbackPath = join(root, "flake.lock");
+    await writeFile(fallbackPath, '{ "version": 7 }\n');
+    const pull = () =>
+      Effect.fail(
+        new CliFailure({
+          message: "Worker returned 503: unavailable",
+          cause: new WorkerResponseError(503, "unavailable"),
+        }),
+      );
+
+    try {
+      await expect(
+        openNixLock(config, pull, {
+          fallbackPath,
+          allowMissing: true,
+          failOnRemoteError: true,
+        }),
+      ).rejects.toThrow(/Could not pull the remote Nix lock.*Worker returned 503/);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("allows first-run fallback only when the remote lock is confirmed missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "outfitting-nix-lock-not-found-"));
+    const fallbackPath = join(root, "flake.lock");
+    await writeFile(fallbackPath, '{ "version": 7, "inputs": {} }\n');
+    const pull = () =>
+      Effect.fail(
+        new CliFailure({
+          message: "Worker returned 404: Lockfile not found",
+          cause: new WorkerResponseError(404, "Lockfile not found"),
+        }),
+      );
+
+    try {
+      const lock = await openNixLock(config, pull, {
+        fallbackPath,
+        allowMissing: true,
+        failOnRemoteError: true,
+      });
+      try {
+        expect(lock.source).toBe("fallback");
+        expect(await readFile(lock.lockPath, "utf8")).toContain('"inputs"');
+      } finally {
+        await closeNixLock(lock.lockDir);
+      }
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

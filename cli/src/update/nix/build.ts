@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import type { OutfittingRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
 
@@ -7,6 +9,8 @@ export interface NixBuildOptions {
   repo: OutfittingRepo;
   /** Remote lock path when available. */
   lockPath?: string;
+  /** Write Nix's evaluated lock to this path instead of the source flake. */
+  outputLockPath?: string;
   mode: NixBuildMode;
   run?: typeof runCommand;
 }
@@ -15,7 +19,11 @@ function flakeRef(repo: OutfittingRepo): string {
   return `path:${repo.flakePath}#${repo.systemAttr}`;
 }
 
-function baseArgs(mode: NixBuildMode, lockPath: string | undefined): string[] {
+function baseArgs(
+  mode: NixBuildMode,
+  lockPath: string | undefined,
+  outputLockPath: string | undefined,
+): string[] {
   const args = ["build", "--impure", "--no-link"];
   if (mode === "build" || mode === "test") {
     args.push("--print-out-paths");
@@ -25,11 +33,37 @@ function baseArgs(mode: NixBuildMode, lockPath: string | undefined): string[] {
   }
   if (lockPath !== undefined) {
     args.push("--reference-lock-file", lockPath);
-    if (mode !== "dry") {
-      args.push("--no-write-lock-file");
-    }
+  }
+  if (outputLockPath !== undefined) {
+    args.push("--output-lock-file", outputLockPath);
+  } else if (lockPath !== undefined && mode !== "dry") {
+    args.push("--no-write-lock-file");
   }
   return args;
+}
+
+async function verifyOutputLock(options: NixBuildOptions): Promise<void> {
+  if (options.outputLockPath === undefined || options.lockPath === undefined) {
+    return;
+  }
+
+  let referenceLock: Buffer;
+  let buildLock: Buffer;
+  try {
+    [referenceLock, buildLock] = await Promise.all([
+      readFile(options.lockPath),
+      readFile(options.outputLockPath),
+    ]);
+  } catch (cause) {
+    throw new Error("Nix build succeeded but did not produce its evaluated flake.lock.", {
+      cause,
+    });
+  }
+  if (!referenceLock.equals(buildLock)) {
+    throw new Error(
+      "Nix resolved a different flake.lock while building; refusing to activate or publish the update.",
+    );
+  }
 }
 
 /**
@@ -41,7 +75,10 @@ export async function buildNixSystem(options: NixBuildOptions): Promise<string> 
   if (options.repo.flakePath.length === 0 || options.repo.flakeKind === "none") {
     throw new Error("No Nix flake is declared for the selected BYOR profile.");
   }
-  const args = [...baseArgs(options.mode, options.lockPath), flakeRef(options.repo)];
+  const args = [
+    ...baseArgs(options.mode, options.lockPath, options.outputLockPath),
+    flakeRef(options.repo),
+  ];
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -62,6 +99,8 @@ export async function buildNixSystem(options: NixBuildOptions): Promise<string> 
   if (options.mode === "dry") {
     return "";
   }
+
+  await verifyOutputLock(options);
 
   const outPath = result.stdout
     .trim()

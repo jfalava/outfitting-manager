@@ -1,0 +1,26 @@
+---
+title: provision
+description: Deploy the Outfitting Manager API stack.
+sidebar:
+  order: 70
+---
+
+**Syntax:** `outfitting-manager provision [flags]`
+
+Deploys the manager API, documentation site, shared router, lockfile storage, and private-font bucket. Platform installer Workers are managed by the `machines` repository. Unless `--skip-configure` is set, provision stores the lockfiles API URL and token in the OS keychain after deployment. CLI flags override environment variables and deployment configuration values.
+
+| Option | Description |
+| --- | --- |
+| `--deploy-config <path>` | Select the deployment JSON configuration file. |
+| `--domain <hostname>` | Set the manager router hostname (default: `outfitting.jfa.dev`); an empty value uses the Worker URL. |
+| `--stack-name <name>` | Set the Alchemy stack name (default: `OutfittingManager`). |
+| `--api-name <name>` | Set the API Worker name. |
+| `--router-name <name>` | Set the manager API router Worker name. |
+| `--database-name <name>` | Set the D1 database name. |
+| `--kv-title <title>` | Set the KV namespace title. |
+| `--private-fonts <bucket>` | Set the R2 private-fonts bucket name. |
+| `--token <value>` | Set the lockfiles API token; defaults to the environment value or a generated token. |
+| `--skip-configure` | Do not store the Worker URL or token in the OS keychain. |
+
+Existing CLI installations keep using their configured API URL until it is changed. Provisioning
+without `--skip-configure` stores the newly deployed manager API URL for the current machine.

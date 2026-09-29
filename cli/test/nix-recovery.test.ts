@@ -48,6 +48,9 @@ describe("nix recovery checkpoint", () => {
     const state = await prepareNixRecovery({
       lockPath: lockSource,
       baseHash: "abc123",
+      machine: "test:aarch64-linux",
+      platform: "linux",
+      profile: "workstation",
       recoveryDir,
     });
     expect(state.phase).toBe("prepared");
@@ -57,6 +60,11 @@ describe("nix recovery checkpoint", () => {
     const loaded = await readNixRecovery(recoveryDir);
     expect(loaded?.baseHash).toBe("abc123");
     expect(loaded?.phase).toBe("prepared");
+    expect(loaded).toMatchObject({
+      machine: "test:aarch64-linux",
+      platform: "linux",
+      profile: "workstation",
+    });
     expect(nextRecoveryAction(loaded!.phase)).toBe("activate");
 
     await setNixRecoveryPhase("activated", recoveryDir);
@@ -190,4 +198,78 @@ describe("recoverNix", () => {
     expect(await hasNixRecovery(recoveryDir)).toBe(true);
     expect((await readNixRecovery(recoveryDir))?.phase).toBe("activated");
   });
+
+  test.skipIf(process.platform === "darwin")(
+    "recovers a Home Manager activation before publishing its per-machine lock",
+    async () => {
+      const parent = await tempDir();
+      const recoveryDir = join(parent, "nix-lock-recovery");
+      const lockSource = join(parent, "source.lock");
+      const baseHash = "b".repeat(64);
+      await writeFile(lockSource, '{"version":7}\n', "utf8");
+      await prepareNixRecovery({
+        lockPath: lockSource,
+        baseHash,
+        machine: "test:aarch64-linux",
+        platform: "linux",
+        profile: "workstation",
+        recoveryDir,
+      });
+
+      const config: ManagerConfig = {
+        configPath: join(parent, "state", "config.toml"),
+        stateRoot: join(parent, "state"),
+        machineId: "test:aarch64-linux",
+        machineIdOverridden: true,
+      };
+      const repo = {
+        root: "/repo",
+        contract: { schema: 1 as const, profiles: {} },
+        flakePath: "/repo/system/home",
+        darwinNixPath: "",
+        flakeKind: "home-manager" as const,
+        systemAttr: "homeConfigurations.work.activationPackage",
+        homeManagerName: "work",
+      };
+      const calls: string[] = [];
+      let pushed: Parameters<NonNullable<RecoverNixOptions["push"]>>[0] | undefined;
+
+      await Effect.runPromise(
+        recoverNix({
+          config,
+          repo,
+          recoveryDir,
+          which: async () => "/nix/bin/nix",
+          build: async (options) => {
+            calls.push(`build:${options.lockPath}:${options.mode}`);
+            return "/nix/store/home-activation";
+          },
+          activateHomeManager: async (options) => {
+            calls.push(`activate:${options.activationPackage}`);
+          },
+          activate: async () => {
+            calls.push("unexpected nix-darwin activation");
+          },
+          push: (options) =>
+            Effect.sync(() => {
+              pushed = options;
+              return undefined;
+            }),
+          ensureSymlinks: async () => undefined,
+        }),
+      );
+
+      expect(calls).toEqual([
+        `build:${join(recoveryDir, "flake.lock")}:build`,
+        "activate:/nix/store/home-activation",
+      ]);
+      expect(pushed).toMatchObject({
+        machine: config.machineId,
+        kind: "nix",
+        path: join(recoveryDir, "flake.lock"),
+        ifMatch: baseHash,
+      });
+      expect(await hasNixRecovery(recoveryDir)).toBe(false);
+    },
+  );
 });

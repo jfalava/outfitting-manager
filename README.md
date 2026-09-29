@@ -10,10 +10,9 @@ bun run test:cli
 bun run --filter @outfitting/cli typecheck
 ```
 
-`outfitting-manager provision` deploys the manager API and its router at
-`https://api.outfitting.jfa.dev/api`. The router only forwards `/api` requests. Documentation and
-platform installer hosts remain in `jfalava/outfitting`.
+`outfitting-manager provision` deploys the manager API, documentation, and their shared router.
+The public API is `https://outfitting.jfa.dev/api`; the documentation is served at the bare host.
+The `jfalava/machines` repository owns only the platform installer Workers and their hostnames.
 
-The Cloudflare resources were previously provisioned from `jfalava/outfitting`. Do not deploy or
-destroy either repository's Alchemy stack until the existing resources and state ownership have
-been reviewed and migrated deliberately.
+The manager Alchemy stack owns its API, docs, router, lockfile storage, and private-font bucket. The
+machines Alchemy stack owns only installer Workers and their platform hostnames.

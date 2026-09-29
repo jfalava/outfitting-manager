@@ -8,13 +8,14 @@ export {
   type KindSelection,
 } from "@/lockfiles/files";
 export { historyLockfiles } from "@/lockfiles/history";
-export { normalizeWorkerUrl } from "@/lockfiles/keychain";
+export { normalizeWorkerUrl, resolveLockfileCredentials } from "@/lockfiles/keychain";
 export { fetchLockfileKinds, listLockfiles } from "@/lockfiles/list";
 export { resolveLockfileMachine } from "@/lockfiles/machine";
 export { pullLockfile } from "@/lockfiles/pull";
 export { pushLockfile } from "@/lockfiles/push";
 export type {
   HistoryLockfileOptions,
+  LockfileCredentials,
   ListLockfileOptions,
   PullLockfileOptions,
   PushLockfileOptions,

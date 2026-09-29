@@ -1,3 +1,8 @@
+export interface LockfileCredentials {
+  workerUrl: string;
+  token: string;
+}
+
 export interface PushLockfileOptions {
   /** Defaults to the configured/auto machine id when omitted. */
   machine?: string;
@@ -6,6 +11,7 @@ export interface PushLockfileOptions {
   /** Required unless kind is `all` (or omitted). */
   path?: string;
   ifMatch?: string;
+  credentials?: LockfileCredentials;
 }
 
 export interface PullLockfileOptions {

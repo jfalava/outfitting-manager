@@ -114,11 +114,19 @@ describe("macOS CLI command boundaries", () => {
     expect(text).not.toMatch(
       /missing system\/macos\/flake\.nix|Building nix-darwin|Activating nix-darwin/i,
     );
-    expect(text).toMatch(/build|switch|test|dry-run/i);
+    expect(text).toMatch(/build|switch|test|dry-run|update/i);
 
     const help = await runCli(["nix", "--help"]);
     expect(help.code).toBe(0);
-    expect(`${help.stdout}\n${help.stderr}`).toMatch(/build|switch|test|dry-run/);
+    expect(`${help.stdout}\n${help.stderr}`).toMatch(/build|switch|test|dry-run|update/);
+  });
+
+  test("Nix update advertises a lock refresh and activation, without the no-push escape hatch", async () => {
+    const { code, stdout, stderr } = await runCli(["nix", "update", "--help"]);
+    const text = `${stdout}\n${stderr}`;
+    expect(code).toBe(0);
+    expect(text).toMatch(/Update flake inputs, build, and activate the nix-darwin system/);
+    expect(text).not.toContain("--no-push");
   });
 
   test("update requires an explicit package manager on Linux and rejects removed Nix routing", async () => {

@@ -20,7 +20,7 @@ export const PACKAGE_MANAGER_PLATFORM = {
   all: "all",
 } as const satisfies Record<PackageManager, HostPlatform | "all">;
 
-export const NIX_ACTIONS = ["build", "switch", "test", "dry-run"] as const;
+export const NIX_ACTIONS = ["build", "switch", "test", "dry-run", "update"] as const;
 export type NixAction = (typeof NIX_ACTIONS)[number];
 
 /** PMs that are never native on the given host (hint stubs only). */

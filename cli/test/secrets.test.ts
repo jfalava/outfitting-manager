@@ -75,7 +75,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_LOCKFILES_TOKEN: "orb-token",
       OUTFITTING_LOCKFILES_URL: undefined,
     });
-    expect(await baseUrl()).toBe("https://api.outfitting.jfa.dev/api");
+    expect(await baseUrl()).toBe("https://outfitting.jfa.dev/api");
   });
 
   test("requires OUTFITTING_LOCKFILES_TOKEN in an Amp orb", async () => {

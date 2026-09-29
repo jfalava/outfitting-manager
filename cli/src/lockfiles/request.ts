@@ -1,19 +1,30 @@
 import { decodeResponse, ErrorBody, isJsonValue } from "@outfitting/contract";
 
-import { apiToken, baseUrl } from "@/lockfiles/keychain";
-import type { CliRequestInit } from "@/lockfiles/types";
+import { resolveLockfileCredentials } from "@/lockfiles/keychain";
+import type { CliRequestInit, LockfileCredentials } from "@/lockfiles/types";
 
-async function endpoint(parts: ReadonlyArray<string>): Promise<string> {
-  return `${await baseUrl()}/${parts.map(encodeURIComponent).join("/")}`;
+export class WorkerResponseError extends Error {
+  constructor(
+    readonly status: number,
+    detail: string,
+  ) {
+    super(`Worker returned ${status}: ${detail}`);
+    this.name = "WorkerResponseError";
+  }
+}
+
+function endpoint(workerUrl: string, parts: ReadonlyArray<string>): string {
+  return `${workerUrl}/${parts.map(encodeURIComponent).join("/")}`;
 }
 
 export async function request(
   parts: ReadonlyArray<string>,
   init: CliRequestInit = {},
+  credentials?: LockfileCredentials,
 ): Promise<Response> {
-  const url = await endpoint(parts);
-  const token = await apiToken();
-  const headers = { ...init.headers, Authorization: `Bearer ${token}` };
+  const resolved = credentials ?? (await resolveLockfileCredentials());
+  const url = endpoint(resolved.workerUrl, parts);
+  const headers = { ...init.headers, Authorization: `Bearer ${resolved.token}` };
 
   const response = await fetch(url, {
     ...init,
@@ -38,5 +49,5 @@ export async function request(
     detail = (await response.text()) || detail;
   }
 
-  throw new Error(`Worker returned ${response.status}: ${detail}`);
+  throw new WorkerResponseError(response.status, detail);
 }

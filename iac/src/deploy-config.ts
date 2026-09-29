@@ -57,7 +57,7 @@ export const DEFAULT_DEPLOY_CONFIG: Omit<DeployConfig, "configPath"> = {
     router: "outfitting-manager-router",
     api: "outfitting-api",
   },
-  domain: "api.outfitting.jfa.dev",
+  domain: "outfitting.jfa.dev",
 };
 
 export type DeployOverrides = Partial<{

@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "vitest";
 
 import type { RunCommandResult } from "@/process";
@@ -90,5 +94,66 @@ describe("buildNixSystem", () => {
       run,
     });
     expect(path).toBe("/nix/store/hm-activation");
+  });
+
+  test("writes and verifies a separate lock for an update build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "outfitting-nix-build-lock-"));
+    const referenceLockPath = join(root, "candidate.lock");
+    const outputLockPath = join(root, "build.lock");
+    const candidate = Buffer.from('{"version":7,"inputs":{}}\n');
+    try {
+      await writeFile(referenceLockPath, candidate);
+      const run = async (
+        command: string,
+        args: ReadonlyArray<string>,
+      ): Promise<RunCommandResult> => {
+        expect(command).toBe("nix");
+        expect(args).toContain("--reference-lock-file");
+        expect(args).toContain(referenceLockPath);
+        expect(args).toContain("--output-lock-file");
+        expect(args).toContain(outputLockPath);
+        expect(args).not.toContain("--no-write-lock-file");
+        await writeFile(outputLockPath, candidate);
+        return { code: 0, stdout: "/nix/store/updated-profile\n", stderr: "" };
+      };
+
+      await expect(
+        buildNixSystem({
+          repo: fakeHomeManagerRepo,
+          lockPath: referenceLockPath,
+          outputLockPath,
+          mode: "build",
+          run,
+        }),
+      ).resolves.toBe("/nix/store/updated-profile");
+      expect(await readFile(outputLockPath)).toEqual(candidate);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("refuses to return a build whose evaluated lock differs from its reference", async () => {
+    const root = await mkdtemp(join(tmpdir(), "outfitting-nix-build-lock-mismatch-"));
+    const referenceLockPath = join(root, "candidate.lock");
+    const outputLockPath = join(root, "build.lock");
+    try {
+      await writeFile(referenceLockPath, '{"version":7,"inputs":{}}\n');
+      const run = async (): Promise<RunCommandResult> => {
+        await writeFile(outputLockPath, '{"version":7,"inputs":{"nixpkgs":{}}}\n');
+        return { code: 0, stdout: "/nix/store/updated-profile\n", stderr: "" };
+      };
+
+      await expect(
+        buildNixSystem({
+          repo: fakeHomeManagerRepo,
+          lockPath: referenceLockPath,
+          outputLockPath,
+          mode: "build",
+          run,
+        }),
+      ).rejects.toThrow(/refusing to activate or publish the update/);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

@@ -28,10 +28,10 @@ function stubFetcher(): Stub {
 }
 
 async function hit(path: string, env: Env, init?: RequestInit) {
-  return app.fetch(new Request(`https://api.outfitting.jfa.dev${path}`, init), env);
+  return app.fetch(new Request(`https://outfitting.jfa.dev${path}`, init), env);
 }
 
-describe("manager API router", () => {
+describe("manager API/docs router", () => {
   test("strips /api and preserves the request method and body", async () => {
     const API = stubFetcher();
     const response = await hit(
@@ -44,7 +44,7 @@ describe("manager API router", () => {
     expect(await response.text()).toBe("api");
     expect(API.calls).toEqual([
       {
-        url: "https://api.outfitting.jfa.dev/lockfiles/machine/kind",
+        url: "https://outfitting.jfa.dev/lockfiles/machine/kind",
         method: "PUT",
         body: "snapshot",
       },
@@ -55,10 +55,44 @@ describe("manager API router", () => {
     const API = stubFetcher();
     await hit("/api", { API });
 
-    expect(API.calls[0]?.url).toBe("https://api.outfitting.jfa.dev/");
+    expect(API.calls[0]?.url).toBe("https://outfitting.jfa.dev/");
   });
 
-  test("does not send non-API paths to the API worker", async () => {
+  test("forwards documentation paths without sending them to the API worker", async () => {
+    const API = stubFetcher();
+    const DOCS_WORKER = stubFetcher();
+    const response = await hit("/docs/cli/sync", { API, DOCS_WORKER });
+
+    expect(response.status).toBe(200);
+    expect(API.calls).toEqual([]);
+    expect(DOCS_WORKER.calls[0]?.url).toBe("https://outfitting.jfa.dev/docs/cli/sync");
+  });
+
+  test("serves the docs home and static assets through the docs worker", async () => {
+    const API = stubFetcher();
+    const DOCS_WORKER = stubFetcher();
+
+    await hit("/", { API, DOCS_WORKER });
+    await hit("/_astro/site.css", { API, DOCS_WORKER });
+
+    expect(API.calls).toEqual([]);
+    expect(DOCS_WORKER.calls.map((call) => call.url)).toEqual([
+      "https://outfitting.jfa.dev/",
+      "https://outfitting.jfa.dev/_astro/site.css",
+    ]);
+  });
+
+  test("rejects paths outside the API and docs allowlists", async () => {
+    const API = stubFetcher();
+    const DOCS_WORKER = stubFetcher();
+    const response = await hit("/unexpected", { API, DOCS_WORKER });
+
+    expect(response.status).toBe(418);
+    expect(API.calls).toEqual([]);
+    expect(DOCS_WORKER.calls).toEqual([]);
+  });
+
+  test("returns 404 for docs paths when no docs worker is bound", async () => {
     const API = stubFetcher();
     const response = await hit("/docs/cli", { API });
 
