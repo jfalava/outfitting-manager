@@ -1,23 +1,23 @@
 ---
-title: Local sources
-description: Use a local checkout for machine configuration and package declarations.
+title: Local setup files
+description: Use files in a local folder or checkout for machine setup.
 sidebar:
   order: 10
 ---
 
-Use a local source when you want Outfitting to read declarations from a checkout on this machine. Add its path to `config.toml`:
+Use a local folder or checkout when your setup files are already on this machine. Point Outfitting to it in `config.toml`:
 
 ```toml
 [source]
 path = "../dotfiles"
 ```
 
-Relative paths start from the directory containing `config.toml`. The checkout must already exist. Outfitting reads it in place, so local edits are available to the next command.
+Relative paths start from the directory containing `config.toml`. The folder must already exist. Outfitting reads files from it directly, so local edits are available to the next command.
 
-To use a different checkout for initialization without changing `config.toml`, pass `--repo`:
+To use a different folder for one `init` command without changing `config.toml`, pass `--repo`:
 
 ```sh
 outfitting-manager init --repo ~/src/dotfiles
 ```
 
-For a Git repository source, see [Remote sources](/docs/source/sparse-artifacts/).
+For setup files stored in a Git repository, see [Remote Git repository](/docs/source/sparse-artifacts/).

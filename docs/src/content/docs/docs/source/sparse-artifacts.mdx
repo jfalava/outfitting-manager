@@ -1,11 +1,11 @@
 ---
-title: Remote sources
-description: Configure and refresh a Git source for Outfitting.
+title: Remote Git repository
+description: Use and refresh setup files stored in a Git repository.
 sidebar:
   order: 20
 ---
 
-Use a remote source when your declarations are stored in Git. Set its repository and branch, tag, or other Git ref in `config.toml`:
+Store your setup files in a Git repository, then set its URL and branch, tag, or other Git ref in `config.toml`:
 
 ```toml
 [source]
@@ -13,25 +13,25 @@ repository = "https://github.com/your-account/dotfiles"
 ref = "main"
 ```
 
-Outfitting retrieves the files needed for the selected platform and profile, rather than copying the whole repository. To use a local checkout instead, see [Local sources](/docs/source/local-sources/).
+Outfitting retrieves the files needed for the selected platform and profile, rather than copying the whole repository. To use files from a folder on this machine, see [Local setup files](/docs/source/local-sources/).
 
-## Refresh the source
+## Refresh setup files
 
-Source refresh depends on the command:
+Whether Outfitting refreshes files from the repository depends on the command:
 
-- `init`, Linux/macOS `apply`, and Linux/macOS `nix` refresh by default. Use `--no-refresh` where available to reuse the saved copy.
+- `init`, Linux/macOS `apply`, and Linux/macOS `nix` refresh the local copy by default. Use `--no-refresh` where available to reuse it.
 - Linux `diff` uses the saved copy by default. Pass `--refresh` to fetch it again.
-- Windows `apply`, macOS/Windows `diff`, `validate`, `status`, and `source path` do not refresh the remote source.
+- Windows `apply`, macOS/Windows `diff`, `validate`, `status`, and `source path` do not refresh the repository copy.
 
 ```sh
-# Refresh the remote source
+# Refresh setup files from the Git repository
 outfitting-manager init
 
 # Reuse the existing copy
 outfitting-manager init --no-refresh
 ```
 
-`--no-refresh` controls the source copy only; it does not prevent package managers or Nix from using the network.
+`--no-refresh` controls only whether Outfitting refreshes its local copy of setup files; it does not prevent package managers or Nix from using the network.
 
 ## Access and requirements
 
@@ -42,4 +42,4 @@ gh auth login --hostname github.com
 gh auth login --hostname github.example.com
 ```
 
-Other Git hosts use your configured Git credentials. Remote sources do not support symlinks or submodules; use a [local checkout](/docs/source/local-sources/) if your source needs them.
+Other Git hosts use your configured Git credentials. Remote Git repositories do not support symlinks or submodules; use a [local folder or checkout](/docs/source/local-sources/) instead.
