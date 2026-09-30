@@ -4,14 +4,14 @@ import { Console, Effect } from "effect";
 import { CliFailure } from "@/errors";
 import { tryPromise } from "@/lockfiles/effect";
 import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { request } from "@/lockfiles/request";
+import { requestEffect } from "@/lockfiles/request";
 import type { ListLockfileOptions } from "@/lockfiles/types";
 import { ui } from "@/ui";
 
 /** Fetch tracked kinds for a machine without printing. */
 export const fetchLockfileKinds = (machine: string) =>
   Effect.gen(function* () {
-    const response = yield* tryPromise(() => request(["lockfiles", machine]));
+    const response = yield* requestEffect(["lockfiles", machine]);
     return yield* tryPromise(async () => {
       const raw: unknown = await response.json();
       if (!isJsonValue(raw)) {

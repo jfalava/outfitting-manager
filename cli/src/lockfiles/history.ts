@@ -6,13 +6,13 @@ import { tryPromise } from "@/lockfiles/effect";
 import { resolveKindSelection } from "@/lockfiles/files";
 import { fetchLockfileKinds } from "@/lockfiles/list";
 import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { request } from "@/lockfiles/request";
+import { requestEffect } from "@/lockfiles/request";
 import type { HistoryLockfileOptions } from "@/lockfiles/types";
 import { ui } from "@/ui";
 
 const historyForKind = (machine: string, kind: string) =>
   Effect.gen(function* () {
-    const response = yield* tryPromise(() => request(["lockfiles", machine, kind, "history"]));
+    const response = yield* requestEffect(["lockfiles", machine, kind, "history"]);
     const entries = yield* tryPromise(async () => {
       const raw: unknown = await response.json();
       if (!isJsonValue(raw)) {

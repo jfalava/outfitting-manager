@@ -8,7 +8,7 @@ import { tryPromise } from "@/lockfiles/effect";
 import { inferOutputPath, isGitTrackedFile, resolveKindSelection } from "@/lockfiles/files";
 import { fetchLockfileKinds } from "@/lockfiles/list";
 import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { request } from "@/lockfiles/request";
+import { requestEffect } from "@/lockfiles/request";
 import type { PullLockfileOptions } from "@/lockfiles/types";
 import { ui } from "@/ui";
 
@@ -34,7 +34,7 @@ const pullOne = (machine: string, kind: string, outPath: string) =>
       });
     }
 
-    const response = yield* tryPromise(() => request(["lockfiles", machine, kind]));
+    const response = yield* requestEffect(["lockfiles", machine, kind]);
     yield* tryPromise(() => mkdir(dirname(outPath), { recursive: true }));
     const contents = yield* tryPromise(() => response.arrayBuffer());
     const size = yield* tryPromise(async () => {

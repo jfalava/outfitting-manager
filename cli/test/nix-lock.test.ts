@@ -79,7 +79,11 @@ describe("openNixLock", () => {
       Effect.fail(
         new CliFailure({
           message: "Worker returned 404: Lockfile not found",
-          cause: new WorkerResponseError(404, "Lockfile not found"),
+          cause: new WorkerResponseError({
+            status: 404,
+            detail: "Lockfile not found",
+            message: "Worker returned 404: Lockfile not found",
+          }),
         }),
       );
     const lock = await openNixLock(config, pull, { allowMissing: true });
@@ -98,7 +102,11 @@ describe("openNixLock", () => {
       Effect.fail(
         new CliFailure({
           message: "Worker returned 503: unavailable",
-          cause: new WorkerResponseError(503, "unavailable"),
+          cause: new WorkerResponseError({
+            status: 503,
+            detail: "unavailable",
+            message: "Worker returned 503: unavailable",
+          }),
         }),
       );
 
@@ -123,7 +131,11 @@ describe("openNixLock", () => {
       Effect.fail(
         new CliFailure({
           message: "Worker returned 404: Lockfile not found",
-          cause: new WorkerResponseError(404, "Lockfile not found"),
+          cause: new WorkerResponseError({
+            status: 404,
+            detail: "Lockfile not found",
+            message: "Worker returned 404: Lockfile not found",
+          }),
         }),
       );
 

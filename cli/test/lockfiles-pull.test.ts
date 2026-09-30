@@ -16,21 +16,21 @@ import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { pullLockfile } from "@/lockfiles/pull";
-import { request } from "@/lockfiles/request";
+import { requestEffect } from "@/lockfiles/request";
 
-vi.mock("@/lockfiles/request", () => ({ request: vi.fn() }));
+vi.mock("@/lockfiles/request", () => ({ requestEffect: vi.fn() }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
   return { ...fs, writeFile: vi.fn(fs.writeFile) };
 });
 
-afterEach(() => vi.mocked(request).mockReset());
+afterEach(() => vi.mocked(requestEffect).mockReset());
 
 test("sync pull preserves an existing untracked snapshot if the replacement write fails", async () => {
   const directory = await mkdtemp(join(tmpdir(), "outfitting-pull-atomic-"));
   const target = join(directory, "snapshot.lock");
   await writeFile(target, "existing snapshot");
-  vi.mocked(request).mockResolvedValue(new Response("new snapshot"));
+  vi.mocked(requestEffect).mockReturnValue(Effect.succeed(new Response("new snapshot")));
   const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   vi.mocked(writeFile).mockImplementationOnce(async (path, _contents, options) => {
     await fs.writeFile(path, "partial snapshot", options);
@@ -57,7 +57,9 @@ test.skipIf(process.platform === "win32").each([0o600, 0o640])(
     try {
       await writeFile(target, "old snapshot");
       await chmod(target, mode);
-      vi.mocked(request).mockResolvedValue(new Response(new Uint8Array([0x00, 0xff, 0x42])));
+      vi.mocked(requestEffect).mockReturnValue(
+        Effect.succeed(new Response(new Uint8Array([0x00, 0xff, 0x42]))),
+      );
       await Effect.runPromise(
         pullLockfile({ machine: "test-machine", kind: "nix", outPath: target }),
       );
@@ -76,7 +78,7 @@ test.skipIf(process.platform === "win32")(
     const directory = await mkdtemp(join(tmpdir(), "outfitting-pull-new-"));
     const target = join(directory, "nested", "snapshot.lock");
     try {
-      vi.mocked(request).mockResolvedValue(new Response("new snapshot"));
+      vi.mocked(requestEffect).mockReturnValue(Effect.succeed(new Response("new snapshot")));
       await Effect.runPromise(
         pullLockfile({ machine: "test-machine", kind: "nix", outPath: target }),
       );
@@ -102,7 +104,7 @@ test.skipIf(process.platform === "win32").each([false, true])(
         Effect.runPromise(pullLockfile({ machine: "test-machine", kind: "nix", outPath: alias })),
       ).rejects.toThrow(/Refusing to replace symlink/);
       expect((await lstat(alias)).isSymbolicLink()).toBe(true);
-      expect(request).not.toHaveBeenCalled();
+      expect(requestEffect).not.toHaveBeenCalled();
       if (dangling) {
         await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
       } else {

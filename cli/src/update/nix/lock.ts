@@ -3,7 +3,7 @@ import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import type { ManagerConfig } from "@/config";
 import { physicalPath } from "@/config/repo";
@@ -37,7 +37,7 @@ export interface OpenNixLockOptions {
 function responseStatus(cause: unknown): number | undefined {
   let current: unknown = cause;
   for (let depth = 0; depth < 4; depth += 1) {
-    if (current instanceof WorkerResponseError) {
+    if (Schema.is(WorkerResponseError)(current)) {
       return current.status;
     }
     if (current instanceof Error && "cause" in current) {

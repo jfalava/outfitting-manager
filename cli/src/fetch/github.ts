@@ -1,6 +1,8 @@
-import { Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
-import { runCommand, type RunCommandResult } from "@/process";
+import { CliFailure } from "@/errors";
+import { toError } from "@/lockfiles/effect";
+import { runCommand } from "@/process";
 import { relativeSourcePath } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";
 
@@ -123,65 +125,82 @@ export interface GitHubSourceFile {
   revision: string;
 }
 
-class GitHubHttpError extends Error {
-  constructor(
-    url: string,
-    readonly status: number,
-  ) {
-    super(`Failed to fetch ${url}: HTTP ${status}.`);
-    this.name = "GitHubHttpError";
-  }
-}
+export class GitHubHttpError extends Schema.TaggedError<GitHubHttpError>()("GitHubHttpError", {
+  url: Schema.String,
+  status: Schema.Finite,
+  message: Schema.String,
+}) {}
 
-async function ghApi(host: string, apiPath: string, run: typeof runCommand): Promise<string> {
-  let result: RunCommandResult;
-  try {
-    result = await run("gh", ["api", "--hostname", host, apiPath], { inherit: false });
-  } catch (cause) {
-    const code =
-      cause instanceof Error && "code" in cause ? (cause as NodeJS.ErrnoException).code : undefined;
-    if (code === "ENOENT") {
-      throw new Error(
-        `GitHub CLI is not installed. Authenticate with \`${gitHubAuthHint(host)}\`.`,
-        {
-          cause,
-        },
-      );
-    }
-    throw cause;
-  }
+const ghApi = Effect.fn("github.ghApi")(function* (
+  host: string,
+  apiPath: string,
+  run: typeof runCommand,
+): Effect.fn.Return<string, CliFailure> {
+  const result = yield* Effect.tryPromise({
+    try: () => run("gh", ["api", "--hostname", host, apiPath], { inherit: false }),
+    catch: (cause) => {
+      const code =
+        cause instanceof Error && "code" in cause
+          ? (cause as NodeJS.ErrnoException).code
+          : undefined;
+      return new CliFailure({
+        message:
+          code === "ENOENT"
+            ? `GitHub CLI is not installed. Authenticate with \`${gitHubAuthHint(host)}\`.`
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
+        cause,
+      });
+    },
+  });
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout).trim();
-    throw new Error(
-      `Unable to read ${host} with gh (exit ${result.code}). Authenticate with \`${gitHubAuthHint(host)}\`${detail.length > 0 ? `: ${detail}` : "."}`,
-      { cause: new Error(detail) },
-    );
+    return yield* new CliFailure({
+      message: `Unable to read ${host} with gh (exit ${result.code}). Authenticate with \`${gitHubAuthHint(host)}\`${detail.length > 0 ? `: ${detail}` : "."}`,
+      cause: new Error(detail),
+    });
   }
   return result.stdout;
-}
+});
 
-async function publicResponse(url: string, fetcher: ManifestFetcher = fetch): Promise<Response> {
-  const response = await fetcher(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "outfitting-manager" },
-    signal: AbortSignal.timeout(30_000),
+const publicResponse = Effect.fn("github.publicResponse")(function* (
+  url: string,
+  fetcher: ManifestFetcher = globalThis.fetch,
+): Effect.fn.Return<Response, CliFailure | GitHubHttpError> {
+  const response = yield* Effect.tryPromise({
+    try: () =>
+      fetcher(url, {
+        headers: { Accept: "application/vnd.github+json", "User-Agent": "outfitting-manager" },
+        signal: AbortSignal.timeout(30_000),
+      }),
+    catch: toError,
   });
   if (!response.ok) {
-    throw new GitHubHttpError(url, response.status);
+    return yield* new GitHubHttpError({
+      url,
+      status: response.status,
+      message: `Failed to fetch ${url}: HTTP ${response.status}.`,
+    });
   }
   return response;
-}
+});
 
 function repositoryEndpoint(repository: GitHubRepository): string {
   return `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
 }
 
-async function repositoryJson(options: GitHubReadOptions, endpoint: string): Promise<unknown> {
+const repositoryJson = Effect.fn("github.repositoryJson")(function* (
+  options: GitHubReadOptions,
+  endpoint: string,
+): Effect.fn.Return<unknown, CliFailure | GitHubHttpError> {
   if (options.repository.transport === "gh") {
-    return JSON.parse(await ghApi(options.repository.host, endpoint, options.run ?? runCommand));
+    const body = yield* ghApi(options.repository.host, endpoint, options.run ?? runCommand);
+    return yield* Effect.try({ try: () => JSON.parse(body), catch: toError });
   }
-  const response = await publicResponse(`https://api.github.com${endpoint}`, options.fetcher);
-  return response.json();
-}
+  const response = yield* publicResponse(`https://api.github.com${endpoint}`, options.fetcher);
+  return yield* Effect.tryPromise({ try: () => response.json(), catch: toError });
+});
 
 function withinPath(path: string, root: string): boolean {
   return root === "." || path === root || path.startsWith(`${root}/`);
@@ -221,27 +240,28 @@ function selectSourceEntries(
   return selected;
 }
 
-async function readSourceFile(
+const readSourceFile = Effect.fn("github.readSourceFile")(function* (
   options: GitHubReadOptions,
   entry: GitHubTreeEntry,
   commit: string,
-): Promise<GitHubSourceFile> {
+): Effect.fn.Return<GitHubSourceFile, CliFailure | GitHubHttpError> {
   let body: Uint8Array;
   if (options.repository.transport === "gh") {
-    const blob = decodeBlob(
-      await repositoryJson(
-        options,
-        `${repositoryEndpoint(options.repository)}/git/blobs/${encodeURIComponent(entry.sha)}`,
-      ),
+    const raw = yield* repositoryJson(
+      options,
+      `${repositoryEndpoint(options.repository)}/git/blobs/${encodeURIComponent(entry.sha)}`,
     );
+    const blob = yield* Effect.try({ try: () => decodeBlob(raw), catch: toError });
     body = Buffer.from(blob.content, "base64");
   } else {
     const path = entry.path.split("/").map(encodeURIComponent).join("/");
-    const response = await publicResponse(
+    const response = yield* publicResponse(
       `${options.repository.baseUrl}/${encodeURIComponent(commit)}/${path}`,
       options.fetcher,
     );
-    body = new Uint8Array(await response.arrayBuffer());
+    body = yield* Effect.tryPromise({ try: () => response.arrayBuffer(), catch: toError }).pipe(
+      Effect.map((bytes) => new Uint8Array(bytes)),
+    );
   }
   return {
     path: entry.path,
@@ -249,78 +269,110 @@ async function readSourceFile(
     mode: entry.mode === "100755" ? 0o755 : 0o644,
     revision: commit,
   };
-}
+});
 
-async function readGitHubTree(options: GitHubReadOptions): Promise<{
-  commit: string;
-  entries: readonly GitHubTreeEntry[];
-  repository: GitHubRepository;
-}> {
+const readGitHubTree = Effect.fn("github.readGitHubTree")(function* (
+  options: GitHubReadOptions,
+): Effect.fn.Return<
+  {
+    commit: string;
+    entries: readonly GitHubTreeEntry[];
+    repository: GitHubRepository;
+  },
+  CliFailure | GitHubHttpError
+> {
   let repository = options.repository;
   const endpoint = repositoryEndpoint(repository);
   const commitPath = `${endpoint}/commits/${encodeURIComponent(options.ref)}`;
   let commitResponse: unknown;
-  try {
-    commitResponse = await repositoryJson(options, commitPath);
-  } catch (cause) {
+  const firstCommit = yield* Effect.result(repositoryJson(options, commitPath));
+  if (Result.isSuccess(firstCommit)) {
+    commitResponse = firstCommit.success;
+  } else {
+    const cause = firstCommit.failure;
     if (
       repository.transport !== "raw" ||
-      !(cause instanceof GitHubHttpError) ||
+      !Schema.is(GitHubHttpError)(cause) ||
       cause.status !== 404
     ) {
-      throw cause;
+      return yield* cause;
     }
 
     repository = { ...repository, transport: "gh" };
-    try {
-      commitResponse = await repositoryJson({ ...options, repository }, commitPath);
-    } catch (authCause) {
-      const detail = authCause instanceof Error ? authCause.message : String(authCause);
-      throw new Error(
-        `GitHub returned HTTP 404 for ${repository.owner}/${repository.name}@${options.ref} without authentication, and the authenticated lookup failed. Check that the repository and ref exist, and authenticate with \`${gitHubAuthHint(repository.host)}\`: ${detail}`,
-        { cause: authCause },
-      );
+    const authenticated = yield* Effect.result(
+      repositoryJson({ ...options, repository }, commitPath),
+    );
+    if (Result.isFailure(authenticated)) {
+      const detail = authenticated.failure.message;
+      return yield* new CliFailure({
+        message: `GitHub returned HTTP 404 for ${repository.owner}/${repository.name}@${options.ref} without authentication, and the authenticated lookup failed. Check that the repository and ref exist, and authenticate with \`${gitHubAuthHint(repository.host)}\`: ${detail}`,
+        cause: authenticated.failure,
+      });
     }
+    commitResponse = authenticated.success;
   }
 
-  const commit = decodeCommit(commitResponse);
-  const tree = decodeTree(
-    await repositoryJson(
-      { ...options, repository },
-      `${endpoint}/git/trees/${encodeURIComponent(commit.sha)}?recursive=1`,
-    ),
+  const commit = yield* Effect.try({ try: () => decodeCommit(commitResponse), catch: toError });
+  const treeResponse = yield* repositoryJson(
+    { ...options, repository },
+    `${endpoint}/git/trees/${encodeURIComponent(commit.sha)}?recursive=1`,
   );
+  const tree = yield* Effect.try({
+    try: () => decodeTree(treeResponse),
+    catch: toError,
+  });
   if (tree.truncated) {
-    throw new Error(
-      "GitHub returned a truncated repository tree. Use a local checkout rather than publishing an incomplete source.",
-    );
+    return yield* new CliFailure({
+      message:
+        "GitHub returned a truncated repository tree. Use a local checkout rather than publishing an incomplete source.",
+    });
   }
   return { commit: commit.sha, entries: tree.tree, repository };
-}
+});
 
 /** Read one repository file for setup metadata without adding it to the managed source snapshot. */
-export async function readGitHubFile(options: GitHubFileReadOptions): Promise<GitHubSourceFile> {
-  const path = relativeSourcePath(options.path, "GitHub path");
-  const { commit, entries, repository } = await readGitHubTree({ ...options, paths: [path] });
+export const readGitHubFileEffect = Effect.fn("github.readGitHubFile")(function* (
+  options: GitHubFileReadOptions,
+): Effect.fn.Return<GitHubSourceFile, CliFailure | GitHubHttpError> {
+  const path = yield* Effect.try({
+    try: () => relativeSourcePath(options.path, "GitHub path"),
+    catch: toError,
+  });
+  const { commit, entries, repository } = yield* readGitHubTree({ ...options, paths: [path] });
   const entry = entries.find((candidate) => candidate.path === path && candidate.type === "blob");
   if (entry === undefined) {
-    throw new Error(`GitHub file \`${path}\` is missing.`);
+    return yield* new CliFailure({ message: `GitHub file \`${path}\` is missing.` });
   }
   if (!["100644", "100755"].includes(entry.mode)) {
-    throw new Error(
-      `Unsupported GitHub entry ${entry.path} (${entry.mode}). Use a local checkout for symlinks or submodules.`,
-    );
+    return yield* new CliFailure({
+      message: `Unsupported GitHub entry ${entry.path} (${entry.mode}). Use a local checkout for symlinks or submodules.`,
+    });
   }
-  return readSourceFile({ ...options, repository, paths: [path] }, entry, commit);
-}
+  return yield* readSourceFile({ ...options, repository, paths: [path] }, entry, commit);
+});
 
 /** Fetch the selected files/directories once, from one immutable repository revision. */
-export async function readGitHubBlobs(options: GitHubReadOptions): Promise<GitHubSourceFile[]> {
-  const { commit, entries, repository } = await readGitHubTree(options);
-  const selected = selectSourceEntries(entries, options.paths);
+export const readGitHubBlobsEffect = Effect.fn("github.readGitHubBlobs")(function* (
+  options: GitHubReadOptions,
+): Effect.fn.Return<GitHubSourceFile[], CliFailure | GitHubHttpError> {
+  const { commit, entries, repository } = yield* readGitHubTree(options);
+  const selected = yield* Effect.try({
+    try: () => selectSourceEntries(entries, options.paths),
+    catch: toError,
+  });
   const files: GitHubSourceFile[] = [];
   for (const entry of selected) {
-    files.push(await readSourceFile({ ...options, repository }, entry, commit));
+    files.push(yield* readSourceFile({ ...options, repository }, entry, commit));
   }
   return files;
+});
+
+/** Promise adapter for callers that have not migrated to Effect yet. */
+export function readGitHubFile(options: GitHubFileReadOptions): Promise<GitHubSourceFile> {
+  return Effect.runPromise(readGitHubFileEffect(options));
+}
+
+/** Promise adapter for callers that have not migrated to Effect yet. */
+export function readGitHubBlobs(options: GitHubReadOptions): Promise<GitHubSourceFile[]> {
+  return Effect.runPromise(readGitHubBlobsEffect(options));
 }

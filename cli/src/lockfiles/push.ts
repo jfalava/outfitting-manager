@@ -11,7 +11,7 @@ import {
   resolveKindSelection,
 } from "@/lockfiles/files";
 import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { request } from "@/lockfiles/request";
+import { requestEffect } from "@/lockfiles/request";
 import type { LockfileCredentials, PushLockfileOptions } from "@/lockfiles/types";
 import { ui } from "@/ui";
 
@@ -56,16 +56,14 @@ const pushOne = ({
     }
 
     const body = yield* tryPromise(() => file.arrayBuffer());
-    const response = yield* tryPromise(() =>
-      request(
-        ["lockfiles", machine, kind],
-        {
-          method: "PUT",
-          body,
-          headers,
-        },
-        credentials,
-      ),
+    const response = yield* requestEffect(
+      ["lockfiles", machine, kind],
+      {
+        method: "PUT",
+        body,
+        headers,
+      },
+      credentials,
     );
     const result = yield* tryPromise(async () => {
       const raw: unknown = await response.json();

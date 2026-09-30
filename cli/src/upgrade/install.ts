@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { chmod, rename, writeFile } from "node:fs/promises";
 
+import { Effect, Result, Schema } from "effect";
+
+import { toError } from "@/lockfiles/effect";
 import { extractZipBinary } from "@/upgrade/archive";
 import type { CliRelease } from "@/upgrade/release";
 
@@ -11,14 +14,10 @@ const RETRY_DELAYS_MS = [250, 500] as const;
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-class DownloadError extends Error {
-  constructor(
-    message: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-  }
-}
+export class DownloadError extends Schema.TaggedError<DownloadError>()("DownloadError", {
+  message: Schema.String,
+  retryable: Schema.Boolean,
+}) {}
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error && cause.message ? cause.message : String(cause);
@@ -28,58 +27,155 @@ function isRetryableNetworkError(cause: unknown): boolean {
   return cause instanceof Error && /connection|fetch|network|socket|timeout/i.test(cause.message);
 }
 
-function waitForRetry(attempt: number): Promise<void> {
+function retryDelay(attempt: number): number {
   const delay = RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS.at(-1)!;
-  return new Promise((resolve) => setTimeout(resolve, delay));
+  return delay;
 }
 
-async function downloadAttempt(url: string, label: string, fetcher: Fetcher): Promise<Uint8Array> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-  try {
-    const response = await fetcher(url, {
-      headers: { "User-Agent": "outfitting-manager" },
-      redirect: "follow",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new DownloadError(
-        `${label} failed with HTTP ${response.status}: ${url}`,
-        response.status === 408 || response.status === 429 || response.status >= 500,
-      );
-    }
-    return new Uint8Array(await response.arrayBuffer());
-  } catch (cause) {
-    if (controller.signal.aborted) {
-      throw new DownloadError(`${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`, true);
-    }
-    if (cause instanceof DownloadError) {
-      throw cause;
-    }
-    throw new DownloadError(`${label}: ${errorMessage(cause)}`, isRetryableNetworkError(cause));
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function downloadBytes(
+const downloadAttemptEffect = Effect.fn("upgrade.downloadAttempt")(function* (
   url: string,
   label: string,
-  fetcher: Fetcher = fetch,
-): Promise<Uint8Array> {
-  let lastError: unknown;
+  fetcher: Fetcher,
+): Effect.fn.Return<Uint8Array, DownloadError> {
+  const signal = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+  const response = yield* Effect.tryPromise({
+    try: () =>
+      fetcher(url, {
+        headers: { "User-Agent": "outfitting-manager" },
+        redirect: "follow",
+        signal,
+      }),
+    catch: (cause) =>
+      new DownloadError({
+        message: signal.aborted
+          ? `${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`
+          : `${label}: ${errorMessage(cause)}`,
+        retryable: signal.aborted || isRetryableNetworkError(cause),
+      }),
+  });
+  if (!response.ok) {
+    return yield* new DownloadError({
+      message: `${label} failed with HTTP ${response.status}: ${url}`,
+      retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+    });
+  }
+  return yield* Effect.tryPromise({
+    try: async () => new Uint8Array(await response.arrayBuffer()),
+    catch: (cause) =>
+      new DownloadError({
+        message: signal.aborted
+          ? `${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`
+          : `${label}: ${errorMessage(cause)}`,
+        retryable: signal.aborted || isRetryableNetworkError(cause),
+      }),
+  });
+});
+
+export const downloadBytesEffect = Effect.fn("upgrade.downloadBytes")(function* (
+  url: string,
+  label: string,
+  fetcher: Fetcher = globalThis.fetch,
+): Effect.fn.Return<Uint8Array, DownloadError> {
+  let lastError: DownloadError | undefined;
   for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
-    try {
-      return await downloadAttempt(url, label, fetcher);
-    } catch (cause) {
-      lastError = cause;
-      if (!(cause instanceof DownloadError && cause.retryable) || attempt === DOWNLOAD_ATTEMPTS) {
-        throw cause;
-      }
-      await waitForRetry(attempt);
+    const result = yield* Effect.result(downloadAttemptEffect(url, label, fetcher));
+    if (Result.isSuccess(result)) {
+      return result.success;
+    }
+    lastError = result.failure;
+    if (!lastError.retryable || attempt === DOWNLOAD_ATTEMPTS) {
+      return yield* lastError;
+    }
+    yield* Effect.sleep(retryDelay(attempt));
+  }
+  if (lastError === undefined) {
+    return yield* new DownloadError({ message: `${label} failed.`, retryable: false });
+  }
+  return yield* lastError;
+});
+
+/** Promise adapter for callers that have not migrated to Effect yet. */
+export function downloadBytes(
+  url: string,
+  label: string,
+  fetcher: Fetcher = globalThis.fetch,
+): Promise<Uint8Array> {
+  return Effect.runPromise(downloadBytesEffect(url, label, fetcher));
+}
+
+export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function* (
+  release: CliRelease,
+  targetPath: string,
+): Effect.fn.Return<void, DownloadError | ReturnType<typeof toError>> {
+  const assetBytes = yield* downloadBytesEffect(release.assetUrl, "Release asset");
+  const checksumBytes = yield* downloadBytesEffect(release.checksumUrl, "Release checksum");
+  const expectedChecksum = yield* Effect.try({
+    try: () => checksumFromFile(new TextDecoder().decode(checksumBytes)),
+    catch: toError,
+  });
+  const actualChecksum = yield* Effect.try({
+    try: () => new Bun.CryptoHasher("sha256").update(assetBytes).digest("hex"),
+    catch: toError,
+  });
+  if (actualChecksum !== expectedChecksum) {
+    return yield* toError(
+      new Error(
+        `Downloaded release asset checksum mismatch (expected ${expectedChecksum}, received ${actualChecksum}).`,
+      ),
+    );
+  }
+
+  const bytes = yield* Effect.try({
+    try: () => extractZipBinary(assetBytes, release.executableName),
+    catch: toError,
+  });
+
+  const temporaryPath = `${targetPath}.upgrade-${process.pid}`;
+  yield* Effect.tryPromise({
+    try: () => writeFile(temporaryPath, bytes, { mode: 0o755 }),
+    catch: toError,
+  });
+
+  if (process.platform === "win32") {
+    return yield* Effect.try({
+      try: () => scheduleWindowsReplacement(temporaryPath, targetPath),
+      catch: toError,
+    });
+  }
+
+  yield* Effect.tryPromise({ try: () => chmod(temporaryPath, 0o755), catch: toError });
+  yield* Effect.tryPromise({ try: () => rename(temporaryPath, targetPath), catch: toError });
+
+  // On macOS, ad-hoc sign the binary so it can access the keychain (Bun.secrets) without being killed (exit 137).
+  // Newer Bun versions produce unsigned binaries that are killed on first keychain access, causing silent outfit failures.
+  if (process.platform === "darwin") {
+    const signing = yield* Effect.result(
+      Effect.tryPromise({
+        try: async () => {
+          const proc = Bun.spawn(["codesign", "--force", "--sign", "-", targetPath], {
+            stdout: "ignore",
+            stderr: "ignore",
+          });
+          return proc.exited;
+        },
+        catch: toError,
+      }),
+    );
+    if (Result.isFailure(signing)) {
+      yield* Effect.logWarning(
+        `Warning: Could not codesign ${targetPath}: ${signing.failure.message}. The binary may be killed on keychain access.`,
+      );
+    } else if (signing.success !== 0) {
+      yield* Effect.logWarning(
+        `Warning: codesign failed for ${targetPath} (exit ${signing.success}). The binary may be killed on keychain access (exit 137). Run 'codesign --force --sign - ${targetPath}' manually.`,
+      );
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(`${label} failed.`);
+});
+
+/** Promise adapter for callers that have not migrated to Effect yet. */
+export function installRelease(release: CliRelease, targetPath: string): Promise<void> {
+  return Effect.runPromise(installReleaseEffect(release, targetPath));
 }
 
 export function checksumFromFile(contents: string): string {
@@ -120,50 +216,4 @@ export function scheduleWindowsReplacement(
     { detached: true, stdio: "ignore", windowsHide: true },
   );
   child.unref();
-}
-
-export async function installRelease(release: CliRelease, targetPath: string): Promise<void> {
-  const assetBytes = await downloadBytes(release.assetUrl, "Release asset");
-  const checksumBytes = await downloadBytes(release.checksumUrl, "Release checksum");
-  const expectedChecksum = checksumFromFile(new TextDecoder().decode(checksumBytes));
-  const actualChecksum = new Bun.CryptoHasher("sha256").update(assetBytes).digest("hex");
-  if (actualChecksum !== expectedChecksum) {
-    throw new Error(
-      `Downloaded release asset checksum mismatch (expected ${expectedChecksum}, received ${actualChecksum}).`,
-    );
-  }
-
-  const bytes = extractZipBinary(assetBytes, release.executableName);
-
-  const temporaryPath = `${targetPath}.upgrade-${process.pid}`;
-  await writeFile(temporaryPath, bytes, { mode: 0o755 });
-
-  if (process.platform === "win32") {
-    scheduleWindowsReplacement(temporaryPath, targetPath);
-    return;
-  }
-
-  await chmod(temporaryPath, 0o755);
-  await rename(temporaryPath, targetPath);
-
-  // On macOS, ad-hoc sign the binary so it can access the keychain (Bun.secrets) without being killed (exit 137).
-  // Newer Bun versions produce unsigned binaries that are killed on first keychain access, causing silent outfit failures.
-  if (process.platform === "darwin") {
-    try {
-      const proc = Bun.spawn(["codesign", "--force", "--sign", "-", targetPath], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      await proc.exited;
-      if (proc.exitCode !== 0) {
-        console.warn(
-          `Warning: codesign failed for ${targetPath} (exit ${proc.exitCode}). The binary may be killed on keychain access (exit 137). Run 'codesign --force --sign - ${targetPath}' manually.`,
-        );
-      }
-    } catch (cause) {
-      console.warn(
-        `Warning: Could not codesign ${targetPath}: ${cause instanceof Error ? cause.message : String(cause)}. The binary may be killed on keychain access.`,
-      );
-    }
-  }
 }
