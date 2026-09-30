@@ -208,10 +208,9 @@ function profileNamePrompt(message: string, defaultName: string | undefined, can
         ],
       }),
     ).pipe(
-      Effect.flatMap((name) =>
-        name === enterProfileSentinel
-          ? normalizedTextPrompt(message, (value) => value)
-          : Effect.succeed(name),
+      Effect.filterOrElse(
+        (name) => name !== enterProfileSentinel,
+        () => normalizedTextPrompt(message, (value) => value),
       ),
     );
   }

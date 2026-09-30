@@ -29,7 +29,7 @@ vi.mock("@/update/nix/activate", () => ({
 }));
 vi.mock("@/lockfiles", () => ({
   pullLockfile: vi.fn(() => Effect.fail(new CliFailure({ message: "service unavailable" }))),
-  pushLockfile: vi.fn(() => Effect.succeed(undefined)),
+  pushLockfile: vi.fn(() => Effect.void.pipe(Effect.as(undefined))),
   resolveLockfileCredentials: vi.fn(async () => ({
     workerUrl: "https://lockfiles.example/api",
     token: "snapshot-token",
@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.mocked(pullLockfile).mockImplementation(() =>
     Effect.fail(new CliFailure({ message: "service unavailable" })),
   );
-  vi.mocked(pushLockfile).mockImplementation(() => Effect.succeed(undefined));
+  vi.mocked(pushLockfile).mockImplementation(() => Effect.void.pipe(Effect.as(undefined)));
   vi.mocked(resolveLockfileCredentials).mockImplementation(async () => ({
     workerUrl: "https://lockfiles.example/api",
     token: "snapshot-token",
