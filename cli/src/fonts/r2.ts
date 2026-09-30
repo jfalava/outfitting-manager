@@ -1,6 +1,6 @@
 import { GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
-import { emptyFontArchive, unpackFontArchive, type FontArchive } from "@/fonts/archive";
+import { emptyFontArchive, sha256Hex, unpackFontArchive, type FontArchive } from "@/fonts/archive";
 import { FONT_ARCHIVE_KEY, FONT_CHECKSUM_KEY } from "@/fonts/constants";
 import { r2Credentials } from "@/fonts/keychain";
 
@@ -73,6 +73,7 @@ export async function createR2ObjectStore(): Promise<FontObjectStore> {
           Key: FONT_ARCHIVE_KEY,
           Body: archive,
           ContentType: "application/gzip",
+          Metadata: { sha256: sha256Hex(archive) },
           ...(expectedEtag === undefined ? { IfNoneMatch: "*" } : { IfMatch: expectedEtag }),
         }),
       );

@@ -68,6 +68,14 @@ outfitting-manager fonts publish ~/fonts --dry-run
 | `--keep-names`         | Use sanitized source filenames for archive names. |
 | `--allow-system-names` | Allow reserved system font names.                 |
 
+Each archive upload includes lowercase SHA-256 hex in the R2 object's `sha256`
+custom metadata in the same PUT as the gzip bytes. The `machines` installer's
+`/fonts` Worker reads the archive and this metadata together, while desktop
+installers still hash the downloaded bytes before use. The publisher continues
+writing the `.sha256` sidecar because its baseline checks depend on it; KV
+inventory is updated separately and is not part of this read snapshot. Upgrade
+all font publishers before deploying a Worker that requires this metadata.
+
 ## `remove`
 
 **Syntax:** `outfitting-manager fonts remove <name...> [flags]`
