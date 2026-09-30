@@ -1,5 +1,5 @@
 import { Console, Effect } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import { loadConfig, resolveOutfittingRepo } from "@/config";
 import { tryPromise } from "@/lockfiles/effect";

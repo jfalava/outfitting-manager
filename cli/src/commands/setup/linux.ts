@@ -1,4 +1,4 @@
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { linuxProfileFlag, optionalString } from "@/commands/linux-flags";
 import { runLinuxInit } from "@/setup/linux";

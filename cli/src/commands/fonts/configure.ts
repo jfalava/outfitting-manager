@@ -1,5 +1,5 @@
 import { Option } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 
 import { configureCredentials, configureEndpoint } from "@/fonts/configure";
 

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { CliFailure } from "@/errors";
 import { updateScoop } from "@/update/scoop";

@@ -1,4 +1,4 @@
-import { Argument } from "effect/unstable/cli";
+import { Argument } from "effect/cli";
 
 /**
  * Optional lockfile kind. When omitted (or `all`), list/history/pull/push

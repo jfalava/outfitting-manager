@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
 import { Console, Effect } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import {
   autoMachineId,

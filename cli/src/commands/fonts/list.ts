@@ -1,5 +1,5 @@
 import { Console, Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { printInventoryFaces } from "@/fonts/display";
 import { pullInventory } from "@/fonts/inventory";

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import {
   linuxApplyOfflineFlag,

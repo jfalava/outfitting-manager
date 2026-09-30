@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { Console, Effect, Option, Result } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { applyWindows } from "@/commands/windows-apply";

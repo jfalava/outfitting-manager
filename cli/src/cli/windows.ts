@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import { configCommand } from "@/commands/config";
 import { makeWindowsDiffCommand } from "@/commands/diff";

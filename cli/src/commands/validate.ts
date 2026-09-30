@@ -1,5 +1,5 @@
 import { Console, Effect, Option } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig, sparseSourceRoot } from "@/config";
 import { CliFailure } from "@/errors";

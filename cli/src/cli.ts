@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import { macosApplyCommand } from "@/commands/apply/macos";
 import { configCommand } from "@/commands/config";

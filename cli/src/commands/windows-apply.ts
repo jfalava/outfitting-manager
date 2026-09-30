@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import { Console, Effect, Option, Predicate, Schema } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";

@@ -3,7 +3,7 @@
 /** Generic Linux entrypoint. Darwin and Windows compile their platform-specific files. */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
-import { CliError, Command } from "effect/unstable/cli";
+import { CliError, Command } from "effect/cli";
 import pc from "picocolors";
 
 import { normalizeCommandAlias } from "@/arguments";

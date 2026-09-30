@@ -1,5 +1,5 @@
 import { Option } from "effect";
-import { Flag } from "effect/unstable/cli";
+import { Flag } from "effect/cli";
 
 import { type LinuxPackageManager } from "@/platform/linux";
 import { isLinuxProfile, type LinuxProfile } from "@/update/linux";

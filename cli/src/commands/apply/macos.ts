@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { Console, Effect, Option } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig } from "@/config";
 import { tryPromise } from "@/lockfiles/effect";

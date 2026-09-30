@@ -1,5 +1,5 @@
 import { Console, Effect } from "effect";
-import { Prompt } from "effect/unstable/cli";
+import { Prompt } from "effect/cli";
 import pc from "picocolors";
 
 import type { FontFace } from "@/fonts/names";

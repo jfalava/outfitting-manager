@@ -1,4 +1,4 @@
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { optionalString } from "@/commands/linux-flags";
 import { type HostPlatform, NIX_ACTIONS, type NixAction } from "@/platform";

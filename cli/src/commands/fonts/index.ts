@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import { configureCredentialsCommand, configureEndpointCommand } from "@/commands/fonts/configure";
 import { listCommand } from "@/commands/fonts/list";

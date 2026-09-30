@@ -3,7 +3,7 @@ import { link, lstat, readFile, realpath, rename, rm, stat, writeFile } from "no
 import { join } from "node:path";
 
 import { Console, Effect, Option } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import { loadConfig } from "@/config/load";
 import {

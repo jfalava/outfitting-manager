@@ -1,5 +1,5 @@
 import { Option } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import { kindArgument } from "@/commands/lockfiles/arguments";
 import { historyLockfiles } from "@/lockfiles";
