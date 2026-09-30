@@ -5,7 +5,15 @@ description: Install the outfitting-manager CLI on Linux, macOS, or Windows.
 
 Install the latest supported CLI release with the command for your platform.
 
+The installer selects the newest stable `cli-vMAJOR.MINOR.PATCH` release. If that release is missing your platform's ZIP or SHA-256 file, installation fails with the release tag rather than installing an older version.
+
 ## Linux
+
+Requires `curl`, `unzip`, `jq`, and `sha256sum` or `shasum`. For Debian or Ubuntu, install the prerequisites first:
+
+```sh
+sudo apt-get install curl unzip jq coreutils
+```
 
 ```sh
 curl -fsSL https://outfitting.jfa.dev/install.sh | sh
@@ -14,6 +22,12 @@ curl -fsSL https://outfitting.jfa.dev/install.sh | sh
 > **Note:** Supports x64 and arm64. The installer verifies the ZIP against its SHA-256 file and installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there.
 
 ## macOS
+
+Requires `curl`, `unzip`, `jq`, and `shasum` or `sha256sum`. macOS provides the tools other than `jq`; install it with [Homebrew](https://brew.sh):
+
+```sh
+brew install jq
+```
 
 ```sh
 curl -fsSL https://outfitting.jfa.dev/install.sh | sh

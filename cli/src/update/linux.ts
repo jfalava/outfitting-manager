@@ -129,12 +129,18 @@ export async function listInstalledLinuxPackages(
 
 function installedIdentity(spec: string, inventory: LinuxPackageInventory): string | undefined {
   const identity = linuxPackageIdentity(spec);
-  if (inventory.manager === "pacman" || identity.includes(":")) {
+  if (inventory.manager === "pacman") {
     return inventory.installed.has(identity) ? identity : undefined;
   }
-  return [`${identity}:${inventory.nativeArchitecture}`, `${identity}:all`].find((candidate) =>
-    inventory.installed.has(candidate),
-  );
+  const [name, architecture = inventory.nativeArchitecture] = identity.split(":");
+  const qualified = `${name}:${architecture}`;
+  if (inventory.installed.has(qualified)) {
+    return qualified;
+  }
+  const all = `${name}:all`;
+  return architecture === inventory.nativeArchitecture && inventory.installed.has(all)
+    ? all
+    : undefined;
 }
 
 export function missingLinuxPackages(
@@ -549,10 +555,8 @@ function planLinuxPrune(
     const { command, ownership, profile } = context;
     const desired = new Set(
       declared.flatMap((spec) => {
-        const name = linuxPackageIdentity(spec);
-        return inventory.manager === "apt" && !name.includes(":")
-          ? [`${name}:${inventory.nativeArchitecture}`, `${name}:all`]
-          : [name];
+        const identity = installedIdentity(spec, inventory);
+        return identity === undefined ? [] : [identity];
       }),
     );
     const stale = owned(ownership, profile, command.manager).filter((name) => !desired.has(name));

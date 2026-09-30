@@ -18,12 +18,9 @@ $headers = @{
 $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases?per_page=30" -Headers $headers)
 $matchingReleases = @(
     $releases | Where-Object {
-        $assetNames = @($_.assets | ForEach-Object { $_.name })
         $_.draft -eq $false -and
         $_.prerelease -eq $false -and
-        $_.tag_name -match '^cli-v\d+\.\d+\.\d+$' -and
-        $assetNames -contains $archiveName -and
-        $assetNames -contains "$archiveName.sha256"
+        $_.tag_name -match '^cli-v[0-9]+\.[0-9]+\.[0-9]+$'
     }
 )
 $release = $matchingReleases |
@@ -31,7 +28,14 @@ $release = $matchingReleases |
     Select-Object -First 1
 
 if ($null -eq $release) {
-    throw "No stable release with $archiveName and its SHA-256 file was found."
+    throw 'No stable CLI release was found.'
+}
+
+$assetNames = @($release.assets | ForEach-Object { $_.name })
+foreach ($requiredAsset in @($archiveName, "$archiveName.sha256")) {
+    if ($assetNames -notcontains $requiredAsset) {
+        throw "Release $($release.tag_name) is missing $requiredAsset."
+    }
 }
 
 $archiveAsset = $release.assets | Where-Object { $_.name -eq $archiveName } | Select-Object -First 1

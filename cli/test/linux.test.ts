@@ -293,11 +293,66 @@ describe("Linux package adapter", () => {
     expect(
       missingLinuxPackages(["curl", "libc6:amd64", "libc6:i386", "fonts", "git", "git"], installed),
     ).toEqual(["libc6:amd64", "git"]);
-    expect(missingLinuxPackages(["libc6", "fonts:amd64"], installed)).toEqual([
-      "libc6",
-      "fonts:amd64",
-    ]);
+    expect(
+      missingLinuxPackages(["libc6", "fonts:amd64", "fonts:all", "fonts:i386"], installed),
+    ).toEqual(["libc6", "fonts:i386"]);
   });
+
+  test.each([true, false])(
+    "apply resolves explicit native architecture to all and retains exact ownership (installed: %s)",
+    async (alreadyInstalled) => {
+      const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-all-arch-"));
+      const repo = await createLinuxRepo(stateRoot, {
+        workstation: { apt: "ca-certificates:amd64\n" },
+      });
+      const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+      let installed = alreadyInstalled;
+      try {
+        await writeFile(
+          join(stateRoot, "linux-package-ownership.json"),
+          JSON.stringify({
+            version: 2,
+            profiles: { workstation: { apt: alreadyInstalled ? ["ca-certificates:all"] : [] } },
+          }),
+        );
+        const options = {
+          config: await loadConfig({ stateRoot }),
+          noRefresh: true,
+          yes: true,
+          prune: true,
+          ...managerTools(calls),
+          run: async (command: string, args: ReadonlyArray<string>) => {
+            calls.push({ command, args });
+            if (command === "/usr/bin/dpkg") {
+              return { code: 0, stdout: "amd64\n", stderr: "" };
+            }
+            if (command === "/usr/bin/dpkg-query") {
+              return {
+                code: 0,
+                stdout: installed ? "ca-certificates\tall\tinstall ok installed\n" : "",
+                stderr: "",
+              };
+            }
+            if (args.includes("install")) installed = true;
+            return { code: 0, stdout: "", stderr: "" };
+          },
+        };
+        await Effect.runPromise(applyLinux(options));
+        // A second apply must neither reinstall nor prune the recorded :all installation.
+        await Effect.runPromise(applyLinux(options));
+        expect(calls.filter(({ args }) => args.includes("install"))).toHaveLength(
+          alreadyInstalled ? 0 : 1,
+        );
+        expect(calls.some(({ args }) => args.includes("remove"))).toBe(false);
+        expect(
+          JSON.parse(await readFile(join(stateRoot, "linux-package-ownership.json"), "utf8")),
+        ).toEqual({ version: 2, profiles: { workstation: { apt: ["ca-certificates:all"] } } });
+      } finally {
+        await rm(stateRoot, { force: true, recursive: true });
+        await rm(repo, { force: true, recursive: true });
+      }
+    },
+  );
 
   test("Linux update upgrades installed packages without requiring BYOR configuration", async () => {
     const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-update-"));

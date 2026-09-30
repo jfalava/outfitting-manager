@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { Console, Effect } from "effect";
@@ -20,15 +20,33 @@ const pullOne = (machine: string, kind: string, outPath: string) =>
       });
     }
 
+    const destination = yield* tryPromise(() =>
+      lstat(outPath).catch((cause: unknown) => {
+        if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+          return undefined;
+        }
+        throw cause;
+      }),
+    );
+    if (destination?.isSymbolicLink()) {
+      return yield* new CliFailure({
+        message: `Refusing to replace symlink: ${outPath}; use its target path explicitly.`,
+      });
+    }
+
     const response = yield* tryPromise(() => request(["lockfiles", machine, kind]));
     yield* tryPromise(() => mkdir(dirname(outPath), { recursive: true }));
     const contents = yield* tryPromise(() => response.arrayBuffer());
     const size = yield* tryPromise(async () => {
       const staging = await mkdtemp(join(dirname(outPath), ".outfitting-pull-"));
       try {
-        const written = await Bun.write(join(staging, "snapshot"), contents);
-        await rename(join(staging, "snapshot"), outPath);
-        return written;
+        const snapshot = join(staging, "snapshot");
+        await writeFile(snapshot, new Uint8Array(contents), { mode: 0o600, flag: "wx" });
+        if (destination !== undefined) {
+          await chmod(snapshot, destination.mode & 0o777);
+        }
+        await rename(snapshot, outPath);
+        return contents.byteLength;
       } finally {
         await rm(staging, { recursive: true, force: true });
       }

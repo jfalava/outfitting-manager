@@ -19,7 +19,7 @@ Set the service URL before using other `sync` commands. Omit `<url>` to enter it
 outfitting-manager sync configure-worker https://example.com/api
 ```
 
-In a headless environment, set `OUTFITTING_LOCKFILES_URL` because the CLI does not use the OS keychain there.
+In Amp orbs (`AMP_ORB=1`), the CLI skips the OS keychain and requires both `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN`. For other noninteractive environments, set both variables to avoid keychain access or token prompts; running without a terminal does not itself disable the keychain.
 
 ## `configure-token`
 
@@ -55,7 +55,7 @@ outfitting-manager sync push nix ./saved-flake.lock
 
 **Syntax:** `outfitting-manager sync pull [<kind>] [<out-path>]`
 
-Download one saved lock file, or omit the kind (or pass `all`) to download every saved type. If you do not provide a path, files are written to their default locations in the current directory. Pull refuses to replace a Git-tracked file, but it overwrites other existing files without prompting.
+Download one saved lock file, or omit the kind (or pass `all`) to download every saved type. If you do not provide a path, files are written to their default locations in the current directory. Pull refuses to replace a Git-tracked file or a symlink; pass the target path explicitly for a symlink. Other existing files are replaced without prompting, preserving their Unix permission bits. New snapshots use mode `0600` on Unix.
 
 ```sh
 # Download a saved lock file to a specific location

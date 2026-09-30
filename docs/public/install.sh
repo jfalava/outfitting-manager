@@ -11,6 +11,7 @@ fail() {
 
 command -v curl >/dev/null 2>&1 || fail "curl is required."
 command -v unzip >/dev/null 2>&1 || fail "unzip is required."
+command -v jq >/dev/null 2>&1 || fail "jq is required."
 [ -n "${HOME:-}" ] || fail 'HOME is not set.'
 
 os=$(uname -s)
@@ -51,48 +52,20 @@ curl --fail --location --silent --show-error --retry 3 \
   -H 'X-GitHub-Api-Version: 2022-11-28' \
   "$releases_api" --output "$tmp_dir/releases.json"
 
-tag=$(awk -F '"' -v archive_name="$asset" '
-  function newer(candidate, current, candidate_parts, current_parts, i) {
-    split(candidate, candidate_parts, ".")
-    split(current, current_parts, ".")
-    for (i = 1; i <= 3; i++) {
-      if ((candidate_parts[i] + 0) > (current_parts[i] + 0)) return 1
-      if ((candidate_parts[i] + 0) < (current_parts[i] + 0)) return 0
-    }
-    return 0
-  }
-  function consider(version) {
-    if (tag ~ /^cli-v[0-9]+\.[0-9]+\.[0-9]+$/ && draft == "false" && prerelease == "false" && has_archive && has_checksum) {
-      version = substr(tag, 6)
-      if (best_tag == "" || newer(version, best_version)) {
-        best_tag = tag
-        best_version = version
-      }
-    }
-  }
-  /^  \{$/ {
-    in_release = 1
-    tag = draft = prerelease = ""
-    has_archive = has_checksum = 0
-    next
-  }
-  /^  \},?$/ {
-    if (in_release) consider()
-    in_release = 0
-    next
-  }
-  in_release && $2 == "tag_name" { tag = $4 }
-  in_release && $2 == "draft" { draft = $3; gsub(/[[:space:],:]/, "", draft) }
-  in_release && $2 == "prerelease" { prerelease = $3; gsub(/[[:space:],:]/, "", prerelease) }
-  in_release && $2 == "name" && $4 == archive_name { has_archive = 1 }
-  in_release && $2 == "name" && $4 == archive_name ".sha256" { has_checksum = 1 }
-  END {
-    if (in_release) consider()
-    print best_tag
-  }
-' "$tmp_dir/releases.json")
+jq '
+  map(select(.draft == false and .prerelease == false)
+      | select(.tag_name | test("^cli-v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+  | sort_by(.tag_name | ltrimstr("cli-v") | split(".") | map(tonumber))
+  | last // empty
+' "$tmp_dir/releases.json" > "$tmp_dir/release.json"
+tag=$(jq -r '.tag_name' "$tmp_dir/release.json")
+[ -n "$tag" ] || fail "No stable CLI release was found."
 
-[ -n "$tag" ] || fail "No stable release with $asset and its SHA-256 file was found."
+for required_asset in "$asset" "$asset.sha256"; do
+  jq -e --arg name "$required_asset" \
+    '[.assets[]?.name] | index($name) != null' "$tmp_dir/release.json" >/dev/null || \
+    fail "Release $tag is missing $required_asset."
+done
 
 release_url="https://github.com/$repository/releases/download/$tag"
 curl --fail --location --silent --show-error --retry 3 \

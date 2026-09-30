@@ -9,6 +9,8 @@ sidebar:
 
 Deploy the Outfitting service, including its API and documentation site. After deployment, the command configures this machine to use the service unless you pass `--skip-configure`.
 
+Provisioning requires a checkout of the [manager repository](https://github.com/jfalava/outfitting-manager), [Bun](https://bun.sh), and Cloudflare deployment credentials. Run `bun install` in the checkout, then run the command from the repository root. From another directory, set `OUTFITTING_IAC_DIR` to the checkout's `iac/` directory. The installed CLI binary alone does not contain the deployment stack or its dependencies.
+
 ```sh
 # Deploy with the default settings
 outfitting-manager provision
