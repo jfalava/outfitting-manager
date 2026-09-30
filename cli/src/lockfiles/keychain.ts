@@ -14,8 +14,11 @@ export function normalizeWorkerUrl(value: string): string {
     throw new Error("Worker URL must be a valid URL.");
   }
 
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Worker URL must use HTTP or HTTPS.");
+  if (parsed.protocol !== "https:") {
+    throw new Error("Worker URL must use HTTPS to protect the API token.");
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("Worker URL must not contain credentials, a query, or a fragment.");
   }
 
   return parsed.toString().replace(/\/$/, "");

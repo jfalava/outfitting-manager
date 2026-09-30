@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
@@ -190,7 +191,17 @@ export async function writeWindowsLock(
 ): Promise<string> {
   const path = windowsLockPath(options);
   await mkdir(options.root ?? stateRoot(), { recursive: true });
-  await writeFile(path, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(lock, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   return path;
 }
 

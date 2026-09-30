@@ -188,12 +188,6 @@ describe("self-update command helpers", () => {
             draft: false,
             prerelease: false,
             tag_name: "cli-v0.4.0",
-            assets: [],
-          },
-          {
-            draft: false,
-            prerelease: false,
-            tag_name: "cli-v0.3.0",
             assets: [
               {
                 name: asset,
@@ -210,13 +204,35 @@ describe("self-update command helpers", () => {
     };
 
     await expect(latestCliRelease(asset, "outfitting-manager", fetcher)).resolves.toEqual({
-      version: "0.3.0",
+      version: "0.4.0",
       assetUrl: "https://example.test/archive",
       checksumUrl: "https://example.test/archive-checksum",
       executableName: "outfitting-manager",
     });
     expect(requestUrl).toBe(
       "https://api.github.com/repos/jfalava/outfitting-manager/releases?per_page=30",
+    );
+  });
+
+  test("does not silently downgrade to an older release when latest lacks this platform's asset", async () => {
+    const asset = "outfitting-manager-linux-x64.zip";
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify([
+          { draft: false, prerelease: false, tag_name: "cli-v0.4.0", assets: [] },
+          {
+            draft: false,
+            prerelease: false,
+            tag_name: "cli-v0.3.0",
+            assets: [
+              { name: asset, browser_download_url: "https://example.test/old.zip" },
+              { name: `${asset}.sha256`, browser_download_url: "https://example.test/old.sha256" },
+            ],
+          },
+        ]),
+      );
+    await expect(latestCliRelease(asset, "outfitting-manager", fetcher)).rejects.toThrow(
+      `Release cli-v0.4.0 does not contain ${asset} and its checksum.`,
     );
   });
 

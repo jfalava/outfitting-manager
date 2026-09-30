@@ -7,8 +7,9 @@ import { r2Credentials } from "@/fonts/keychain";
 import { loadDeployConfig } from "../../../iac/src/deploy-config";
 
 export interface FontObjectStore {
-  getArchive(): Promise<Uint8Array | undefined>;
-  putArchive(archive: Uint8Array, checksum: string): Promise<void>;
+  getArchive(): Promise<{ bytes: Uint8Array; etag: string } | undefined>;
+  getChecksum(): Promise<string | undefined>;
+  putArchive(archive: Uint8Array, checksum: string, expectedEtag?: string): Promise<void>;
 }
 
 async function bodyBytes(
@@ -41,7 +42,10 @@ export async function createR2ObjectStore(): Promise<FontObjectStore> {
             Key: FONT_ARCHIVE_KEY,
           }),
         );
-        return await bodyBytes(response.Body);
+        if (!response.ETag) {
+          throw new Error("R2 font archive is missing an ETag; refusing an unsafe publish.");
+        }
+        return { bytes: await bodyBytes(response.Body), etag: response.ETag };
       } catch (cause) {
         if (cause instanceof NoSuchKey) {
           return undefined;
@@ -49,13 +53,27 @@ export async function createR2ObjectStore(): Promise<FontObjectStore> {
         throw cause;
       }
     },
-    async putArchive(archive, checksum) {
+    async getChecksum() {
+      try {
+        const response = await client.send(
+          new GetObjectCommand({ Bucket: bucket, Key: FONT_CHECKSUM_KEY }),
+        );
+        return new TextDecoder().decode(await bodyBytes(response.Body));
+      } catch (cause) {
+        if (cause instanceof NoSuchKey) {
+          return undefined;
+        }
+        throw cause;
+      }
+    },
+    async putArchive(archive, checksum, expectedEtag) {
       await client.send(
         new PutObjectCommand({
           Bucket: bucket,
           Key: FONT_ARCHIVE_KEY,
           Body: archive,
           ContentType: "application/gzip",
+          ...(expectedEtag === undefined ? { IfNoneMatch: "*" } : { IfMatch: expectedEtag }),
         }),
       );
       await client.send(
@@ -76,13 +94,21 @@ export async function loadRemoteArchive(store: FontObjectStore): Promise<FontArc
 
 export interface RemoteArchiveState {
   readonly bytes: Uint8Array | undefined;
+  readonly etag: string | undefined;
   readonly archive: FontArchive;
 }
 
 export async function loadRemoteArchiveState(store: FontObjectStore): Promise<RemoteArchiveState> {
-  const bytes = await store.getArchive();
-  if (bytes === undefined || bytes.byteLength === 0) {
-    return { bytes: undefined, archive: emptyFontArchive() };
+  const current = await store.getArchive();
+  if (current === undefined) {
+    return { bytes: undefined, etag: undefined, archive: emptyFontArchive() };
   }
-  return { bytes, archive: await unpackFontArchive(bytes) };
+  if (current.bytes.byteLength === 0) {
+    throw new Error("R2 font archive is empty; refusing to treat it as a new archive.");
+  }
+  return {
+    bytes: current.bytes,
+    etag: current.etag,
+    archive: await unpackFontArchive(current.bytes),
+  };
 }

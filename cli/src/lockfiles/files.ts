@@ -85,20 +85,32 @@ export function resolveKindSelection(kind: string | undefined): KindSelection {
   return { mode: "one", kind: trimmed };
 }
 
-export async function isGitTrackedFile(path: string): Promise<boolean> {
-  const requestedPath = resolvePath(path);
-  const absolutePath = await realpath(requestedPath).catch((cause: unknown) => {
-    if (isGitExecutionError(cause) && cause.code === "ENOENT") {
-      return requestedPath;
+async function isGitTrackedAt(absolutePath: string): Promise<boolean> {
+  let canonicalPath = absolutePath;
+  let directory = dirname(absolutePath);
+  while (true) {
+    try {
+      const existingDirectory = await realpath(directory);
+      canonicalPath = resolvePath(existingDirectory, relative(directory, absolutePath));
+      directory = existingDirectory;
+      break;
+    } catch (cause) {
+      if (!isGitExecutionError(cause) || cause.code !== "ENOENT") {
+        throw cause;
+      }
+      const parent = dirname(directory);
+      if (parent === directory) {
+        throw cause;
+      }
+      directory = parent;
     }
-    throw cause;
-  });
+  }
   let root: string;
 
   try {
     const { stdout } = await execFileAsync(
       "git",
-      ["-C", dirname(absolutePath), "rev-parse", "--show-toplevel"],
+      ["-C", directory, "rev-parse", "--show-toplevel"],
       { encoding: "utf8" },
     );
     root = await realpath(stdout.trim());
@@ -113,7 +125,7 @@ export async function isGitTrackedFile(path: string): Promise<boolean> {
     throw new Error(`Git returned an empty repository root for: ${absolutePath}`);
   }
 
-  const repositoryPath = relative(root, absolutePath);
+  const repositoryPath = relative(root, canonicalPath);
   try {
     await execFileAsync("git", ["-C", root, "ls-files", "--error-unmatch", "--", repositoryPath]);
     return true;
@@ -123,6 +135,20 @@ export async function isGitTrackedFile(path: string): Promise<boolean> {
     }
     throw cause;
   }
+}
+
+export async function isGitTrackedFile(path: string): Promise<boolean> {
+  const requestedPath = resolvePath(path);
+  if (await isGitTrackedAt(requestedPath)) {
+    return true;
+  }
+  const target = await realpath(requestedPath).catch((cause: unknown) => {
+    if (isGitExecutionError(cause) && cause.code === "ENOENT") {
+      return requestedPath;
+    }
+    throw cause;
+  });
+  return target !== requestedPath && isGitTrackedAt(target);
 }
 
 export function normalizeSha256(value: string): string {

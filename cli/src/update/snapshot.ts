@@ -1,11 +1,13 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Console, Data, Effect } from "effect";
 
 import { loadConfig, type ManagerConfig } from "@/config";
+import { CliFailure } from "@/errors";
 import { pushLockfile } from "@/lockfiles";
 import { tryPromise } from "@/lockfiles/effect";
+import { isGitTrackedFile } from "@/lockfiles/files";
 import { runCommand } from "@/process";
 import { ui } from "@/ui";
 
@@ -76,17 +78,32 @@ export const pushHomebrewInventory = (options: PushHomebrewInventoryOptions = {}
     const body = yield* captureHomebrewInventory(run);
 
     const inventoryPath = join(config.stateRoot, "homebrew-inventory.txt");
-    yield* tryPromise(async () => {
-      await mkdir(config.stateRoot, { recursive: true });
-      await writeFile(inventoryPath, body, "utf8");
-    });
-    if (!options.noPush) {
-      yield* Console.log(ui.muted(`Pushing ${config.machineId}/${HOMEBREW_INVENTORY_KIND}…`));
-      yield* pushLockfile({
-        machine: config.machineId,
-        kind: HOMEBREW_INVENTORY_KIND,
-        path: inventoryPath,
+    if (!options.noPush && (yield* tryPromise(() => isGitTrackedFile(inventoryPath)))) {
+      return yield* new CliFailure({
+        message: `Refusing to upload Git-tracked inventory: ${inventoryPath}.`,
       });
+    }
+    const staging = yield* tryPromise(async () => {
+      await mkdir(config.stateRoot, { recursive: true });
+      return mkdtemp(join(config.stateRoot, ".outfitting-homebrew-"));
+    });
+    try {
+      const snapshot = join(staging, "upload.txt");
+      yield* tryPromise(async () => {
+        await writeFile(snapshot, body, { encoding: "utf8", mode: 0o600 });
+        await writeFile(join(staging, "local.txt"), body, { encoding: "utf8", mode: 0o600 });
+        await rename(join(staging, "local.txt"), inventoryPath);
+      });
+      if (!options.noPush) {
+        yield* Console.log(ui.muted(`Pushing ${config.machineId}/${HOMEBREW_INVENTORY_KIND}…`));
+        yield* pushLockfile({
+          machine: config.machineId,
+          kind: HOMEBREW_INVENTORY_KIND,
+          path: snapshot,
+        });
+      }
+    } finally {
+      yield* tryPromise(() => rm(staging, { recursive: true, force: true }));
     }
     yield* Console.log(ui.success("Homebrew inventory stored."));
   });

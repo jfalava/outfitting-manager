@@ -1,18 +1,43 @@
 import { Console, Effect } from "effect";
 
-import { checksumSidecar, packFontArchive, sha256Hex } from "@/fonts/archive";
+import { checksumSidecar, packFontArchive, parseChecksumSidecar, sha256Hex } from "@/fonts/archive";
 import { confirmPlan, printFaceTable } from "@/fonts/display";
-import { inventoryFromFaces, pullInventory, pushInventory } from "@/fonts/inventory";
+import {
+  inventoriesEqual,
+  inventoryFromFaces,
+  pullInventory,
+  pushInventory,
+} from "@/fonts/inventory";
 import type { FontPlan } from "@/fonts/plan";
-import type { FontObjectStore } from "@/fonts/r2";
+import type { FontObjectStore, RemoteArchiveState } from "@/fonts/r2";
 import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
+
+async function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {
+  const [snapshot, checksum] = await Promise.all([pullInventory(), store.getChecksum()]);
+  if (remote.bytes === undefined) {
+    if (snapshot !== undefined || checksum !== undefined) {
+      throw new Error("Font archive, checksum, and inventory disagree; refusing to publish.");
+    }
+  } else if (
+    snapshot === undefined ||
+    checksum === undefined ||
+    parseChecksumSidecar(checksum) !== sha256Hex(remote.bytes) ||
+    !inventoriesEqual(
+      snapshot.inventory,
+      inventoryFromFaces(remote.archive.faces, sha256Hex(remote.bytes), remote.bytes.byteLength),
+    )
+  ) {
+    throw new Error("Font archive, checksum, and inventory disagree; refusing to publish.");
+  }
+  return snapshot;
+}
 
 export function applyFontPlan(
   plan: FontPlan,
   dryRun: boolean,
   yes: boolean,
-  store: FontObjectStore,
+  { store, remote }: { store: FontObjectStore; remote: RemoteArchiveState },
 ) {
   return Effect.gen(function* () {
     yield* printFaceTable(plan.faces);
@@ -27,10 +52,10 @@ export function applyFontPlan(
       return;
     }
 
+    const snapshot = yield* tryPromise(() => checkBaseline(store, remote));
     const packed = yield* tryPromise(() => packFontArchive(plan.files));
     const checksum = checksumSidecar(packed);
-    const snapshot = yield* tryPromise(() => pullInventory());
-    yield* tryPromise(() => store.putArchive(packed, checksum));
+    yield* tryPromise(() => store.putArchive(packed, checksum, remote.etag));
 
     const kept = plan.faces.filter((face) => face.change !== "removed");
     const inventory = inventoryFromFaces(kept, sha256Hex(packed), packed.byteLength);

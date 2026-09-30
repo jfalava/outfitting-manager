@@ -203,8 +203,13 @@ function compareScoop(
   const desiredPackages = desired.packages.map((spec) => ({
     name: `package: ${packageName(spec)}`,
   }));
+  const declaredNames = new Set(desiredPackages.map((entry) => entry.name.toLowerCase()));
   const actualPackages = actual.apps
-    .filter((app) => !/\bGlobal install\b/i.test(app.Info))
+    .filter(
+      (app) =>
+        !/\bGlobal install\b/i.test(app.Info) ||
+        declaredNames.has(`package: ${app.Name}`.toLowerCase()),
+    )
     .map((app) => ({ name: `package: ${app.Name}` }));
   return compareSets(
     "scoop",

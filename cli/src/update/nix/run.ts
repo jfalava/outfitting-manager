@@ -329,6 +329,8 @@ function runNixUpdate(
           machine: config.machineId,
           platform,
           profile: configuredProfile(config, platform, options.profile),
+          systemConfig,
+          repoRoot: repo.root,
         }),
       );
 

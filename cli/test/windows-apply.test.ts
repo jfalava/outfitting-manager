@@ -204,6 +204,45 @@ describe("Windows BYOR apply", () => {
     expect((await readWindowsLock(config)).profiles).toEqual([]);
   });
 
+  test("refuses a same-named Scoop bucket from a different source before installing", async () => {
+    const stateRoot = await tempRoot("outfitting-windows-bucket-state-");
+    const repo = await tempRoot("outfitting-windows-bucket-repo-");
+    await writeFile(join(repo, "apps.list"), "Acme.Editor\n");
+    await writeFile(
+      join(repo, "scoop.txt"),
+      'bucket "https://trusted.example/scoop-tools"\npackage "tools/Acme.App"\n',
+    );
+    await writeFile(
+      join(stateRoot, "config.toml"),
+      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[windows.shared.scoop]\nmanifest = "scoop.txt"\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+    );
+    const config = await loadConfig({ stateRoot });
+    const installs: string[][] = [];
+
+    await expect(
+      Effect.runPromise(
+        applyWindows({
+          config,
+          yes: true,
+          which: async (command) => (command === "scoop" ? "scoop.cmd" : "winget.exe"),
+          run: async (_command, args) => {
+            if (args.includes("export"))
+              return ok(
+                JSON.stringify({
+                  apps: [],
+                  buckets: [{ Name: "tools", Source: "https://untrusted.example/scoop-tools" }],
+                }),
+              );
+            if (args.includes("install")) installs.push([...args]);
+            return args[0] === "list" ? missing() : ok();
+          },
+        }),
+      ),
+    ).rejects.toThrow("Refusing to install from a different source");
+    expect(installs).toEqual([]);
+    expect((await readWindowsLock(config)).operations).toEqual([]);
+  });
+
   test("default apply continues after an install failure and defers pruning", async () => {
     const stateRoot = await tempRoot("outfitting-windows-failed-state-");
     const repo = await tempRoot("outfitting-windows-failed-repo-");
@@ -227,26 +266,28 @@ describe("Windows BYOR apply", () => {
 
     const installAttempts: string[] = [];
     const commands: string[][] = [];
-    await Effect.runPromise(
-      applyWindows({
-        config,
-        yes: true,
-        prune: true,
-        which: async () => "winget.exe",
-        run: async (_command, args) => {
-          commands.push([...args]);
-          if (args[0] === "list") return missing();
-          if (args[0] === "install") {
-            const name = args[2] ?? "";
-            installAttempts.push(name);
-            return name === "Acme.Broken"
-              ? { code: 1, stdout: "", stderr: "failed" }
-              : { code: 43, stdout: "already installed", stderr: "" };
-          }
-          return ok();
-        },
-      }),
-    );
+    await expect(
+      Effect.runPromise(
+        applyWindows({
+          config,
+          yes: true,
+          prune: true,
+          which: async () => "winget.exe",
+          run: async (_command, args) => {
+            commands.push([...args]);
+            if (args[0] === "list") return missing();
+            if (args[0] === "install") {
+              const name = args[2] ?? "";
+              installAttempts.push(name);
+              return name === "Acme.Broken"
+                ? { code: 1, stdout: "", stderr: "failed" }
+                : { code: 43, stdout: "already installed", stderr: "" };
+            }
+            return ok();
+          },
+        }),
+      ),
+    ).rejects.toThrow(/apply was partial/);
 
     const lock = await readWindowsLock(config);
     expect(installAttempts).toEqual(["Acme.Broken", "Acme.Editor"]);
@@ -260,6 +301,50 @@ describe("Windows BYOR apply", () => {
     const messages = output.mock.calls.flat().join(" ");
     expect(messages).toContain("Windows apply was partial");
     expect(messages).not.toContain("Windows declarations applied locally.");
+  });
+
+  test("warns about stale ownership and makes no changes when pruning is declined", async () => {
+    const stateRoot = await tempRoot("outfitting-windows-prune-state-");
+    const repo = await tempRoot("outfitting-windows-prune-repo-");
+    await writeFile(join(repo, "apps.list"), "Acme.Kept\n");
+    await writeFile(
+      join(stateRoot, "config.toml"),
+      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+    );
+    const config = await loadConfig({ stateRoot });
+    const previous = await readWindowsLock(config);
+    previous.packages.winget.push({
+      name: "Manually.Reinstalled",
+      args: ["install", "--id", "Manually.Reinstalled", "--source", "winget"],
+      origin: "baseline",
+      installedBy: "outfitting",
+      owners: ["work"],
+    });
+    await writeWindowsLock(previous, { root: stateRoot });
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    let asked = false;
+
+    await Effect.runPromise(
+      applyWindows({
+        config,
+        prune: true,
+        which: async () => "winget.exe",
+        run: async (_command, args) => {
+          if (args[0] === "list") return ok();
+          throw new Error("Package operations must not run before confirmation.");
+        },
+        confirm: Effect.sync(() => {
+          asked = true;
+          return false;
+        }),
+      }),
+    );
+
+    expect(asked).toBe(true);
+    expect(output.mock.calls.flat().join(" ")).toMatch(
+      /remove winget: Manually\.Reinstalled.*external uninstall and reinstall cannot be detected/i,
+    );
+    expect(await readWindowsLock(config)).toEqual(previous);
   });
 
   test("default apply continues from failed WinGet installs through Scoop packages", async () => {
@@ -286,33 +371,37 @@ describe("Windows BYOR apply", () => {
     const installedScoop: string[] = [];
     const commands: Array<{ command: string; args: string[] }> = [];
 
-    await Effect.runPromise(
-      applyWindows({
-        config,
-        yes: true,
-        which: async (manager) =>
-          ({
-            winget: "winget.exe",
-            scoop: "scoop.cmd",
-          })[manager],
-        run: async (command, args) => {
-          commands.push({ command, args: [...args] });
-          if (command === "winget.exe" && args[0] === "list") return missing();
-          if (command === "winget.exe" && args[0] === "install") {
-            return { code: 1, stdout: "", stderr: "failed" };
-          }
-          if (args.includes("export")) {
-            return { code: 0, stdout: '{"apps":[],"buckets":[]}', stderr: "" };
-          }
-          if (args.includes("install")) {
-            const packageName = args.at(-1) ?? "";
-            installedScoop.push(packageName);
-            return packageName === "Broken.Tool" ? { code: 1, stdout: "", stderr: "failed" } : ok();
-          }
-          return ok();
-        },
-      }),
-    );
+    await expect(
+      Effect.runPromise(
+        applyWindows({
+          config,
+          yes: true,
+          which: async (manager) =>
+            ({
+              winget: "winget.exe",
+              scoop: "scoop.cmd",
+            })[manager],
+          run: async (command, args) => {
+            commands.push({ command, args: [...args] });
+            if (command === "winget.exe" && args[0] === "list") return missing();
+            if (command === "winget.exe" && args[0] === "install") {
+              return { code: 1, stdout: "", stderr: "failed" };
+            }
+            if (args.includes("export")) {
+              return { code: 0, stdout: '{"apps":[],"buckets":[]}', stderr: "" };
+            }
+            if (args.includes("install")) {
+              const packageName = args.at(-1) ?? "";
+              installedScoop.push(packageName);
+              return packageName === "Broken.Tool"
+                ? { code: 1, stdout: "", stderr: "failed" }
+                : ok();
+            }
+            return ok();
+          },
+        }),
+      ),
+    ).rejects.toThrow(/apply was partial/);
 
     const lock = await readWindowsLock(config);
     expect(installedScoop).toEqual(["Broken.Tool", "Good.Tool"]);
@@ -646,26 +735,28 @@ describe("Windows BYOR apply", () => {
     );
     const config = await loadConfig({ stateRoot });
 
-    await Effect.runPromise(
-      applyWindows({
-        config,
-        yes: true,
-        which: async (command) =>
-          command === "scoop" ? "scoop.cmd" : command === "winget" ? "winget.exe" : undefined,
-        run: async (_command, args) => {
-          if (args.includes("export")) {
-            return ok(
-              JSON.stringify({
-                apps: [{ Name: "tirith", Source: "test", Version: "1.0", Info: "" }],
-                buckets: [],
-              }),
-            );
-          }
-          if (args.includes("prefix")) return ok(prefix);
-          return ok();
-        },
-      }),
-    );
+    await expect(
+      Effect.runPromise(
+        applyWindows({
+          config,
+          yes: true,
+          which: async (command) =>
+            command === "scoop" ? "scoop.cmd" : command === "winget" ? "winget.exe" : undefined,
+          run: async (_command, args) => {
+            if (args.includes("export")) {
+              return ok(
+                JSON.stringify({
+                  apps: [{ Name: "tirith", Source: "test", Version: "1.0", Info: "" }],
+                  buckets: [],
+                }),
+              );
+            }
+            if (args.includes("prefix")) return ok(prefix);
+            return ok();
+          },
+        }),
+      ),
+    ).rejects.toThrow(/apply was partial/);
 
     const lock = await readWindowsLock(config);
     expect(lock.profiles).toEqual([]);

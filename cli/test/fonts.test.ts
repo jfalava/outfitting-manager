@@ -231,6 +231,43 @@ describe("fonts helpers", () => {
     expect(removed.faces.find((face) => face.family === "Dank Mono")?.change).toBe("unchanged");
   });
 
+  test("a family slug requires --family; a face name removes only that style", () => {
+    const published = planPublish(
+      emptyFontArchive(),
+      [
+        {
+          sourcePath: "regular.otf",
+          relativePath: "regular.otf",
+          bytes: makeOpenType("IBM Plex Sans", "Regular", "IBMPlexSans-Regular"),
+        },
+        {
+          sourcePath: "bold.otf",
+          relativePath: "bold.otf",
+          bytes: makeOpenType("IBM Plex Sans", "Bold", "IBMPlexSans-Bold"),
+        },
+        {
+          sourcePath: "dank.otf",
+          relativePath: "dank.otf",
+          bytes: makeOpenType("Dank Mono", "Italic", "DankMono-Italic"),
+        },
+      ],
+      { replace: false, keepNames: false, allowSystemNames: false },
+    );
+    const archive = { files: published.files, faces: published.faces };
+    expect(() => planRemove(archive, ["ibm-plex-sans"], false)).toThrow("No matching fonts");
+    const single = planRemove(archive, ["IBMPlexSans-Regular"], false);
+    expect(
+      single.faces.filter((face) => face.change === "removed").map((face) => face.style),
+    ).toEqual(["Regular"]);
+    const family = planRemove(archive, ["ibm-plex-sans"], true);
+    expect(
+      family.faces
+        .filter((face) => face.change === "removed")
+        .map((face) => face.style)
+        .sort(),
+    ).toEqual(["Bold", "Regular"]);
+  });
+
   test("skips licenses and hidden files when collecting a source directory", async () => {
     const directory = await mkdtemp(join(tmpdir(), "outfitting-fonts-"));
     await writeFile(join(directory, "LICENSE"), "not a font");

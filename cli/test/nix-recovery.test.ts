@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -87,72 +87,111 @@ describe("nix recovery checkpoint", () => {
 });
 
 describe("recoverNix", () => {
-  test("activates prepared checkpoints, publishes with the base hash, and clears them", async () => {
-    const parent = await tempDir();
-    const recoveryDir = join(parent, "nix-lock-recovery");
-    const lockSource = join(parent, "source.lock");
-    await writeFile(lockSource, '{ "lock": true }\n', "utf8");
-    await prepareNixRecovery({
-      lockPath: lockSource,
-      baseHash: "a".repeat(64),
-      recoveryDir,
-    });
-
-    const config: ManagerConfig = {
-      configPath: join(parent, "state", "config.toml"),
-      stateRoot: join(parent, "state"),
-      machineId: "test:aarch64-darwin",
-      machineIdOverridden: true,
-    };
-    const repo = {
-      root: "/repo",
-      contract: { schema: 1 as const, profiles: {} },
-      flakePath: "/repo/system/macos",
-      darwinNixPath: "/repo/system/macos/darwin.nix",
-      flakeKind: "macos" as const,
-      systemAttr: "darwinConfigurations.macos.system",
-    };
-    const calls: string[] = [];
-    let pushed: Parameters<NonNullable<RecoverNixOptions["push"]>>[0] | undefined;
-
-    const build: NonNullable<RecoverNixOptions["build"]> = async (options) => {
-      calls.push(`build:${options.lockPath}:${options.mode}`);
-      return "/nix/store/recovered-system";
-    };
-    const activate: NonNullable<RecoverNixOptions["activate"]> = async (options) => {
-      calls.push(`activate:${options.systemConfig}`);
-    };
-    const push: NonNullable<RecoverNixOptions["push"]> = (options) =>
-      Effect.sync(() => {
-        pushed = options;
-        return undefined;
+  test.skipIf(process.platform === "darwin")(
+    "activates the pinned prepared build without rebuilding and publishes its lock",
+    async () => {
+      const parent = await tempDir();
+      const recoveryDir = join(parent, "nix-lock-recovery");
+      const lockSource = join(parent, "source.lock");
+      const systemConfig = join(parent, "built-system");
+      await mkdir(systemConfig);
+      await writeFile(lockSource, '{ "lock": true }\n', "utf8");
+      await prepareNixRecovery({
+        lockPath: lockSource,
+        baseHash: "a".repeat(64),
+        systemConfig,
+        repoRoot: "/repo",
+        platform: "linux",
+        recoveryDir,
       });
 
-    await Effect.runPromise(
-      recoverNix({
-        config,
-        repo,
-        recoveryDir,
-        which: async () => "/nix/bin/nix",
-        build,
-        activate,
-        push,
-        ensureSymlinks: async () => undefined,
-      }),
-    );
+      const config: ManagerConfig = {
+        configPath: join(parent, "state", "config.toml"),
+        stateRoot: join(parent, "state"),
+        machineId: "test:aarch64-linux",
+        machineIdOverridden: true,
+      };
+      const calls: string[] = [];
+      let pushed: Parameters<NonNullable<RecoverNixOptions["push"]>>[0] | undefined;
 
-    expect(calls).toEqual([
-      `build:${join(recoveryDir, "flake.lock")}:build`,
-      "activate:/nix/store/recovered-system",
-    ]);
-    expect(pushed).toMatchObject({
-      machine: config.machineId,
-      kind: "nix",
-      path: join(recoveryDir, "flake.lock"),
-      ifMatch: "a".repeat(64),
-    });
-    expect(await hasNixRecovery(recoveryDir)).toBe(false);
-  });
+      const activateHomeManager: NonNullable<RecoverNixOptions["activateHomeManager"]> = async (
+        options,
+      ) => {
+        calls.push(`activate:${options.activationPackage}:${options.env?.OUTFITTING_REPO}`);
+      };
+      const push: NonNullable<RecoverNixOptions["push"]> = (options) =>
+        Effect.sync(() => {
+          pushed = options;
+          return undefined;
+        });
+
+      await Effect.runPromise(
+        recoverNix({
+          config,
+          recoveryDir,
+          activateHomeManager,
+          push,
+        }),
+      );
+
+      expect(calls).toEqual([`activate:${systemConfig}:/repo`]);
+      expect(pushed).toMatchObject({
+        machine: config.machineId,
+        kind: "nix",
+        path: join(recoveryDir, "flake.lock"),
+        ifMatch: "a".repeat(64),
+      });
+      expect(await hasNixRecovery(recoveryDir)).toBe(false);
+    },
+  );
+
+  test.skipIf(process.platform === "darwin")(
+    "keeps legacy and garbage-collected prepared checkpoints without activating or publishing",
+    async () => {
+      const parent = await tempDir();
+      const config: ManagerConfig = {
+        configPath: join(parent, "config.toml"),
+        stateRoot: parent,
+        machineId: "test:aarch64-linux",
+        machineIdOverridden: true,
+      };
+      const lockSource = join(parent, "source.lock");
+      await writeFile(lockSource, '{"version":7}\n');
+      const calls: string[] = [];
+      for (const [label, systemConfig] of [
+        ["legacy", undefined],
+        ["collected", join(parent, "missing-system")],
+      ] as const) {
+        const recoveryDir = join(parent, label);
+        await prepareNixRecovery({
+          lockPath: lockSource,
+          baseHash: "a".repeat(64),
+          platform: "linux",
+          repoRoot: parent,
+          systemConfig,
+          recoveryDir,
+        });
+        await expect(
+          Effect.runPromise(
+            recoverNix({
+              config,
+              recoveryDir,
+              activateHomeManager: async () => {
+                calls.push("activate");
+              },
+              push: () =>
+                Effect.sync(() => {
+                  calls.push("push");
+                  return undefined;
+                }),
+            }),
+          ),
+        ).rejects.toThrow(/pinned build|no longer exists/);
+        expect((await readNixRecovery(recoveryDir))?.phase).toBe("prepared");
+      }
+      expect(calls).toEqual([]);
+    },
+  );
 
   test("retains the checkpoint when publishing fails", async () => {
     const parent = await tempDir();
@@ -172,14 +211,6 @@ describe("recoverNix", () => {
       machineId: "test:aarch64-darwin",
       machineIdOverridden: true,
     };
-    const repo = {
-      root: "/repo",
-      contract: { schema: 1 as const, profiles: {} },
-      flakePath: "/repo/system/macos",
-      darwinNixPath: "/repo/system/macos/darwin.nix",
-      flakeKind: "macos" as const,
-      systemAttr: "darwinConfigurations.macos.system",
-    };
     const push: NonNullable<RecoverNixOptions["push"]> = () =>
       Effect.fail(new CliFailure({ message: "stale remote lock" }));
 
@@ -187,11 +218,8 @@ describe("recoverNix", () => {
       Effect.runPromise(
         recoverNix({
           config,
-          repo,
           recoveryDir,
-          which: async () => "/nix/bin/nix",
           push,
-          ensureSymlinks: async () => undefined,
         }),
       ),
     ).rejects.toThrow("stale remote lock");
@@ -206,6 +234,8 @@ describe("recoverNix", () => {
       const recoveryDir = join(parent, "nix-lock-recovery");
       const lockSource = join(parent, "source.lock");
       const baseHash = "b".repeat(64);
+      const systemConfig = join(parent, "built-home");
+      await mkdir(systemConfig);
       await writeFile(lockSource, '{"version":7}\n', "utf8");
       await prepareNixRecovery({
         lockPath: lockSource,
@@ -213,6 +243,8 @@ describe("recoverNix", () => {
         machine: "test:aarch64-linux",
         platform: "linux",
         profile: "workstation",
+        systemConfig,
+        repoRoot: "/repo",
         recoveryDir,
       });
 
@@ -222,28 +254,13 @@ describe("recoverNix", () => {
         machineId: "test:aarch64-linux",
         machineIdOverridden: true,
       };
-      const repo = {
-        root: "/repo",
-        contract: { schema: 1 as const, profiles: {} },
-        flakePath: "/repo/system/home",
-        darwinNixPath: "",
-        flakeKind: "home-manager" as const,
-        systemAttr: "homeConfigurations.work.activationPackage",
-        homeManagerName: "work",
-      };
       const calls: string[] = [];
       let pushed: Parameters<NonNullable<RecoverNixOptions["push"]>>[0] | undefined;
 
       await Effect.runPromise(
         recoverNix({
           config,
-          repo,
           recoveryDir,
-          which: async () => "/nix/bin/nix",
-          build: async (options) => {
-            calls.push(`build:${options.lockPath}:${options.mode}`);
-            return "/nix/store/home-activation";
-          },
           activateHomeManager: async (options) => {
             calls.push(`activate:${options.activationPackage}`);
           },
@@ -255,14 +272,10 @@ describe("recoverNix", () => {
               pushed = options;
               return undefined;
             }),
-          ensureSymlinks: async () => undefined,
         }),
       );
 
-      expect(calls).toEqual([
-        `build:${join(recoveryDir, "flake.lock")}:build`,
-        "activate:/nix/store/home-activation",
-      ]);
+      expect(calls).toEqual([`activate:${systemConfig}`]);
       expect(pushed).toMatchObject({
         machine: config.machineId,
         kind: "nix",

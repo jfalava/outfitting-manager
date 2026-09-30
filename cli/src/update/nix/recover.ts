@@ -1,16 +1,14 @@
-import { join } from "node:path";
+import { stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 
 import { Console, Effect } from "effect";
 
-import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
-import { resolveOutfittingRepo, type OutfittingRepo } from "@/config/repo";
+import { loadConfig, type ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
 import { pushLockfile } from "@/lockfiles";
 import { tryPromise } from "@/lockfiles/effect";
-import { which } from "@/process";
 import { ui } from "@/ui";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
-import { buildNixSystem } from "@/update/nix/build";
 import {
   clearNixRecovery,
   defaultNixRecoveryDir,
@@ -18,30 +16,14 @@ import {
   setNixRecoveryPhase,
   type NixRecoveryState,
 } from "@/update/nix/recovery";
-import { ensureNixSymlinks } from "@/update/nix/symlinks";
 import { NIX_LOCK_KIND } from "@/update/nix/types";
 
 export interface RecoverNixOptions {
   config?: ManagerConfig;
-  repo?: OutfittingRepo;
   recoveryDir?: string;
-  which?: typeof which;
-  build?: typeof buildNixSystem;
   activate?: typeof activateNixSystem;
   activateHomeManager?: typeof activateHomeManager;
   push?: typeof pushLockfile;
-  ensureSymlinks?: typeof ensureNixSymlinks;
-}
-
-function validateRecoveryRepo(repo: OutfittingRepo): Effect.Effect<void, CliFailure> {
-  if (repo.flakeKind === "none" || repo.flakePath.length === 0) {
-    return Effect.fail(
-      new CliFailure({
-        message: "The recovery checkpoint's BYOR profile does not declare a Nix flake.",
-      }),
-    );
-  }
-  return Effect.void;
 }
 
 function recoveryIfMatch(baseHash: string): string | undefined {
@@ -50,53 +32,46 @@ function recoveryIfMatch(baseHash: string): string | undefined {
 
 function activatePreparedNix(
   options: RecoverNixOptions,
-  config: ManagerConfig,
   state: NixRecoveryState,
   recoveryDir: string,
 ) {
   return Effect.gen(function* () {
-    const whichFn = options.which ?? which;
-    const nixPath = yield* tryPromise(() => whichFn("nix"));
-    if (nixPath === undefined) {
-      return yield* new CliFailure({ message: "nix is not installed or not in PATH." });
+    if (
+      state.platform === undefined ||
+      state.systemConfig === undefined ||
+      !isAbsolute(state.systemConfig) ||
+      (state.platform === "linux" && (state.repoRoot === undefined || !isAbsolute(state.repoRoot)))
+    ) {
+      return yield* new CliFailure({
+        message:
+          "Legacy prepared Nix checkpoint has no pinned build and cannot safely activate. Inspect the checkpoint before recovering it manually.",
+      });
     }
-
-    const platform = state.platform ?? (process.platform === "darwin" ? "macos" : "linux");
-    const repo =
-      options.repo ??
-      (yield* tryPromise(() =>
-        resolveOutfittingRepo({
-          config,
-          profile: configuredProfile(config, platform, state.profile),
-          platform,
-        }),
-      ));
-    yield* validateRecoveryRepo(repo);
-    const ensureSymlinks = options.ensureSymlinks ?? ensureNixSymlinks;
-    yield* tryPromise(() => ensureSymlinks(repo));
-
-    const build = options.build ?? buildNixSystem;
-    const activate = options.activate ?? activateNixSystem;
-    yield* Console.log(ui.heading("Building the Nix recovery checkpoint…"));
-    const systemConfig = yield* tryPromise(() =>
-      build({
-        repo,
-        lockPath: state.lockPath,
-        outputLockPath: join(recoveryDir, "build-flake.lock"),
-        mode: "build",
-      }),
+    const available = yield* Effect.promise(async () =>
+      stat(state.systemConfig!).then(
+        (info) => info.isDirectory(),
+        () => false,
+      ),
     );
-    if (repo.flakeKind === "home-manager") {
+    if (!available) {
+      return yield* new CliFailure({
+        message: `Pinned Nix build no longer exists: ${state.systemConfig}. Checkpoint retained; refusing to rebuild from a changed source.`,
+      });
+    }
+    const activate = options.activate ?? activateNixSystem;
+    if (state.platform === "linux") {
       const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
       const env: NodeJS.ProcessEnv = {
         ...process.env,
-        OUTFITTING_REPO: repo.root,
+        OUTFITTING_REPO: state.repoRoot,
       };
       yield* Console.log(ui.heading("Activating the recovered Home Manager profile…"));
-      yield* tryPromise(() => activateHomeManagerFn({ activationPackage: systemConfig, env }));
+      yield* tryPromise(() =>
+        activateHomeManagerFn({ activationPackage: state.systemConfig!, env }),
+      );
     } else {
       yield* Console.log(ui.heading("Activating the recovered nix-darwin system…"));
-      yield* tryPromise(() => activate({ systemConfig }));
+      yield* tryPromise(() => activate({ systemConfig: state.systemConfig! }));
     }
     yield* tryPromise(() => setNixRecoveryPhase("activated", recoveryDir));
   });
@@ -128,7 +103,7 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
     const push = options.push ?? pushLockfile;
 
     if (state.phase === "prepared") {
-      yield* activatePreparedNix(options, config, state, recoveryDir);
+      yield* activatePreparedNix(options, state, recoveryDir);
     }
 
     yield* Console.log(ui.heading("Publishing the recovered Nix lock…"));

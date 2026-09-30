@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { Console, Effect } from "effect";
@@ -23,7 +23,16 @@ const pullOne = (machine: string, kind: string, outPath: string) =>
     const response = yield* tryPromise(() => request(["lockfiles", machine, kind]));
     yield* tryPromise(() => mkdir(dirname(outPath), { recursive: true }));
     const contents = yield* tryPromise(() => response.arrayBuffer());
-    const size = yield* tryPromise(() => Bun.write(outPath, contents));
+    const size = yield* tryPromise(async () => {
+      const staging = await mkdtemp(join(dirname(outPath), ".outfitting-pull-"));
+      try {
+        const written = await Bun.write(join(staging, "snapshot"), contents);
+        await rename(join(staging, "snapshot"), outPath);
+        return written;
+      } finally {
+        await rm(staging, { recursive: true, force: true });
+      }
+    });
 
     yield* Console.log(
       ui.success(

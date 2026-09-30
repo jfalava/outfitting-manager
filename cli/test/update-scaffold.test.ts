@@ -50,8 +50,23 @@ describe("macOS CLI command boundaries", () => {
     expect(text).toMatch(/\bsync\b/);
     expect(text).not.toMatch(/^\s+lockfiles\s/m);
     expect(text).toMatch(/^\s+status\s/m);
-    expect(text).toMatch(/\bsnapshot\b/);
+    expect(text).toMatch(/^\s+homebrew\s/m);
+    expect(text).not.toMatch(/^\s+snapshot\s/m);
     expect(text).toMatch(/\brecover\b/);
+  });
+
+  test("homebrew help exposes inventory as an explicit action", async () => {
+    const { code, stdout, stderr } = await runCli(["homebrew", "--help"]);
+    const text = `${stdout}\n${stderr}`;
+    expect(code).toBe(0);
+    expect(text).toMatch(/^\s+inventory\s/m);
+  });
+
+  test("homebrew inventory help describes capturing the observed inventory", async () => {
+    const { code, stdout, stderr } = await runCli(["homebrew", "inventory", "--help"]);
+    const text = `${stdout}\n${stderr}`;
+    expect(code).toBe(0);
+    expect(text).toMatch(/Capture and push the observed Homebrew inventory/);
   });
 
   test("upgrade resolves to the self-update command help", async () => {

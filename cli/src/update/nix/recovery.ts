@@ -15,12 +15,16 @@ export interface NixRecoveryState {
   machine?: string;
   platform?: "linux" | "macos";
   profile?: string;
+  systemConfig?: string;
+  repoRoot?: string;
 }
 
 const NixRecoveryContextSchema = Schema.Struct({
   machine: Schema.optionalKey(Schema.String),
   platform: Schema.optionalKey(Schema.Literals(["linux", "macos"] as const)),
   profile: Schema.optionalKey(Schema.String),
+  systemConfig: Schema.optionalKey(Schema.String),
+  repoRoot: Schema.optionalKey(Schema.String),
 });
 const decodeNixRecoveryContext = Schema.decodeUnknownSync(NixRecoveryContextSchema);
 type NixRecoveryContext = Schema.Schema.Type<typeof NixRecoveryContextSchema>;
@@ -82,20 +86,12 @@ export async function readNixRecovery(
     }
     const context = decodeRecoveryContext(contextRaw);
     const state: NixRecoveryState = {
+      ...context,
       dir,
       lockPath: join(dir, "flake.lock"),
       baseHash: baseHashRaw.trim(),
       phase,
     };
-    if (context?.machine !== undefined) {
-      state.machine = context.machine;
-    }
-    if (context?.platform !== undefined) {
-      state.platform = context.platform;
-    }
-    if (context?.profile !== undefined) {
-      state.profile = context.profile;
-    }
     return state;
   } catch (cause) {
     if (isNotFound(cause)) {
@@ -115,6 +111,8 @@ export async function prepareNixRecovery(params: {
   machine?: string;
   platform?: "linux" | "macos";
   profile?: string;
+  systemConfig?: string;
+  repoRoot?: string;
   recoveryDir?: string;
 }): Promise<NixRecoveryState> {
   const recoveryDir = params.recoveryDir ?? defaultNixRecoveryDir();
@@ -139,7 +137,9 @@ export async function prepareNixRecovery(params: {
     if (
       params.machine !== undefined ||
       params.platform !== undefined ||
-      params.profile !== undefined
+      params.profile !== undefined ||
+      params.systemConfig !== undefined ||
+      params.repoRoot !== undefined
     ) {
       await writeFile(
         join(staging, "context.json"),
@@ -147,6 +147,8 @@ export async function prepareNixRecovery(params: {
           machine: params.machine,
           platform: params.platform,
           profile: params.profile,
+          systemConfig: params.systemConfig,
+          repoRoot: params.repoRoot,
         })}\n`,
         { mode: 0o600 },
       );
@@ -165,6 +167,8 @@ export async function prepareNixRecovery(params: {
     machine: params.machine,
     platform: params.platform,
     profile: params.profile,
+    systemConfig: params.systemConfig,
+    repoRoot: params.repoRoot,
   };
 }
 

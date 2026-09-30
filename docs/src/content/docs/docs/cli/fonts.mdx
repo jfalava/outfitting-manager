@@ -60,29 +60,27 @@ outfitting-manager fonts publish ~/fonts
 outfitting-manager fonts publish ~/fonts --dry-run
 ```
 
-| Option                 | Description                                               |
-| ---------------------- | --------------------------------------------------------- |
-| `--dry-run`            | Preview changes without uploading fonts.                  |
-| `--yes`                | Upload without asking for confirmation.                   |
-| `--replace`            | Replace an existing archive file.                         |
-| `--keep-names`         | Use sanitized source filenames for archive names.         |
-| `--allow-system-names` | Allow reserved system font names.                         |
-| `--repopulate`         | Refresh the font list from the archive before publishing. |
+| Option                 | Description                                       |
+| ---------------------- | ------------------------------------------------- |
+| `--dry-run`            | Preview changes without uploading fonts.          |
+| `--yes`                | Upload without asking for confirmation.           |
+| `--replace`            | Replace an existing archive file.                 |
+| `--keep-names`         | Use sanitized source filenames for archive names. |
+| `--allow-system-names` | Allow reserved system font names.                 |
 
 ## `remove`
 
 **Syntax:** `outfitting-manager fonts remove <name...> [flags]`
 
-Remove one or more font faces by family slug, archive path, or PostScript name.
+Remove one or more font faces by full face name, archive path, or PostScript name. Use `--family` to remove every face in a family by its slug.
 
 ```sh
-outfitting-manager fonts remove "Example Sans"
-outfitting-manager fonts remove "Example Sans" --dry-run
+outfitting-manager fonts remove "Example Sans Regular"
+outfitting-manager fonts remove example-sans --family --dry-run
 ```
 
-| Option         | Description                                                   |
-| -------------- | ------------------------------------------------------------- |
-| `--family`     | Remove every face in each named family.                       |
-| `--dry-run`    | Preview changes without modifying the archive.                |
-| `--yes`        | Remove faces without asking for confirmation.                 |
-| `--repopulate` | Refresh the font list from the archive before removing faces. |
+| Option      | Description                                    |
+| ----------- | ---------------------------------------------- |
+| `--family`  | Remove every face in each named family.        |
+| `--dry-run` | Preview changes without modifying the archive. |
+| `--yes`     | Remove faces without asking for confirmation.  |

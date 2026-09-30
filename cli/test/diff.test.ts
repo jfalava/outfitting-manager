@@ -168,12 +168,17 @@ describe("BYOR-backed collectDiff", () => {
       profiles: ["debian-minimal"],
       config,
       which: async (command) =>
-        ({ apt: "/usr/bin/apt", "dpkg-query": "/usr/bin/dpkg-query" })[command],
-      run: async () => ({
-        code: 0,
-        stdout: "curl:amd64\tinstall ok installed\nvim\tinstall ok installed\n",
-        stderr: "",
-      }),
+        ({ apt: "/usr/bin/apt", dpkg: "/usr/bin/dpkg", "dpkg-query": "/usr/bin/dpkg-query" })[
+          command
+        ],
+      run: async (command) =>
+        command === "/usr/bin/dpkg"
+          ? { code: 0, stdout: "amd64\n", stderr: "" }
+          : {
+              code: 0,
+              stdout: "curl\tamd64\tinstall ok installed\nvim\tamd64\tinstall ok installed\n",
+              stderr: "",
+            },
     });
 
     expect(result.sections[0]).toMatchObject({
@@ -204,5 +209,39 @@ describe("BYOR-backed collectDiff", () => {
 
     expect(result.sections[0]).toMatchObject({ status: "same", message: /No Scoop manifest/ });
     expect(which).not.toHaveBeenCalled();
+  });
+
+  test("counts a declared globally installed Scoop package without reporting unrelated global extras", async () => {
+    const stateRoot = await tempRoot("outfitting-diff-global-state-");
+    const repoRoot = await tempRoot("outfitting-diff-global-repo-");
+    const config = await localSource({
+      stateRoot,
+      repoRoot,
+      profile: "work",
+      contract: {
+        schema: 1,
+        windows: { scoop: { manifest: "scoop.txt" } },
+        profiles: { work: { windows: { winget: { manifest: "work.txt" } } } },
+      },
+      files: { "work.txt": "Git.Git\n", "scoop.txt": 'package "Acme.App"\n' },
+    });
+    const result = await collectDiff({
+      platform: "windows",
+      manager: "scoop",
+      config,
+      which: async () => "scoop.cmd",
+      run: async () => ({
+        code: 0,
+        stdout: JSON.stringify({
+          apps: [
+            { Name: "Acme.App", Source: "main", Version: "1", Info: "Global install" },
+            { Name: "Unrelated.App", Source: "main", Version: "1", Info: "Global install" },
+          ],
+          buckets: [],
+        }),
+        stderr: "",
+      }),
+    });
+    expect(result.sections[0]).toMatchObject({ status: "same", missing: [], extra: [] });
   });
 });

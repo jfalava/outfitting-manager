@@ -4,7 +4,6 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { planRemove } from "@/fonts/plan";
 import { applyFontPlan } from "@/fonts/publish";
 import { createR2ObjectStore, loadRemoteArchiveState } from "@/fonts/r2";
-import { syncInventoryFromRemote } from "@/fonts/repopulate";
 import { tryPromise } from "@/lockfiles/effect";
 
 export const removeCommand = Command.make(
@@ -12,7 +11,9 @@ export const removeCommand = Command.make(
   {
     names: Argument.String("name").pipe(
       Argument.variadic({ min: 1 }),
-      Argument.withDescription("Family slug, archive path, or PostScript name to drop."),
+      Argument.withDescription(
+        "Face name, archive path, or PostScript name; family slug with --family.",
+      ),
     ),
     family: Flag.Boolean("family").pipe(
       Flag.withDefault(false),
@@ -26,19 +27,12 @@ export const removeCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription("Skip the confirmation prompt."),
     ),
-    repopulate: Flag.Boolean("repopulate").pipe(
-      Flag.withDefault(false),
-      Flag.withDescription("Rebuild the lockfiles inventory from the live R2 archive first."),
-    ),
   },
-  ({ names, family, dryRun, yes, repopulate }) =>
+  ({ names, family, dryRun, yes }) =>
     Effect.gen(function* () {
       const store = yield* tryPromise(() => createR2ObjectStore());
       const remote = yield* tryPromise(() => loadRemoteArchiveState(store));
-      if (repopulate) {
-        yield* syncInventoryFromRemote(remote, dryRun);
-      }
       const plan = planRemove(remote.archive, names, family);
-      yield* applyFontPlan(plan, dryRun, yes, store);
+      yield* applyFontPlan(plan, dryRun, yes, { store, remote });
     }),
 ).pipe(Command.withDescription("Remove faces from the private R2 font archive."));

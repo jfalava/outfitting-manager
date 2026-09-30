@@ -212,8 +212,7 @@ function matchesRemoveTarget(face: FontFace, target: string, family: boolean): b
   return (
     face.path === target ||
     face.postscriptName === target ||
-    `${face.family} ${face.style}` === target ||
-    slugifyName(face.family) === slugifyName(target)
+    `${face.family} ${face.style}` === target
   );
 }
 

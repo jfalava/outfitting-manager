@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { readStatus } from "@/commands/status";
-import { loadConfig } from "@/config";
+import { loadConfig, sparseSourceRoot } from "@/config";
 import { readWindowsLock, writeWindowsLock } from "@/update/windows-lock";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -60,6 +60,32 @@ test("status preserves saved profiles and distinguishes sparse, missing and dirt
     expect(output).toContain("Git: feature...origin/feature [ahead 1]");
     expect(run.mock.calls).toHaveLength(1);
     expect(await readFile(join(root, "windows.lock.json"), "utf8")).toBe(before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("status labels remote snapshots and local overrides by their actual source", async () => {
+  vi.stubEnv("OUTFITTING_REPO", "");
+  const root = await mkdtemp(join(tmpdir(), "outfitting-status-remote-"));
+  try {
+    await mkdir(sparseSourceRoot(root));
+    const config = {
+      ...(await loadConfig({ stateRoot: root })),
+      source: { kind: "remote" as const, repository: "owner/repo", ref: "main" },
+    };
+    const run = vi.fn(async () => ({ code: 0, stdout: "## main\n", stderr: "" }));
+
+    const cached = await readStatus("linux", { config, run });
+    expect(cached).toContain("Source checkout: cached snapshot (no Git metadata)");
+    expect(run).not.toHaveBeenCalled();
+
+    const checkout = join(root, "checkout");
+    await mkdir(join(checkout, ".git"), { recursive: true });
+    const local = await readStatus("linux", { config, envRepo: checkout, run });
+    expect(local).toContain("Source checkout: clean");
+    expect(local).not.toContain("cached snapshot");
+    expect(run).toHaveBeenCalledOnce();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

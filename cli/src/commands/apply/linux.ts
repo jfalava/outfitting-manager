@@ -12,9 +12,7 @@ import { applyLinux } from "@/update/linux";
 
 const pruneFlag = Flag.Boolean("prune").pipe(
   Flag.withDefault(false),
-  Flag.withDescription(
-    "Remove stale packages proven to have been installed for the active profile.",
-  ),
+  Flag.withDescription("Remove stale packages recorded as installed for the active profile."),
 );
 
 const yesFlag = Flag.Boolean("yes").pipe(

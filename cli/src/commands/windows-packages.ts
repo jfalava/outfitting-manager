@@ -147,6 +147,9 @@ export const runWindowsPackageBatch = (options: WindowsPackageBatchOptions) =>
           `${options.manager} install was partial; failed packages: ${failures.join(", ")}.`,
         ),
       );
+      return yield* new CliFailure({
+        message: `${options.manager} ${options.action} was partial; failed packages: ${failures.join(", ")}.`,
+      });
     }
   });
 

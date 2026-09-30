@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { Console, Effect, Schema } from "effect";
@@ -31,7 +32,7 @@ export { isLinuxProfile, type LinuxProfile } from "@/update/linux-source";
 const LINUX_OWNERSHIP_FILE = "linux-package-ownership.json";
 
 interface LinuxOwnershipState {
-  version: 1;
+  version: 2;
   profiles: Record<string, Partial<Record<LinuxPackageManager, string[]>>>;
 }
 
@@ -41,7 +42,7 @@ const ManagerOwnershipSchema = Schema.Struct({
 });
 
 const LinuxOwnershipSchema = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literals([1, 2] as const),
   profiles: Schema.Record(Schema.String, ManagerOwnershipSchema),
 });
 
@@ -56,38 +57,58 @@ export interface LinuxPackageInventoryOptions {
   which?: typeof which;
 }
 
-/** Normalize a package spec for presence checks while preserving the install spec. */
+/** Drop a version pin but retain an explicit apt architecture. */
 export function linuxPackageIdentity(packageSpec: string): string {
-  return packageSpec
-    .split("=", 1)[0]!
-    .replace(/:[A-Za-z0-9.+_-]+$/, "")
-    .toLowerCase();
+  return packageSpec.split("=", 1)[0]!.toLowerCase();
 }
 
 function linuxInventoryArgs(manager: LinuxPackageManager): string[] {
-  return manager === "apt" ? ["-W", "-f=${binary:Package}\\t${Status}\\n"] : ["-Qq"];
+  return manager === "apt" ? ["-W", "-f=${Package}\\t${Architecture}\\t${Status}\\n"] : ["-Qq"];
 }
+
+export type LinuxPackageInventory =
+  | { manager: "apt"; nativeArchitecture: string; installed: ReadonlySet<string> }
+  | { manager: "pacman"; installed: ReadonlySet<string> };
 
 function parseInstalledLinuxPackages(manager: LinuxPackageManager, output: string): Set<string> {
   const installed = new Set<string>();
   for (const line of output.split(/\r?\n/)) {
-    const [packageName, status] = line.split("\t");
-    if (manager === "apt" && status !== "install ok installed") {
-      continue;
-    }
-    if (packageName?.trim()) {
-      installed.add(linuxPackageIdentity(packageName));
+    if (manager === "apt") {
+      const [name, architecture, status] = line.split("\t");
+      if (name && architecture && status === "install ok installed") {
+        installed.add(`${name.toLowerCase()}:${architecture.toLowerCase()}`);
+      }
+    } else if (line.trim()) {
+      installed.add(linuxPackageIdentity(line.trim()));
     }
   }
   return installed;
 }
 
+async function nativeDpkgArchitecture(
+  run: typeof runCommand,
+  whichFn: typeof which,
+): Promise<string> {
+  const dpkg = await whichFn("dpkg");
+  if (dpkg === undefined) {
+    throw new Error("dpkg is not installed or not in PATH.");
+  }
+  const result = await run(dpkg, ["--print-architecture"], { inherit: false });
+  const architecture = result.stdout.trim().toLowerCase();
+  if (result.code !== 0 || !/^[a-z0-9][a-z0-9_-]*$/.test(architecture)) {
+    throw new Error("Could not determine the native dpkg architecture.");
+  }
+  return architecture;
+}
+
 export async function listInstalledLinuxPackages(
   manager: LinuxPackageManager,
   options: LinuxPackageInventoryOptions = {},
-): Promise<Set<string>> {
+): Promise<LinuxPackageInventory> {
   const run = options.run ?? runCommand;
   const whichFn = options.which ?? which;
+  const nativeArchitecture =
+    manager === "apt" ? await nativeDpkgArchitecture(run, whichFn) : undefined;
   const executableName = manager === "apt" ? "dpkg-query" : "pacman";
   const executable = await whichFn(executableName);
   if (executable === undefined) {
@@ -100,20 +121,37 @@ export async function listInstalledLinuxPackages(
       `${executableName} package inventory failed (exit ${result.code})${detail ? `: ${detail}` : "."}`,
     );
   }
-  return parseInstalledLinuxPackages(manager, result.stdout);
+  const installed = parseInstalledLinuxPackages(manager, result.stdout);
+  return manager === "apt"
+    ? { manager, nativeArchitecture: nativeArchitecture!, installed }
+    : { manager, installed };
+}
+
+function installedIdentity(spec: string, inventory: LinuxPackageInventory): string | undefined {
+  const identity = linuxPackageIdentity(spec);
+  if (inventory.manager === "pacman" || identity.includes(":")) {
+    return inventory.installed.has(identity) ? identity : undefined;
+  }
+  return [`${identity}:${inventory.nativeArchitecture}`, `${identity}:all`].find((candidate) =>
+    inventory.installed.has(candidate),
+  );
 }
 
 export function missingLinuxPackages(
   declared: ReadonlyArray<string>,
-  installed: ReadonlySet<string>,
+  inventory: LinuxPackageInventory,
 ): string[] {
   const seen = new Set<string>();
   return declared.filter((spec) => {
     const identity = linuxPackageIdentity(spec);
-    if (seen.has(identity) || installed.has(identity)) {
+    const key =
+      inventory.manager === "apt" && !identity.includes(":")
+        ? `${identity}:${inventory.nativeArchitecture}`
+        : identity;
+    if (seen.has(key) || installedIdentity(spec, inventory) !== undefined) {
       return false;
     }
-    seen.add(identity);
+    seen.add(key);
     return true;
   });
 }
@@ -306,10 +344,31 @@ async function detectManager(options: LinuxUpdateOptions, config: ManagerConfig)
 }
 
 function emptyOwnership(): LinuxOwnershipState {
-  return { version: 1, profiles: {} };
+  return { version: 2, profiles: {} };
 }
 
-async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState> {
+function validatedOwnershipProfile(
+  profile: Readonly<Partial<Record<LinuxPackageManager, ReadonlyArray<string>>>>,
+  version: 1 | 2,
+) {
+  for (const [manager, names] of Object.entries(profile)) {
+    const identity =
+      manager === "apt" && version === 2
+        ? /^[a-z0-9][a-z0-9+._-]*:[a-z0-9][a-z0-9_-]*$/
+        : /^[a-z0-9][a-z0-9+._-]*$/;
+    if (names.some((name) => !identity.test(name))) {
+      throw new Error("Invalid owned package identity.");
+    }
+  }
+  return {
+    apt: profile.apt === undefined ? undefined : version === 1 ? [] : [...profile.apt],
+    pacman: profile.pacman === undefined ? undefined : [...profile.pacman],
+  };
+}
+
+async function readOwnership(
+  config: ManagerConfig,
+): Promise<{ state: LinuxOwnershipState; migrated: boolean }> {
   try {
     const parsed: unknown = JSON.parse(
       await readFile(join(config.stateRoot, LINUX_OWNERSHIP_FILE), "utf8"),
@@ -317,28 +376,19 @@ async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState
     const decoded = await decodeLinuxOwnership(parsed);
     const state = emptyOwnership();
     for (const [profile, decodedProfile] of Object.entries(decoded.profiles)) {
-      const managers: Partial<Record<LinuxPackageManager, string[]>> = {};
-      if (decodedProfile.apt !== undefined) {
-        managers.apt = [...decodedProfile.apt];
-      }
-      if (decodedProfile.pacman !== undefined) {
-        managers.pacman = [...decodedProfile.pacman];
-      }
-      for (const names of Object.values(managers)) {
-        if (names.some((name) => !/^[a-z0-9][a-z0-9+._-]*$/.test(name))) {
-          throw new Error("Invalid owned package identity.");
-        }
-      }
-      state.profiles[profile] = managers;
+      state.profiles[profile] = validatedOwnershipProfile(decodedProfile, decoded.version);
     }
-    return state;
+    const migrated =
+      decoded.version === 1 &&
+      Object.values(decoded.profiles).some((profile) => (profile.apt?.length ?? 0) > 0);
+    return { state, migrated };
   } catch (cause) {
     if (
       cause instanceof Error &&
       "code" in cause &&
       (cause as NodeJS.ErrnoException).code === "ENOENT"
     ) {
-      return emptyOwnership();
+      return { state: emptyOwnership(), migrated: false };
     }
     throw new Error(`Invalid ${LINUX_OWNERSHIP_FILE}; refusing to guess package ownership.`, {
       cause,
@@ -348,13 +398,18 @@ async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState
 
 async function writeOwnership(config: ManagerConfig, state: LinuxOwnershipState): Promise<void> {
   const path = join(config.stateRoot, LINUX_OWNERSHIP_FILE);
-  const temporary = `${path}.tmp`;
+  const temporary = `${path}.${randomUUID()}.tmp`;
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporary, path);
+  try {
+    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 function owned(
@@ -390,6 +445,7 @@ function otherOwners(
 async function simulateRemoval(
   command: LinuxCommandOptions,
   packages: ReadonlyArray<string>,
+  inventory: LinuxPackageInventory,
 ): Promise<string[]> {
   const args =
     command.manager === "apt"
@@ -405,9 +461,16 @@ async function simulateRemoval(
     );
   }
   if (command.manager === "apt") {
-    return [...result.stdout.matchAll(/^Remv\s+(\S+)/gm)].map((match) =>
-      linuxPackageIdentity(match[1]!),
-    );
+    return [...result.stdout.matchAll(/^Remv\s+(\S+)/gm)].map((match) => {
+      const name = linuxPackageIdentity(match[1]!);
+      if (name.includes(":")) {
+        return name;
+      }
+      const candidates = [...inventory.installed].filter((installed) =>
+        installed.startsWith(`${name}:`),
+      );
+      return candidates.length === 1 ? candidates[0]! : name;
+    });
   }
   return result.stdout.split(/\s+/).filter(Boolean).map(linuxPackageIdentity);
 }
@@ -454,9 +517,22 @@ function installMissingPackages(
         yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
         continue;
       }
+      const observed = yield* tryPromise(() =>
+        listInstalledLinuxPackages(command.manager, command),
+      );
+      const identity = installedIdentity(packageSpec, observed);
+      if (identity === undefined) {
+        const failure = `${command.manager} install ${packageSpec} returned success but the package is not installed`;
+        if (strict) {
+          return yield* new CliFailure({ message: `${failure}.` });
+        }
+        failures.push(failure);
+        yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+        continue;
+      }
       setOwned(ownership, profile, command.manager, [
         ...owned(ownership, profile, command.manager),
-        linuxPackageIdentity(packageSpec),
+        identity,
       ]);
       yield* tryPromise(() => writeOwnership(config, ownership));
     }
@@ -467,16 +543,23 @@ function installMissingPackages(
 function planLinuxPrune(
   context: LinuxApplyContext,
   declared: ReadonlyArray<string>,
-  installed: ReadonlySet<string>,
+  inventory: LinuxPackageInventory,
 ) {
   return Effect.gen(function* () {
     const { command, ownership, profile } = context;
-    const desired = new Set(declared.map(linuxPackageIdentity));
+    const desired = new Set(
+      declared.flatMap((spec) => {
+        const name = linuxPackageIdentity(spec);
+        return inventory.manager === "apt" && !name.includes(":")
+          ? [`${name}:${inventory.nativeArchitecture}`, `${name}:all`]
+          : [name];
+      }),
+    );
     const stale = owned(ownership, profile, command.manager).filter((name) => !desired.has(name));
     const removable: string[] = [];
     for (const name of stale) {
       if (
-        !installed.has(name) ||
+        !inventory.installed.has(name) ||
         otherOwners(ownership, profile, command.manager, name).length > 0
       ) {
         setOwned(
@@ -492,7 +575,7 @@ function planLinuxPrune(
     if (removable.length === 0) {
       return [];
     }
-    const simulation = yield* tryPromise(() => simulateRemoval(command, removable));
+    const simulation = yield* tryPromise(() => simulateRemoval(command, removable, inventory));
     yield* Console.log(ui.heading("Packages to be removed:"));
     for (const name of simulation) {
       yield* Console.log(`  ${command.manager}: ${name}`);
@@ -503,6 +586,11 @@ function planLinuxPrune(
         message: `Refusing unsafe ${command.manager} removal; simulation does not match owned candidates. Unexpected: ${unexpected.join(", ") || "none (incomplete simulation)"}.`,
       });
     }
+    yield* Console.log(
+      ui.muted(
+        "  Warning: ownership comes from local history. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
+      ),
+    );
     return removable;
   });
 }
@@ -528,7 +616,7 @@ export const updateLinux = (options: LinuxUpdateOptions = {}) =>
 function reconcileOwnership(
   context: LinuxApplyContext,
   declared: string[],
-  installed: ReadonlySet<string>,
+  inventory: LinuxPackageInventory,
 ): void {
   const { ownership, profile, command } = context;
   // Forget absent installations before assigning shared ownership. Never claim manual installs.
@@ -537,11 +625,12 @@ function reconcileOwnership(
       ownership,
       owner,
       command.manager,
-      owned(ownership, owner, command.manager).filter((name) => installed.has(name)),
+      owned(ownership, owner, command.manager).filter((name) => inventory.installed.has(name)),
     );
   }
   const shared = declared
-    .map(linuxPackageIdentity)
+    .map((spec) => installedIdentity(spec, inventory))
+    .filter((name): name is string => name !== undefined)
     .filter((name) => otherOwners(ownership, profile, command.manager, name).length > 0);
   setOwned(ownership, profile, command.manager, [
     ...owned(ownership, profile, command.manager),
@@ -570,7 +659,12 @@ function executeLinuxApply(context: LinuxApplyContext, missing: string[], remova
           return false;
         }
         if (removals.length > 0) {
-          const currentPlan = yield* tryPromise(() => simulateRemoval(command, removals));
+          const currentInventory = yield* tryPromise(() =>
+            listInstalledLinuxPackages(command.manager, command),
+          );
+          const currentPlan = yield* tryPromise(() =>
+            simulateRemoval(command, removals, currentInventory),
+          );
           if (
             currentPlan.length !== removals.length ||
             currentPlan.some((name) => !removals.includes(name))
@@ -596,7 +690,7 @@ function executeLinuxApply(context: LinuxApplyContext, missing: string[], remova
   );
 }
 
-/** Reconcile one local Linux profile and optionally prune only its proven ownership. */
+/** Reconcile one local Linux profile and optionally prune recorded ownership. */
 export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR> = {}) =>
   Effect.gen(function* () {
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
@@ -618,7 +712,14 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     });
     const installed = yield* tryPromise(() => listInstalledLinuxPackages(command.manager, command));
     const missing = missingLinuxPackages(declared, installed);
-    const ownership = yield* tryPromise(() => readOwnership(config));
+    const { state: ownership, migrated } = yield* tryPromise(() => readOwnership(config));
+    if (migrated) {
+      yield* Console.log(
+        ui.muted(
+          "Legacy apt ownership lacked architecture; dropped old apt removal rights. Existing packages will not be pruned unless installed again by Outfitting.",
+        ),
+      );
+    }
     const context = {
       config,
       profile,
@@ -641,7 +742,9 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     }
     const complete = yield* executeLinuxApply(context, missing, removals);
     if (!complete) {
-      return;
+      return yield* new CliFailure({
+        message: `Linux ${command.manager} apply was partial; one or more package installs failed.`,
+      });
     }
     yield* Console.log(ui.success(`Linux ${command.manager} profile applied (${profile}).`));
   });

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -38,15 +38,21 @@ describe("lockfiles command helpers", () => {
     const repository = await mkdtemp(join(tmpdir(), "outfitting-lockfiles-test-"));
     const trackedPath = join(repository, "tracked.lock");
     const untrackedPath = join(repository, "untracked.lock");
+    const trackedLink = join(repository, "tracked-link.lock");
 
     try {
       await execFileAsync("git", ["init", "--quiet", repository]);
       await writeFile(trackedPath, "tracked");
       await writeFile(untrackedPath, "untracked");
-      await execFileAsync("git", ["-C", repository, "add", "tracked.lock"]);
+      await symlink(untrackedPath, trackedLink);
+      await execFileAsync("git", ["-C", repository, "add", "tracked.lock", "tracked-link.lock"]);
 
       expect(await isGitTrackedFile(trackedPath)).toBe(true);
       expect(await isGitTrackedFile(untrackedPath)).toBe(false);
+      expect(await isGitTrackedFile(trackedLink)).toBe(true);
+      expect(await isGitTrackedFile(join(repository, "new", "nested", "snapshot.lock"))).toBe(
+        false,
+      );
       await expect(
         Effect.runPromise(
           pullLockfile({
@@ -64,8 +70,13 @@ describe("lockfiles command helpers", () => {
   test("normalizes Worker URLs", () => {
     expect(normalizeWorkerUrl("https://example.workers.dev/")).toBe("https://example.workers.dev");
     expect(() => normalizeWorkerUrl("not a URL")).toThrow("Worker URL must be a valid URL.");
-    expect(() => normalizeWorkerUrl("file:///tmp/worker")).toThrow(
-      "Worker URL must use HTTP or HTTPS.",
+    expect(() => normalizeWorkerUrl("file:///tmp/worker")).toThrow("Worker URL must use HTTPS");
+    expect(() => normalizeWorkerUrl("http://remote.example/api")).toThrow("must use HTTPS");
+    expect(() => normalizeWorkerUrl("https://user:secret@remote.example/api")).toThrow(
+      "must not contain credentials",
+    );
+    expect(() => normalizeWorkerUrl("https://remote.example/api?token=secret")).toThrow(
+      "must not contain credentials",
     );
   });
 
@@ -112,6 +123,27 @@ describe("lockfiles command helpers", () => {
     } finally {
       vi.unstubAllGlobals();
       await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects an injected HTTP credential snapshot before sending a bearer token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { request } = await import("@/lockfiles/request");
+      await expect(
+        request(
+          ["lockfiles", "machine", "nix"],
+          {},
+          {
+            workerUrl: "http://remote.example/api",
+            token: "sensitive-token",
+          },
+        ),
+      ).rejects.toThrow("must use HTTPS");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

@@ -1,6 +1,6 @@
 import { decodeResponse, ErrorBody, isJsonValue } from "@outfitting/contract";
 
-import { resolveLockfileCredentials } from "@/lockfiles/keychain";
+import { normalizeWorkerUrl, resolveLockfileCredentials } from "@/lockfiles/keychain";
 import type { CliRequestInit, LockfileCredentials } from "@/lockfiles/types";
 
 export class WorkerResponseError extends Error {
@@ -23,7 +23,7 @@ export async function request(
   credentials?: LockfileCredentials,
 ): Promise<Response> {
   const resolved = credentials ?? (await resolveLockfileCredentials());
-  const url = endpoint(resolved.workerUrl, parts);
+  const url = endpoint(normalizeWorkerUrl(resolved.workerUrl), parts);
   const headers = { ...init.headers, Authorization: `Bearer ${resolved.token}` };
 
   const response = await fetch(url, {

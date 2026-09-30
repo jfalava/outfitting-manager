@@ -23,11 +23,6 @@ interface SelectedReleaseAsset {
   checksum: GitHubAsset;
 }
 
-interface SelectedCliRelease {
-  release: GitHubRelease;
-  assets: SelectedReleaseAsset;
-}
-
 const ReleaseListSchema = Schema.Array(Schema.Unknown);
 const decodeReleaseList = Schema.decodeUnknownOption(ReleaseListSchema);
 const decodeGitHubRelease = Schema.decodeUnknownOption(GitHubReleaseSchema);
@@ -68,19 +63,6 @@ function newestRelease(releases: ReadonlyArray<GitHubRelease>): GitHubRelease | 
   );
 }
 
-function newestReleaseWithAsset(
-  releases: ReadonlyArray<GitHubRelease>,
-  assetName: string,
-): SelectedCliRelease | undefined {
-  return releases.reduce<SelectedCliRelease | undefined>((newest, candidate) => {
-    const assets = selectReleaseAsset(candidate, assetName);
-    if (!assets || (newest && !isNewerRelease(candidate, newest.release))) {
-      return newest;
-    }
-    return { release: candidate, assets };
-  }, undefined);
-}
-
 export async function latestCliRelease(
   assetName: string,
   executableName: string,
@@ -119,15 +101,15 @@ export async function latestCliRelease(
     throw new Error("No stable outfitting-manager CLI release was found.");
   }
 
-  const selected = newestReleaseWithAsset(stableReleases, assetName);
-  if (!selected) {
+  const assets = selectReleaseAsset(release, assetName);
+  if (!assets) {
     throw new Error(`Release ${release.tag_name} does not contain ${assetName} and its checksum.`);
   }
 
   return {
-    version: releaseVersion(selected.release.tag_name),
-    assetUrl: selected.assets.asset.browser_download_url,
-    checksumUrl: selected.assets.checksum.browser_download_url,
+    version: releaseVersion(release.tag_name),
+    assetUrl: assets.asset.browser_download_url,
+    checksumUrl: assets.checksum.browser_download_url,
     executableName,
   };
 }

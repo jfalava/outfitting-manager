@@ -7,7 +7,7 @@ sidebar:
 
 `apply` installs packages declared for the selected profile. It does not upgrade unrelated software. Linux and Windows can also remove packages that are no longer declared; pruning is opt-in. Changes are local and are not uploaded by this command.
 
-On Linux and Windows, installation failures are reported and other packages are still attempted by default. Use `--strict` to stop at the first failure. On macOS, `--strict` makes the command return an error if Homebrew reports an installation failure. Requested pruning is skipped after an installation failure.
+On Linux and Windows, installation failures are reported and other packages are still attempted by default; a partial apply exits with an error. Use `--strict` to stop at the first failure. On macOS, `--strict` makes the command return an error if Homebrew reports an installation failure. Requested pruning is skipped after an installation failure.
 
 ### Examples
 
@@ -45,14 +45,14 @@ Installs the selected profile's apt or pacman packages. The package manager is d
 
 ```sh
 outfitting-manager apply --package-manager apt
-outfitting-manager apply --profile workstation --prune --yes
+outfitting-manager apply --profile workstation --prune
 ```
 
 | Option                | Description                                                                         |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | `--profile <profile>` | Select a Linux profile. Defaults to the configured profile or `OUTFITTING_PROFILE`. |
 | `--package-manager`   | Choose `apt` or `pacman`. Defaults to host detection.                               |
-| `--prune`             | Remove managed packages no longer listed for this profile.                          |
+| `--prune`             | Remove packages recorded as installed for this profile that are no longer listed.   |
 | `--offline`           | Install from the local apt cache without downloading packages.                      |
 | `--yes`               | Apply the plan without asking for confirmation.                                     |
 | `--no-refresh`        | Use the current source without refreshing it.                                       |
@@ -60,6 +60,10 @@ outfitting-manager apply --profile workstation --prune --yes
 | `--strict`            | Stop at the first installation failure.                                             |
 
 For a remote source, use `--offline` with `--no-refresh`. Offline pacman installs are not supported.
+
+APT ownership recorded before architecture-aware tracking cannot safely authorize removals. The first apply drops those old APT pruning rights but keeps the packages installed; pacman ownership remains intact. New APT installs record their exact architecture for future `--prune` runs.
+
+Linux prune also relies on historical ownership: it cannot detect a package that was uninstalled and later reinstalled manually under the same name and architecture. Review the simulated removal plan before confirming; `--prune --yes` skips confirmation.
 
 ## Windows
 
@@ -72,11 +76,13 @@ outfitting-manager apply --profile work,personal
 outfitting-manager apply --winget-only --profile work
 ```
 
-| Option                 | Description                                                          |
-| ---------------------- | -------------------------------------------------------------------- |
-| `--profile <profiles>` | Select comma-separated Windows profiles.                             |
-| `--repo <path>`        | Use a local source directory for this command.                       |
-| `--winget-only`        | Skip Scoop packages.                                                 |
-| `--prune`              | Remove managed packages no longer declared by the selected profiles. |
-| `--yes`                | Apply the plan without asking for confirmation.                      |
-| `--strict`             | Stop at the first installation failure.                              |
+| Option                 | Description                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `--profile <profiles>` | Select comma-separated Windows profiles.                                      |
+| `--repo <path>`        | Use a local source directory for this command.                                |
+| `--winget-only`        | Skip Scoop packages.                                                          |
+| `--prune`              | Remove packages recorded as Outfitting-installed that are no longer declared. |
+| `--yes`                | Apply the plan without asking for confirmation.                               |
+| `--strict`             | Stop at the first installation failure.                                       |
+
+Windows prune uses historical ownership in the local lockfile. It cannot detect a package that was uninstalled and then reinstalled manually under the same name. Review the removal plan before confirming; `--prune --yes` skips confirmation even for removals.

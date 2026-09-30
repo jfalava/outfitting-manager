@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ import {
   readWindowsLock,
   recordWindowsOperation,
   windowsLockPath,
+  writeWindowsLock,
 } from "@/update/windows-lock";
 import {
   captureBunGlobalInventory,
@@ -158,22 +159,24 @@ describe("manual Windows package installs", () => {
     };
     const attempts: string[] = [];
 
-    await Effect.runPromise(
-      runWindowsPackageBatch({
-        manager: "winget",
-        action: "install",
-        packages: ["Broken.App", "Good.App"],
-        config,
-        noPush: true,
-        which: async () => "winget.exe",
-        run: async (_command, args) => {
-          attempts.push(args[2] ?? "");
-          return args[2] === "Broken.App"
-            ? { code: 1, stdout: "", stderr: "not found" }
-            : { code: 43, stdout: "already installed", stderr: "" };
-        },
-      }),
-    );
+    await expect(
+      Effect.runPromise(
+        runWindowsPackageBatch({
+          manager: "winget",
+          action: "install",
+          packages: ["Broken.App", "Good.App"],
+          config,
+          noPush: true,
+          which: async () => "winget.exe",
+          run: async (_command, args) => {
+            attempts.push(args[2] ?? "");
+            return args[2] === "Broken.App"
+              ? { code: 1, stdout: "", stderr: "not found" }
+              : { code: 43, stdout: "already installed", stderr: "" };
+          },
+        }),
+      ),
+    ).rejects.toThrow(/Broken\.App/);
 
     const lock = await readWindowsLock(config);
     expect(attempts).toEqual(["Broken.App", "Good.App"]);
@@ -216,6 +219,27 @@ describe("manual Windows package installs", () => {
     expect(attempts).toEqual(["Broken.App"]);
     expect(lock.operations).toHaveLength(1);
     expect(lock.operations[0]).toMatchObject({ name: "Broken.App", status: "failed" });
+  });
+});
+
+test("writing Windows lock state replaces a symlink instead of overwriting its external target", async () => {
+  const root = await tempRoot("outfitting-windows-lock-atomic-");
+  const external = await tempRoot("outfitting-windows-lock-external-");
+  const destination = windowsLockPath({ root });
+  const target = join(external, "original.json");
+  await writeFile(target, "outside state root");
+  await symlink(target, destination);
+  const config: ManagerConfig = {
+    configPath: join(root, "config.toml"),
+    stateRoot: root,
+    machineId: "test:x64-windows",
+    machineIdOverridden: true,
+  };
+
+  await writeWindowsLock(await readWindowsLock({ ...config, stateRoot: external }), { root });
+  expect(await readFile(target, "utf8")).toBe("outside state root");
+  expect(JSON.parse(await readFile(destination, "utf8"))).toMatchObject({
+    format: "outfitting-windows-lock-v2",
   });
 });
 

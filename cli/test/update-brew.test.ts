@@ -8,12 +8,13 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { pushLockfile } from "@/lockfiles";
 import type { RunCommandResult } from "@/process";
 import { applyBrew, parseBrewfileTaps, updateBrew } from "@/update/brew";
-import { captureHomebrewInventory } from "@/update/snapshot";
+import { captureHomebrewInventory, pushHomebrewInventory } from "@/update/snapshot";
 
 const temps: string[] = [];
 vi.mock("@/lockfiles", () => ({ pushLockfile: vi.fn() }));
 
 afterEach(async () => {
+  vi.mocked(pushLockfile).mockReset();
   await Promise.all(temps.splice(0).map((path) => rm(path, { force: true, recursive: true })));
 });
 
@@ -132,4 +133,37 @@ test("update --no-push upgrades installed packages and still writes observed inv
   ]);
   expect(await readFile(join(root, "homebrew-inventory.txt"), "utf8")).toContain("manual-tool 2.0");
   expect(pushLockfile).not.toHaveBeenCalled();
+});
+
+test("inventory upload uses its captured bytes even if another invocation replaces the local snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "outfitting-brew-inventory-race-"));
+  temps.push(root);
+  const local = join(root, "homebrew-inventory.txt");
+  const uploaded: string[] = [];
+  vi.mocked(pushLockfile).mockImplementation(({ path }) =>
+    Effect.promise(async () => {
+      expect(path).not.toBe(local);
+      uploaded.push(await readFile(path!, "utf8"));
+      await writeFile(local, "another invocation");
+      expect(await readFile(path!, "utf8")).toBe(uploaded[0]);
+      return undefined;
+    }),
+  );
+  await Effect.runPromise(
+    pushHomebrewInventory({
+      config: {
+        configPath: join(root, "config.toml"),
+        stateRoot: root,
+        machineId: "test:aarch64-darwin",
+        machineIdOverridden: true,
+      },
+      run: async (_command, args) => ({
+        code: 0,
+        stdout: args[0] === "tap" ? "example/tap\n" : "",
+        stderr: "",
+      }),
+    }),
+  );
+  expect(uploaded).toHaveLength(1);
+  expect(uploaded[0]).toContain("example/tap");
 });

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { Effect } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { loadConfig } from "@/config";
 import {
@@ -74,13 +74,21 @@ function managerTools(calls: Array<{ command: string; args: ReadonlyArray<string
     which: async (command: string) =>
       ({
         apt: "/usr/bin/apt",
+        dpkg: "/usr/bin/dpkg",
         "dpkg-query": "/usr/bin/dpkg-query",
         sudo: "/usr/bin/sudo",
       })[command],
     run: async (command: string, args: ReadonlyArray<string>) => {
       calls.push({ command, args });
+      if (command === "/usr/bin/dpkg") {
+        return { code: 0, stdout: "amd64\n", stderr: "" };
+      }
       if (command === "/usr/bin/dpkg-query") {
-        return { code: 0, stdout: "", stderr: "" };
+        const installed = calls
+          .filter(({ args }) => args.includes("install") && args[0] === "/usr/bin/apt")
+          .map(({ args }) => `${args.at(-1)}\tamd64\tinstall ok installed\n`)
+          .join("");
+        return { code: 0, stdout: installed, stderr: "" };
       }
       return { code: 0, stdout: "", stderr: "" };
     },
@@ -263,17 +271,32 @@ describe("Linux package adapter", () => {
   });
 
   test("normalizes package identities and inventories only installed apt packages", async () => {
-    expect(linuxPackageIdentity("curl:amd64=8.5.0")).toBe("curl");
-    expect(missingLinuxPackages(["curl", "git", "git"], new Set(["curl", "vim"]))).toEqual(["git"]);
+    expect(linuxPackageIdentity("curl:amd64=8.5.0")).toBe("curl:amd64");
     const installed = await listInstalledLinuxPackages("apt", {
-      which: async (command) => (command === "dpkg-query" ? "/usr/bin/dpkg-query" : undefined),
-      run: async () => ({
-        code: 0,
-        stdout: "curl:amd64\tinstall ok installed\nold-package\tdeinstall ok config-files\n",
-        stderr: "",
-      }),
+      which: async (command) =>
+        ({ dpkg: "/usr/bin/dpkg", "dpkg-query": "/usr/bin/dpkg-query" })[command],
+      run: async (command) =>
+        command === "/usr/bin/dpkg"
+          ? { code: 0, stdout: "amd64\n", stderr: "" }
+          : {
+              code: 0,
+              stdout:
+                "curl\tamd64\tinstall ok installed\nold-package\tamd64\tdeinstall ok config-files\nlibc6\ti386\tinstall ok installed\nfonts\tall\tinstall ok installed\n",
+              stderr: "",
+            },
     });
-    expect(installed).toEqual(new Set(["curl"]));
+    expect(installed).toEqual({
+      manager: "apt",
+      nativeArchitecture: "amd64",
+      installed: new Set(["curl:amd64", "libc6:i386", "fonts:all"]),
+    });
+    expect(
+      missingLinuxPackages(["curl", "libc6:amd64", "libc6:i386", "fonts", "git", "git"], installed),
+    ).toEqual(["libc6:amd64", "git"]);
+    expect(missingLinuxPackages(["libc6", "fonts:amd64"], installed)).toEqual([
+      "libc6",
+      "fonts:amd64",
+    ]);
   });
 
   test("Linux update upgrades installed packages without requiring BYOR configuration", async () => {
@@ -347,41 +370,53 @@ describe("Linux package adapter", () => {
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
     await writeFile(
       join(stateRoot, "linux-package-ownership.json"),
-      JSON.stringify({ version: 1, profiles: { workstation: { apt: ["stale-package"] } } }),
+      JSON.stringify({ version: 2, profiles: { workstation: { apt: ["stale-package:amd64"] } } }),
     );
 
     try {
-      await Effect.runPromise(
-        applyLinux({
-          config: await loadConfig({ stateRoot }),
-          prune: true,
-          noRefresh: true,
-          yes: true,
-          ...managerTools(calls),
-          run: async (command, args) => {
-            calls.push({ command, args });
-            if (command === "/usr/bin/dpkg-query") {
-              return { code: 0, stdout: "stale-package\tinstall ok installed\n", stderr: "" };
-            }
-            if (args[0] === "-s" && args[1] === "remove") {
-              return { code: 0, stdout: "Remv stale-package [1.0]\n", stderr: "" };
-            }
-            if (
-              args[0] === "/usr/bin/apt" &&
-              args[1] === "install" &&
-              args[3] === "broken-package"
-            ) {
-              return { code: 1, stdout: "", stderr: "not found" };
-            }
-            return { code: 0, stdout: "", stderr: "" };
-          },
-        }),
-      );
+      await expect(
+        Effect.runPromise(
+          applyLinux({
+            config: await loadConfig({ stateRoot }),
+            prune: true,
+            noRefresh: true,
+            yes: true,
+            ...managerTools(calls),
+            run: async (command, args) => {
+              calls.push({ command, args });
+              if (command === "/usr/bin/dpkg") {
+                return { code: 0, stdout: "amd64\n", stderr: "" };
+              }
+              if (command === "/usr/bin/dpkg-query") {
+                return {
+                  code: 0,
+                  stdout: `stale-package\tamd64\tinstall ok installed\n${calls.some(({ args }) => args.at(-1) === "curl") ? "curl\tamd64\tinstall ok installed\n" : ""}`,
+                  stderr: "",
+                };
+              }
+              if (args[0] === "-s" && args[1] === "remove") {
+                return { code: 0, stdout: "Remv stale-package [1.0]\n", stderr: "" };
+              }
+              if (
+                args[0] === "/usr/bin/apt" &&
+                args[1] === "install" &&
+                args[3] === "broken-package"
+              ) {
+                return { code: 1, stdout: "", stderr: "not found" };
+              }
+              return { code: 0, stdout: "", stderr: "" };
+            },
+          }),
+        ),
+      ).rejects.toThrow(/apply was partial/);
 
       const ownership = JSON.parse(
         await readFile(join(stateRoot, "linux-package-ownership.json"), "utf8"),
       ) as { profiles: { workstation: { apt: string[] } } };
-      expect(ownership.profiles.workstation.apt.toSorted()).toEqual(["curl", "stale-package"]);
+      expect(ownership.profiles.workstation.apt.toSorted()).toEqual([
+        "curl:amd64",
+        "stale-package:amd64",
+      ]);
     } finally {
       await rm(stateRoot, { force: true, recursive: true });
       await rm(repo, { force: true, recursive: true });
@@ -415,6 +450,9 @@ describe("Linux package adapter", () => {
             ...managerTools(calls),
             run: async (command, args) => {
               calls.push({ command, args });
+              if (command === "/usr/bin/dpkg") {
+                return { code: 0, stdout: "amd64\n", stderr: "" };
+              }
               if (command === "/usr/bin/dpkg-query") {
                 return { code: 0, stdout: "", stderr: "" };
               }
@@ -511,12 +549,17 @@ describe("Linux package adapter", () => {
       server: { apt: "shared\n" },
     });
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    let messages = "";
     try {
       await writeFile(
         join(stateRoot, "linux-package-ownership.json"),
         `${JSON.stringify({
-          version: 1,
-          profiles: { workstation: { apt: ["shared", "stale-only"] }, server: { apt: ["shared"] } },
+          version: 2,
+          profiles: {
+            workstation: { apt: ["shared:amd64", "stale-only:amd64"] },
+            server: { apt: ["shared:amd64"] },
+          },
         })}\n`,
       );
       await Effect.runPromise(
@@ -543,16 +586,20 @@ describe("Linux package adapter", () => {
           which: async (command) =>
             ({
               apt: "/usr/bin/apt",
+              dpkg: "/usr/bin/dpkg",
               "dpkg-query": "/usr/bin/dpkg-query",
               sudo: "/usr/bin/sudo",
             })[command],
           run: async (command, args) => {
             calls.push({ command, args });
+            if (command === "/usr/bin/dpkg") {
+              return { code: 0, stdout: "amd64\n", stderr: "" };
+            }
             if (command === "/usr/bin/dpkg-query") {
               return {
                 code: 0,
                 stdout:
-                  "manual\tinstall ok installed\nshared\tinstall ok installed\nstale-only\tinstall ok installed\n",
+                  "manual\tamd64\tinstall ok installed\nshared\tamd64\tinstall ok installed\nstale-only\tamd64\tinstall ok installed\n",
                 stderr: "",
               };
             }
@@ -563,17 +610,120 @@ describe("Linux package adapter", () => {
           },
         }),
       );
+      messages = output.mock.calls.flat().join(" ");
     } finally {
+      output.mockRestore();
       await rm(stateRoot, { force: true, recursive: true });
       await rm(repo, { force: true, recursive: true });
     }
 
+    expect(messages).toMatch(/external uninstall and reinstall cannot be detected/i);
     expect(calls).toContainEqual({
       command: "/usr/bin/sudo",
-      args: ["/usr/bin/apt", "remove", "-y", "stale-only"],
+      args: ["/usr/bin/apt", "remove", "-y", "stale-only:amd64"],
     });
     expect(calls.some(({ args }) => args.includes("manual") || args.includes("shared"))).toBe(
       false,
     );
+  });
+
+  test("migrates legacy apt ownership without allowing a wrong-architecture prune", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-legacy-ownership-"));
+    const repo = await createLinuxRepo(stateRoot, { workstation: { apt: "manual\n" } });
+    const calls: string[][] = [];
+    await writeFile(
+      join(stateRoot, "linux-package-ownership.json"),
+      JSON.stringify({
+        version: 1,
+        profiles: { workstation: { apt: ["libc6"], pacman: ["nano"] } },
+      }),
+    );
+    try {
+      await Effect.runPromise(
+        applyLinux({
+          config: await loadConfig({ stateRoot }),
+          packageManager: "apt",
+          prune: true,
+          noRefresh: true,
+          yes: true,
+          which: async (name) =>
+            ({ apt: "/usr/bin/apt", dpkg: "/usr/bin/dpkg", "dpkg-query": "/usr/bin/dpkg-query" })[
+              name
+            ],
+          run: async (command, args) => {
+            calls.push([command, ...args]);
+            if (command === "/usr/bin/dpkg") return { code: 0, stdout: "arm64\n", stderr: "" };
+            if (command === "/usr/bin/dpkg-query")
+              return {
+                code: 0,
+                stdout:
+                  "manual\tarm64\tinstall ok installed\nlibc6\tarm64\tinstall ok installed\nlibc6\ti386\tinstall ok installed\n",
+                stderr: "",
+              };
+            return { code: 0, stdout: "Remv libc6:arm64 [1.0]\n", stderr: "" };
+          },
+        }),
+      );
+      const state = JSON.parse(
+        await readFile(join(stateRoot, "linux-package-ownership.json"), "utf8"),
+      ) as {
+        version: number;
+        profiles: { workstation: { apt: string[]; pacman: string[] } };
+      };
+      expect(state).toMatchObject({
+        version: 2,
+        profiles: { workstation: { apt: [], pacman: ["nano"] } },
+      });
+      expect(calls.some((args) => args.includes("remove"))).toBe(false);
+    } finally {
+      await rm(stateRoot, { force: true, recursive: true });
+      await rm(repo, { force: true, recursive: true });
+    }
+  });
+
+  test("refuses an apt removal simulation that targets a different architecture", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-wrong-arch-"));
+    const repo = await createLinuxRepo(stateRoot, { workstation: { apt: "manual\n" } });
+    const calls: string[][] = [];
+    await writeFile(
+      join(stateRoot, "linux-package-ownership.json"),
+      JSON.stringify({
+        version: 2,
+        profiles: { workstation: { apt: ["libc6:arm64"] } },
+      }),
+    );
+    try {
+      await expect(
+        Effect.runPromise(
+          applyLinux({
+            config: await loadConfig({ stateRoot }),
+            packageManager: "apt",
+            prune: true,
+            noRefresh: true,
+            yes: true,
+            which: async (name) =>
+              ({ apt: "/usr/bin/apt", dpkg: "/usr/bin/dpkg", "dpkg-query": "/usr/bin/dpkg-query" })[
+                name
+              ],
+            run: async (command, args) => {
+              calls.push([command, ...args]);
+              if (command === "/usr/bin/dpkg") return { code: 0, stdout: "arm64\n", stderr: "" };
+              if (command === "/usr/bin/dpkg-query")
+                return {
+                  code: 0,
+                  stdout:
+                    "manual\tarm64\tinstall ok installed\nlibc6\tarm64\tinstall ok installed\nlibc6\ti386\tinstall ok installed\n",
+                  stderr: "",
+                };
+              return { code: 0, stdout: "Remv libc6:i386 [1.0]\n", stderr: "" };
+            },
+          }),
+        ),
+      ).rejects.toThrow(/Refusing unsafe apt removal/);
+      expect(calls.some((args) => args[0] === "/usr/bin/apt" && args[1] === "remove")).toBe(false);
+    } finally {
+      await rm(stateRoot, { force: true, recursive: true });
+      await rm(repo, { force: true, recursive: true });
+    }
   });
 });

@@ -294,6 +294,13 @@ const printPlan = Effect.fn("printWindowsApplyPlan")(function* (plan: ApplyPlan)
   for (const entry of plan.removals) {
     yield* Console.log(`  remove ${entry.manager}: ${entry.record.name}`);
   }
+  if (plan.removals.length > 0) {
+    yield* Console.log(
+      ui.muted(
+        "  Warning: removal ownership comes from the local lockfile. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
+      ),
+    );
+  }
 });
 
 const confirmPlan = Effect.fn("confirmWindowsApplyPlan")(function* <R>(
@@ -694,10 +701,18 @@ interface ApplyContext {
   strict: boolean;
 }
 
+function normalizedBucketSource(value: string): string {
+  return value
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+}
+
 const inspectScoop = Effect.fn("inspectWindowsScoop")(function* (
   run: typeof runCommand,
   whichFn: typeof which,
   packages: ReadonlyArray<string>,
+  buckets: ReadonlyArray<ScoopBucket>,
 ) {
   const path = yield* tryPromise(() => whichFn("scoop"));
   if (path === undefined) {
@@ -714,6 +729,19 @@ const inspectScoop = Effect.fn("inspectWindowsScoop")(function* (
     catch: (cause) =>
       new CliFailure({ message: cause instanceof Error ? cause.message : String(cause) }),
   });
+  for (const bucket of buckets) {
+    const existing = state.buckets.find(
+      (entry) => entry.Name.toLowerCase() === bucket.name.toLowerCase(),
+    );
+    if (
+      existing !== undefined &&
+      normalizedBucketSource(existing.Source) !== normalizedBucketSource(bucket.url)
+    ) {
+      return yield* new CliFailure({
+        message: `Scoop bucket ${bucket.name} is configured from ${existing.Source || "an unknown source"}, not ${bucket.url}. Refusing to install from a different source.`,
+      });
+    }
+  }
   const scopes = scoopInstalledScopes(state.apps);
   const installed = new Set(scopes.keys());
   const repairs: ScoopRepair[] = [];
@@ -812,7 +840,12 @@ function prepareApply<ConfirmR>(options: WindowsApplyOptions<ConfirmR>) {
     let scoopRepairs: ScoopRepair[] = [];
     let scoopWarnings: string[] = [];
     if (!options.wingetOnly && declarations.scoop !== undefined) {
-      const scoop = yield* inspectScoop(run, whichFn, declarations.scoop.packages);
+      const scoop = yield* inspectScoop(
+        run,
+        whichFn,
+        declarations.scoop.packages,
+        declarations.scoop.buckets,
+      );
       scoopPath = scoop.path;
       installedScoop = scoop.installed;
       scoopBuckets = scoop.buckets;
@@ -1135,6 +1168,10 @@ export const applyWindows = <ConfirmR = never>(options: WindowsApplyOptions<Conf
     );
     if (completed) {
       yield* Console.log(ui.success("Windows declarations applied locally."));
+    } else {
+      return yield* new CliFailure({
+        message: "Windows apply was partial; one or more package operations failed.",
+      });
     }
   });
 
@@ -1158,7 +1195,7 @@ export const windowsApplyCommand = Command.make(
     prune: Flag.Boolean("prune").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
-        "Remove only provably Outfitting-installed packages no longer declared by active profiles.",
+        "Remove packages recorded as Outfitting-installed and no longer declared by active profiles.",
       ),
     ),
     yes: Flag.Boolean("yes").pipe(
@@ -1182,6 +1219,6 @@ export const windowsApplyCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Install missing locally declared Windows packages; optionally prune proven ownership.",
+    "Install missing locally declared Windows packages; optionally prune recorded ownership.",
   ),
 );

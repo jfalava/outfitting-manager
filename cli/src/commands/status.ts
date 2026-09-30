@@ -54,11 +54,14 @@ async function sourceStatus(
   }
   const lines = [`Source: ${source}`];
   const pathStatus = await sourcePathStatus(source);
+  if (remote && pathStatus === "local source (no Git metadata)") {
+    return [...lines, "Source checkout: cached snapshot (no Git metadata)"];
+  }
   if (pathStatus !== undefined) {
     return [...lines, `Source checkout: ${pathStatus}`];
   }
   if (remote) {
-    return [...lines, "Source checkout: cached snapshot (no Git metadata)"];
+    return [...lines, "Source checkout: cached snapshot (unexpected Git metadata)"];
   }
   const result = await run(
     "git",
@@ -172,7 +175,7 @@ export async function readStatus(
     ...(await sourceStatus(
       statusSource(config, override),
       options.run ?? runCommand,
-      config.source?.kind === "remote",
+      override === undefined && config.source?.kind === "remote",
     )),
   ].join("\n");
 }

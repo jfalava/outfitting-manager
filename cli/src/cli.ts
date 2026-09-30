@@ -4,12 +4,12 @@ import { macosApplyCommand } from "@/commands/apply/macos";
 import { configCommand } from "@/commands/config";
 import { makeMacosDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
+import { homebrewCommand } from "@/commands/homebrew";
 import { makeNixCommand } from "@/commands/nix";
 import { provisionCommand } from "@/commands/provision";
 import { recoverCommand } from "@/commands/recover";
 import { makeSelfUpdateCommand } from "@/commands/self-update";
 import { macosInitCommand } from "@/commands/setup/macos";
-import { snapshotCommand } from "@/commands/snapshot";
 import { sourceCommand } from "@/commands/source";
 import { makeStatusCommand } from "@/commands/status";
 import { syncCommand } from "@/commands/sync";
@@ -34,7 +34,7 @@ export const makeMacosRootCommand = (currentVersion: string) =>
       makeNixCommand("macos"),
       makeMacosUpdateCommand(),
       makeMacosDiffCommand(),
-      snapshotCommand,
+      homebrewCommand,
       recoverCommand,
       syncCommand,
       makeStatusCommand("macos"),

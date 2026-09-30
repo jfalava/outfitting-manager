@@ -13,6 +13,8 @@ Use `recover` to resume an interrupted Nix update on macOS or Linux.
 
 Resume the update and publish its lock. This command supports nix-darwin on macOS and Home Manager on Linux.
 
+For a prepared checkpoint, recovery activates the build output recorded before the interruption rather than rebuilding from the current source. If that output has been garbage-collected, or an older checkpoint has no recorded output, recovery leaves the checkpoint in place and refuses to activate or publish. An already activated checkpoint can still publish its lock.
+
 ```sh
 outfitting-manager recover nix
 ```
