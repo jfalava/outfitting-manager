@@ -86,7 +86,7 @@ function runPackage(options: {
     if (status === "failed") {
       const message = `${manager} ${action} ${name} failed (exit ${result.code})`;
       if (action === "install" && !strict) {
-        yield* Console.log(ui.muted(`Warning: ${message}; continuing.`));
+        yield* Console.log(ui.warning(`${message}; continuing.`));
         return false;
       }
       return yield* new CliFailure({

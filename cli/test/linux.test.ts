@@ -67,7 +67,10 @@ async function createLinuxRepo(
   return repo;
 }
 
-function managerTools(calls: Array<{ command: string; args: ReadonlyArray<string> }>) {
+function managerTools(
+  calls: Array<{ command: string; args: ReadonlyArray<string> }>,
+  runOptions?: Array<{ inherit?: boolean }>,
+) {
   return {
     packageManager: "apt" as const,
     readOsRelease: async () => "ID=ubuntu\n",
@@ -78,8 +81,11 @@ function managerTools(calls: Array<{ command: string; args: ReadonlyArray<string
         "dpkg-query": "/usr/bin/dpkg-query",
         sudo: "/usr/bin/sudo",
       })[command],
-    run: async (command: string, args: ReadonlyArray<string>) => {
+    run: async (command: string, args: ReadonlyArray<string>, options?: { inherit?: boolean }) => {
       calls.push({ command, args });
+      if (options !== undefined) {
+        runOptions?.push(options);
+      }
       if (command === "/usr/bin/dpkg") {
         return { code: 0, stdout: "amd64\n", stderr: "" };
       }
@@ -357,6 +363,7 @@ describe("Linux package adapter", () => {
   test("Linux update upgrades installed packages without requiring BYOR configuration", async () => {
     const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-update-"));
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+    const runOptions: Array<{ inherit?: boolean }> = [];
     try {
       await Effect.runPromise(
         updateLinux({
@@ -368,8 +375,11 @@ describe("Linux package adapter", () => {
           },
           readOsRelease: async () => "ID=ubuntu\n",
           which: async (command) => ({ apt: "/usr/bin/apt", sudo: "/usr/bin/sudo" })[command],
-          run: async (command, args) => {
+          run: async (command, args, options) => {
             calls.push({ command, args });
+            if (options !== undefined) {
+              runOptions.push(options);
+            }
             return { code: 0, stdout: "", stderr: "" };
           },
         }),
@@ -381,6 +391,7 @@ describe("Linux package adapter", () => {
       { command: "/usr/bin/sudo", args: ["/usr/bin/apt", "update"] },
       { command: "/usr/bin/sudo", args: ["/usr/bin/apt", "upgrade", "-y"] },
     ]);
+    expect(runOptions).toEqual([{ inherit: true }, { inherit: true }]);
   });
 
   test("Linux apply reconciles only the selected BYOR profile declaration", async () => {
@@ -390,6 +401,7 @@ describe("Linux package adapter", () => {
       "other-profile": { apt: "vim\n" },
     });
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+    const runOptions: Array<{ inherit?: boolean }> = [];
     const configBefore = await readFile(join(stateRoot, "config.toml"), "utf8");
     try {
       await Effect.runPromise(
@@ -397,7 +409,7 @@ describe("Linux package adapter", () => {
           config: await loadConfig({ stateRoot }),
           noRefresh: true,
           yes: true,
-          ...managerTools(calls),
+          ...managerTools(calls, runOptions),
         }),
       );
       expect(await readFile(join(stateRoot, "config.toml"), "utf8")).toBe(configBefore);
@@ -415,6 +427,8 @@ describe("Linux package adapter", () => {
       args: ["/usr/bin/apt", "install", "-y", "git"],
     });
     expect(calls.some(({ args }) => args.includes("vim"))).toBe(false);
+    expect(runOptions.length).toBeGreaterThan(0);
+    expect(runOptions.every(({ inherit }) => inherit === false)).toBe(true);
   });
 
   test("default apply continues after a package failure and defers prune", async () => {

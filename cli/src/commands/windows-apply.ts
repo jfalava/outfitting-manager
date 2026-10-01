@@ -296,8 +296,8 @@ const printPlan = Effect.fn("printWindowsApplyPlan")(function* (plan: ApplyPlan)
   }
   if (plan.removals.length > 0) {
     yield* Console.log(
-      ui.muted(
-        "  Warning: removal ownership comes from the local lockfile. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
+      ui.warning(
+        "Removal ownership comes from the local lockfile. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
       ),
     );
   }
@@ -918,7 +918,7 @@ const installWinget = Effect.fn("installWindowsWinget")(function* (
             return yield* new CliFailure({ message: `${failure}.` });
           }
           failures.push(failure);
-          yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+          progress.log(ui.warning(`${failure}; continuing.`));
         }
       }),
     );
@@ -985,7 +985,7 @@ const repairScoopPackage = Effect.fn("repairWindowsScoopPackage")(function* (
       if (context.strict) {
         return yield* new CliFailure({ message: `${failure}.` });
       }
-      yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+      progress.log(ui.warning(`${failure}; continuing.`));
       return failure;
     }),
   );
@@ -1059,7 +1059,7 @@ const installScoop = Effect.fn("installWindowsScoop")(function* (
             return yield* new CliFailure({ message: `${failure}.` });
           }
           failures.push(failure);
-          yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+          progress.log(ui.warning(`${failure}; continuing.`));
         }
       }),
     );

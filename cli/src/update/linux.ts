@@ -220,17 +220,37 @@ interface LinuxCommandOptions {
   which: typeof which;
 }
 
+interface LinuxPackageCommandBehavior {
+  offline?: boolean;
+  allowFailure?: boolean;
+  progress?: ProgressRenderer;
+}
+
+function relayLinuxPackageOutput(progress: ProgressRenderer, result: RunCommandResult): void {
+  if (result.stdout.trim()) {
+    progress.log(ui.info(result.stdout));
+  }
+  if (result.stderr.trim()) {
+    progress.log(result.code === 0 ? ui.note(result.stderr) : ui.error(result.stderr));
+  }
+}
+
 async function runLinuxPackageCommand(
   options: LinuxCommandOptions,
   action: LinuxPackageAction,
   packages: ReadonlyArray<string> = [],
-  behavior: { offline?: boolean; allowFailure?: boolean } = {},
+  behavior: LinuxPackageCommandBehavior = {},
 ): Promise<RunCommandResult> {
   const args = linuxPackageManagerArgs(options.manager, action, packages, behavior.offline);
   const sudo = process.getuid?.() !== 0 ? await options.which("sudo") : undefined;
   const command = sudo ?? options.executable;
   const commandArgs = sudo === undefined ? args : [options.executable, ...args];
-  const result = await options.run(command, commandArgs, { inherit: true });
+  const result = await options.run(command, commandArgs, {
+    inherit: behavior.progress === undefined,
+  });
+  if (behavior.progress !== undefined) {
+    relayLinuxPackageOutput(behavior.progress, result);
+  }
   if (result.code !== 0 && !behavior.allowFailure) {
     const detail = (result.stderr || result.stdout).trim();
     throw new Error(
@@ -501,7 +521,7 @@ function installMissingPackages(
     if (missing.length > 0 && command.manager === "apt" && !offline) {
       yield* progress.track(
         "Refreshing apt package lists",
-        tryPromise(() => runLinuxPackageCommand(command, "update")),
+        tryPromise(() => runLinuxPackageCommand(command, "update", [], { progress })),
       );
     }
     for (const packageSpec of missing) {
@@ -511,6 +531,7 @@ function installMissingPackages(
           runLinuxPackageCommand(command, "install", [packageSpec], {
             offline,
             allowFailure: true,
+            progress,
           }),
         ),
       );
@@ -520,7 +541,7 @@ function installMissingPackages(
           return yield* new CliFailure({ message: `${failure}.` });
         }
         failures.push(failure);
-        yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+        progress.log(ui.warning(`${failure}; continuing.`));
         continue;
       }
       const observed = yield* tryPromise(() =>
@@ -533,7 +554,7 @@ function installMissingPackages(
           return yield* new CliFailure({ message: `${failure}.` });
         }
         failures.push(failure);
-        yield* Console.log(ui.muted(`Warning: ${failure}; continuing.`));
+        progress.log(ui.warning(`${failure}; continuing.`));
         continue;
       }
       setOwned(ownership, profile, command.manager, [
@@ -591,8 +612,8 @@ function planLinuxPrune(
       });
     }
     yield* Console.log(
-      ui.muted(
-        "  Warning: ownership comes from local history. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
+      ui.warning(
+        "Ownership comes from local history. An external uninstall and reinstall cannot be detected; review these removals before continuing.",
       ),
     );
     return removable;
@@ -679,7 +700,7 @@ function executeLinuxApply(context: LinuxApplyContext, missing: string[], remova
           }
           yield* progress.track(
             `Removing ${removals.length} packages with ${command.manager}`,
-            tryPromise(() => runLinuxPackageCommand(command, "remove", removals)),
+            tryPromise(() => runLinuxPackageCommand(command, "remove", removals, { progress })),
           );
           setOwned(
             ownership,
@@ -719,7 +740,7 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     const { state: ownership, migrated } = yield* tryPromise(() => readOwnership(config));
     if (migrated) {
       yield* Console.log(
-        ui.muted(
+        ui.warning(
           "Legacy apt ownership lacked architecture; dropped old apt removal rights. Existing packages will not be pruned unless installed again by Outfitting.",
         ),
       );

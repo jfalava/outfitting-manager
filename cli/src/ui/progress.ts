@@ -11,6 +11,7 @@ export interface ProgressOptions {
 
 export interface ProgressRenderer {
   track<A, E, R>(label: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
+  log(message: string): void;
   finish(): void;
 }
 
@@ -85,6 +86,20 @@ export function createProgress(
     }
   };
 
+  const log = (message: string) => {
+    const output = message.replace(/\r\n?/g, "\n").replace(/\n+$/g, "");
+    if (output.length === 0) {
+      return;
+    }
+    if (bar !== undefined && started && !finished) {
+      bar.stop();
+      stream.write(`${output}\n`);
+      bar.start(operationCount, attempted, { step: activeStep });
+      return;
+    }
+    stream.write(`${output}\n`);
+  };
+
   return {
     track: (label, effect) =>
       Effect.sync(() => start(label)).pipe(
@@ -100,6 +115,7 @@ export function createProgress(
           }),
         ),
       ),
+    log,
     finish: () => {
       if (finished) {
         return;

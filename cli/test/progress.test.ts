@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { withActivity, withProgress } from "@/ui/progress";
+import { createProgress, withActivity, withProgress } from "@/ui/progress";
 
 function captureStream(isTTY: boolean) {
   const chunks: string[] = [];
@@ -61,6 +61,33 @@ test("TTY activity status redraws elapsed time without a fake percentage or ETA"
 
   await vi.advanceTimersByTimeAsync(800);
   await pending;
+});
+
+test("TTY progress logs details on their own line and redraws the bar", async () => {
+  const output = captureStream(true);
+  const progress = createProgress("Linux apply", 2, { stream: output.stream });
+
+  await Effect.runPromise(progress.track("Installing curl", Effect.void));
+  progress.log("  󰀪 Warning: apt could not refresh\n    Some index files were ignored.");
+  progress.finish();
+
+  const rendered = output.output();
+  expect(rendered).toContain(
+    "\n  󰀪 Warning: apt could not refresh\n    Some index files were ignored.\n",
+  );
+  expect(rendered.match(/Linux apply/g)?.length).toBeGreaterThanOrEqual(2);
+});
+
+test("non-TTY progress logs details without adding terminal control sequences", async () => {
+  const output = captureStream(false);
+  const progress = createProgress("Linux apply", 1, { stream: output.stream });
+
+  await Effect.runPromise(progress.track("Installing curl", Effect.void));
+  progress.log("  󰋼 Info: package output");
+  progress.finish();
+
+  expect(output.output()).toContain("\n  󰋼 Info: package output\n");
+  expect(output.output()).not.toContain("\u001b[");
 });
 
 test("a failed attempted operation still closes and finalizes its TTY progress bar", async () => {

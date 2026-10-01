@@ -4,6 +4,7 @@ import { chmod, rename, writeFile } from "node:fs/promises";
 import { Effect, Result, Schema } from "effect";
 
 import { toError } from "@/lockfiles/effect";
+import { ui } from "@/ui";
 import { extractZipBinary } from "@/upgrade/archive";
 import type { CliRelease } from "@/upgrade/release";
 
@@ -163,11 +164,15 @@ export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function
     );
     if (Result.isFailure(signing)) {
       yield* Effect.logWarning(
-        `Warning: Could not codesign ${targetPath}: ${signing.failure.message}. The binary may be killed on keychain access.`,
+        ui.warning(
+          `Could not codesign ${targetPath}: ${signing.failure.message}. The binary may be killed on keychain access.`,
+        ),
       );
     } else if (signing.success !== 0) {
       yield* Effect.logWarning(
-        `Warning: codesign failed for ${targetPath} (exit ${signing.success}). The binary may be killed on keychain access (exit 137). Run 'codesign --force --sign - ${targetPath}' manually.`,
+        ui.warning(
+          `Codesign failed for ${targetPath} (exit ${signing.success}). The binary may be killed on keychain access (exit 137). Run 'codesign --force --sign - ${targetPath}' manually.`,
+        ),
       );
     }
   }

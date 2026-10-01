@@ -145,9 +145,7 @@ export const applyBrew = (options: ApplyBrewOptions = {}) =>
         return yield* new CliFailure({ message: `${failure}.` });
       }
       yield* Console.log(
-        ui.muted(
-          `Warning: ${failure}. Homebrew apply was partial; review the Brewfile and rerun apply.`,
-        ),
+        ui.warning(`${failure}. Homebrew apply was partial; review the Brewfile and rerun apply.`),
       );
       return;
     }

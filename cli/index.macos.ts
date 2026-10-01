@@ -3,10 +3,10 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { CliError, Command } from "effect/cli";
-import pc from "picocolors";
 
 import { normalizeCommandAlias } from "@/arguments";
 import { makeMacosRootCommand } from "@/cli";
+import { ui } from "@/ui";
 
 import packageJson from "./package.json" with { type: "json" };
 
@@ -22,7 +22,7 @@ const program = Effect.sync(() => normalizeCommandAlias(Bun.argv.slice(2))).pipe
       process.exitCode = 1;
       if (!CliError.isCliError(error)) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`${pc.red(pc.bold("Error:"))} ${message}`);
+        console.error(ui.error(message));
       }
     }),
   ),
@@ -30,7 +30,7 @@ const program = Effect.sync(() => normalizeCommandAlias(Bun.argv.slice(2))).pipe
     Effect.sync(() => {
       process.exitCode = 1;
       const message = defect instanceof Error ? defect.message : String(defect);
-      console.error(`${pc.red(pc.bold("Error:"))} ${message}`);
+      console.error(ui.error(message));
     }),
   ),
 );
