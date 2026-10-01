@@ -1,8 +1,10 @@
 import { runCommand } from "@/process";
+import { emitTerminalAlert, type TerminalAlert } from "@/terminal-alert";
 
 export interface ActivateNixSystemOptions {
   systemConfig: string;
   run?: typeof runCommand;
+  alert?: (alert: TerminalAlert) => void;
   user?: string;
 }
 
@@ -22,11 +24,18 @@ function sudoEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 /**
  * Activate a built nix-darwin system (matches outfit-activate-nix-system).
- * Requires interactive sudo after shell `sudo -v` priming on long runs.
+ * Checks sudo credentials without prompting, then leaves any needed password
+ * prompt interactive for the privileged activation commands.
  */
 export async function activateNixSystem(options: ActivateNixSystemOptions): Promise<void> {
   const run = options.run ?? runCommand;
+  const alert = options.alert ?? emitTerminalAlert;
   const user = options.user ?? process.env.USER ?? process.env.LOGNAME ?? "";
+
+  const sudoCheck = await run("sudo", ["-n", "-v"], { inherit: false });
+  if (sudoCheck.code !== 0) {
+    alert("password-required");
+  }
 
   const setProfile = await run(
     "sudo",
