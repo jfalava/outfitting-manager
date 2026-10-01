@@ -65,7 +65,7 @@
     "typescript": "catalog:build"
   },
   "overrides": {
-    "@effect/platform-bun@^4.0.0-rc.115>@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/platform-node@^4.0.0-rc.115>@effect/platform-node-shared": "4.0.0-rc.115"
+    "@effect/platform-bun@4.0.0-rc.115>@effect/platform-node-shared": "4.0.0-rc.115",
+    "@effect/platform-node@4.0.0-rc.115>@effect/platform-node-shared": "4.0.0-rc.115"
   }
 }
