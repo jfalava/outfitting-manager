@@ -65,9 +65,9 @@
     "typescript": "catalog:build"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0",
-    "@effect/sql-d1": "4.0.0",
-    "@effect/sql-sqlite-do": "4.0.0",
-    "@effect/vitest": "4.0.0"
+    "@effect/platform-node-shared": "4.0.0-rc.115",
+    "@effect/sql-d1": "4.0.0-rc.115",
+    "@effect/sql-sqlite-do": "4.0.0-rc.115",
+    "@effect/vitest": "4.0.0-rc.115"
   }
 }
