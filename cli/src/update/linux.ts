@@ -18,7 +18,7 @@ import { runCommand, which, type RunCommandResult } from "@/process";
 import { selectByorProfile, validateLinuxByorSource } from "@/source/contract";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { ui } from "@/ui";
-import { withProgress, type ProgressRenderer } from "@/ui/progress";
+import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import {
   isLinuxProfile,
   prepareLinuxSource,
@@ -226,15 +226,6 @@ interface LinuxPackageCommandBehavior {
   progress?: ProgressRenderer;
 }
 
-function relayLinuxPackageOutput(progress: ProgressRenderer, result: RunCommandResult): void {
-  if (result.stdout.trim()) {
-    progress.log(ui.info(result.stdout));
-  }
-  if (result.stderr.trim()) {
-    progress.log(result.code === 0 ? ui.note(result.stderr) : ui.error(result.stderr));
-  }
-}
-
 async function runLinuxPackageCommand(
   options: LinuxCommandOptions,
   action: LinuxPackageAction,
@@ -249,7 +240,7 @@ async function runLinuxPackageCommand(
     inherit: behavior.progress === undefined,
   });
   if (behavior.progress !== undefined) {
-    relayLinuxPackageOutput(behavior.progress, result);
+    logCommandOutput(behavior.progress, result);
   }
   if (result.code !== 0 && !behavior.allowFailure) {
     const detail = (result.stderr || result.stdout).trim();

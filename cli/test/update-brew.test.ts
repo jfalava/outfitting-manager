@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { pushLockfile } from "@/lockfiles";
-import type { RunCommandResult } from "@/process";
+import type { RunCommandOptions, RunCommandResult } from "@/process";
 import { applyBrew, parseBrewfileTaps, updateBrew } from "@/update/brew";
 import { captureHomebrewInventory, pushHomebrewInventory } from "@/update/snapshot";
 
@@ -14,6 +14,7 @@ const temps: string[] = [];
 vi.mock("@/lockfiles", () => ({ pushLockfile: vi.fn() }));
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.mocked(pushLockfile).mockReset();
   await Promise.all(temps.splice(0).map((path) => rm(path, { force: true, recursive: true })));
 });
@@ -94,13 +95,27 @@ test("Homebrew apply warns and returns normally for a failed bundle unless stric
     },
     brewfilePath: brewfile,
     which: async () => "/opt/homebrew/bin/brew",
-    run: async (): Promise<RunCommandResult> => ({ code: 1, stdout: "", stderr: "bundle failed" }),
+    run: async (
+      _command: string,
+      _args: ReadonlyArray<string>,
+      options?: RunCommandOptions,
+    ): Promise<RunCommandResult> => {
+      expect(options?.inherit).toBe(false);
+      return { code: 1, stdout: "", stderr: "bundle failed" };
+    },
   };
+  const terminal = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
   await Effect.runPromise(applyBrew(options));
   await expect(Effect.runPromise(applyBrew({ ...options, strict: true }))).rejects.toThrow(
     /brew bundle failed/,
   );
+  expect(
+    terminal.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join("")
+      .match(/bundle failed/g),
+  ).toHaveLength(2);
 });
 
 test("update --no-push upgrades installed packages and still writes observed inventory", async () => {

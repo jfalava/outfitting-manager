@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { createProgress, withActivity, withProgress } from "@/ui/progress";
+import { createProgress, logCommandOutput, withActivity, withProgress } from "@/ui/progress";
 
 function captureStream(isTTY: boolean) {
   const chunks: string[] = [];
@@ -64,17 +64,22 @@ test("TTY activity status redraws elapsed time without a fake percentage or ETA"
 });
 
 test("TTY progress logs details on their own line and redraws the bar", async () => {
+  vi.useFakeTimers();
   const output = captureStream(true);
   const progress = createProgress("Linux apply", 2, { stream: output.stream });
 
   await Effect.runPromise(progress.track("Installing curl", Effect.void));
+  await vi.advanceTimersByTimeAsync(200);
   progress.log("  󰀪 Warning: apt could not refresh\n    Some index files were ignored.");
+  await vi.advanceTimersByTimeAsync(200);
   progress.finish();
 
   const rendered = output.output();
   expect(rendered).toContain(
-    "\n  󰀪 Warning: apt could not refresh\n    Some index files were ignored.\n",
+    "  󰀪 Warning: apt could not refresh\n    Some index files were ignored.\n",
   );
+  // Newlines belong to the two log lines and final cleanup, not old bar rows.
+  expect(rendered.match(/\n/g)).toHaveLength(3);
   expect(rendered.match(/Linux apply/g)?.length).toBeGreaterThanOrEqual(2);
 });
 
@@ -104,7 +109,53 @@ test("a failed attempted operation still closes and finalizes its TTY progress b
     ),
   ).rejects.toBe("failed");
 
-  expect(output.output()).toContain("WinGet install: Example.Editor");
-  expect(output.output()).toContain("1/2 tried");
-  expect(output.output()).toContain("\n");
+  expect(output.output()).toContain("\u001b[?25h");
+  expect(output.output()).toContain("\u001b[0J");
+});
+
+test("TTY step updates overwrite one row without appending newlines", async () => {
+  vi.useFakeTimers();
+  const output = captureStream(true);
+  const progress = createProgress("Windows apply", 3, { stream: output.stream });
+
+  await Effect.runPromise(progress.track("Scoop install: first", Effect.void));
+  await vi.advanceTimersByTimeAsync(400);
+  await Effect.runPromise(progress.track("Scoop repair: second", Effect.void));
+  await vi.advanceTimersByTimeAsync(400);
+
+  expect(output.output()).toContain("1/3 tried");
+  expect(output.output()).toContain("2/3 tried");
+  expect(output.output()).not.toContain("\n");
+  progress.finish();
+});
+
+test("finish flushes the last queued log once without waiting for a redraw", async () => {
+  const output = captureStream(true);
+  const progress = createProgress("Windows apply", 1, { stream: output.stream });
+  await Effect.runPromise(progress.track("Scoop repair: tirith", Effect.void));
+  progress.log("Final diagnostic\r\n    Keep this detail.\r\n");
+  progress.finish();
+  const rendered = output.output();
+  progress.finish();
+
+  expect(rendered).toContain("Final diagnostic\n    Keep this detail.\n");
+  expect(rendered.match(/Final diagnostic/g)).toHaveLength(1);
+  expect(output.output()).toBe(rendered);
+});
+
+test("captured command output collapses download redraws and keeps diagnostics", async () => {
+  const output = captureStream(false);
+  const progress = createProgress("Windows apply", 1, { stream: output.stream });
+  logCommandOutput(progress, {
+    code: 1,
+    stdout: "Downloading 0%\rDownloading 42%\rDownloading 100%\r\nExtracting\r",
+    stderr: "Hash check failed\r\nExpected: abc\r\nActual: def\r",
+  });
+  progress.finish();
+
+  const rendered = output.output();
+  expect(rendered).toContain("Downloading 100%\n    Extracting\n");
+  expect(rendered).not.toContain("Downloading 0%");
+  expect(rendered).not.toContain("Downloading 42%");
+  expect(rendered).toContain("Hash check failed\n    Expected: abc\n    Actual: def\n");
 });

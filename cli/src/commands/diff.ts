@@ -68,6 +68,7 @@ function makeProgressRenderer(platform: DiffPlatform): DiffProgressRenderer {
     barsize: 20,
     hideCursor: true,
     linewrap: true,
+    clearOnComplete: true,
   });
   let started = false;
   return {

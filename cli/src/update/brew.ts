@@ -9,7 +9,7 @@ import { tryPromise } from "@/lockfiles/effect";
 import { runCommand, which } from "@/process";
 import { selectMacosByorProfile } from "@/source/contract";
 import { ui } from "@/ui";
-import { withProgress, type ProgressRenderer } from "@/ui/progress";
+import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import { pushHomebrewInventory } from "@/update/snapshot";
 
 export interface BrewfileManifest {
@@ -60,11 +60,13 @@ function trustTaps(
       yield* progress.track(
         `Trusting tap ${tap}`,
         tryPromise(() => run("brew", ["trust", "--tap", tap], { inherit: false })).pipe(
-          Effect.flatMap((result) => {
+          Effect.tap((result) => {
             const output = `${result.stdout}${result.stderr}`.trim();
-            return !output.includes("Already trusted") && output.length > 0
-              ? Console.log(output)
-              : Effect.void;
+            return Effect.sync(() => {
+              if (!output.includes("Already trusted")) {
+                logCommandOutput(progress, result);
+              }
+            });
           }),
         ),
       );
@@ -133,9 +135,9 @@ export const applyBrew = (options: ApplyBrewOptions = {}) =>
           "Syncing Brewfile",
           tryPromise(() =>
             run("brew", ["bundle", "--no-upgrade", `--file=${brewfile.path}`], {
-              inherit: true,
+              inherit: false,
             }),
-          ),
+          ).pipe(Effect.tap((result) => Effect.sync(() => logCommandOutput(progress, result)))),
         );
       }),
     );

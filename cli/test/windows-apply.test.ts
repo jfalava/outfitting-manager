@@ -370,6 +370,7 @@ describe("Windows BYOR apply", () => {
     const config = await loadConfig({ stateRoot });
     const installedScoop: string[] = [];
     const commands: Array<{ command: string; args: string[] }> = [];
+    const terminal = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       Effect.runPromise(
@@ -381,11 +382,12 @@ describe("Windows BYOR apply", () => {
               winget: "winget.exe",
               scoop: "scoop.cmd",
             })[manager],
-          run: async (command, args) => {
+          run: async (command, args, options) => {
+            expect(options?.inherit).toBe(false);
             commands.push({ command, args: [...args] });
             if (command === "winget.exe" && args[0] === "list") return missing();
             if (command === "winget.exe" && args[0] === "install") {
-              return { code: 1, stdout: "", stderr: "failed" };
+              return { code: 1, stdout: "", stderr: "WinGet diagnostic" };
             }
             if (args.includes("export")) {
               return { code: 0, stdout: '{"apps":[],"buckets":[]}', stderr: "" };
@@ -394,7 +396,7 @@ describe("Windows BYOR apply", () => {
               const packageName = args.at(-1) ?? "";
               installedScoop.push(packageName);
               return packageName === "Broken.Tool"
-                ? { code: 1, stdout: "", stderr: "failed" }
+                ? { code: 1, stdout: "", stderr: "Scoop diagnostic" }
                 : ok();
             }
             return ok();
@@ -414,6 +416,9 @@ describe("Windows BYOR apply", () => {
     expect(lock.packages.winget).toEqual([]);
     expect(lock.packages.scoop.map((entry) => entry.name)).toEqual(["Good.Tool"]);
     expect(lock.profiles).toEqual([]);
+    const rendered = terminal.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(rendered.match(/WinGet diagnostic/g)).toHaveLength(1);
+    expect(rendered.match(/Scoop diagnostic/g)).toHaveLength(1);
   });
 
   test("strict apply records the first failed install and stops before later packages", async () => {

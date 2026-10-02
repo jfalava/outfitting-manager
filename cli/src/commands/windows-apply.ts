@@ -13,7 +13,7 @@ import { syncByorSparseSource } from "@/setup/source";
 import { validateWindowsByorSource, type SelectedWindowsByorProfiles } from "@/source/contract";
 import { parseWindowsPackageList, type WindowsWingetPackage } from "@/source/windows-manifest";
 import { ui } from "@/ui";
-import { withProgress, type ProgressRenderer } from "@/ui/progress";
+import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import { parseScoopManifest, type ScoopBucket, type ScoopManifest } from "@/update/scoop";
 import { runScoopCommand } from "@/update/scoop-command";
 import {
@@ -891,11 +891,12 @@ const installWinget = Effect.fn("installWindowsWinget")(function* (
           "--no-upgrade",
         ];
         const result = yield* tryPromise(() =>
-          context.run(context.wingetPath, args, { inherit: true }),
+          context.run(context.wingetPath, args, { inherit: false }),
         );
+        logCommandOutput(progress, result);
         const alreadyInstalled = isWingetAlreadyInstalledExitCode(result.code);
         if (alreadyInstalled) {
-          yield* Console.log(
+          progress.log(
             ui.muted(`WinGet package became preexisting: ${entry.name}; ownership not claimed.`),
           );
           return;
@@ -952,8 +953,9 @@ const repairScoopPackage = Effect.fn("repairWindowsScoopPackage")(function* (
     Effect.gen(function* () {
       const args = ["update", name, "--force", ...(repair.scope === "global" ? ["--global"] : [])];
       const result = yield* tryPromise(() =>
-        runScoopCommand(context.run, context.scoopPath!, args, { inherit: true }),
+        runScoopCommand(context.run, context.scoopPath!, args, { inherit: false }),
       );
+      logCommandOutput(progress, result);
       const health =
         result.code === 0
           ? yield* tryPromise(() =>
@@ -1021,11 +1023,12 @@ const installScoop = Effect.fn("installWindowsScoop")(function* (
           context.scoopPath!,
           ["bucket", "add", bucket.name, bucket.url],
           {
-            inherit: true,
+            inherit: false,
           },
         ),
       ),
     );
+    logCommandOutput(progress, result);
     if (result.code !== 0) {
       return yield* new CliFailure({
         message: `scoop bucket add ${bucket.name} failed (exit ${result.code}).`,
@@ -1039,8 +1042,9 @@ const installScoop = Effect.fn("installWindowsScoop")(function* (
       Effect.gen(function* () {
         const args = ["install", spec];
         const result = yield* tryPromise(() =>
-          runScoopCommand(context.run, context.scoopPath!, args, { inherit: true }),
+          runScoopCommand(context.run, context.scoopPath!, args, { inherit: false }),
         );
+        logCommandOutput(progress, result);
         yield* tryPromise(() =>
           recordApplyOperation({
             config: context.config,
@@ -1081,9 +1085,10 @@ const executeRemovals = Effect.fn("pruneWindowsPackages")(function* (
             : ["uninstall", removal.record.name];
         const result = yield* tryPromise(() =>
           removal.manager === "winget"
-            ? context.run(context.wingetPath, args, { inherit: true })
-            : runScoopCommand(context.run, context.scoopPath!, args, { inherit: true }),
+            ? context.run(context.wingetPath, args, { inherit: false })
+            : runScoopCommand(context.run, context.scoopPath!, args, { inherit: false }),
         );
+        logCommandOutput(progress, result);
         yield* tryPromise(() =>
           recordApplyOperation({
             config: context.config,

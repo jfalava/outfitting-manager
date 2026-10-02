@@ -1,6 +1,9 @@
 import * as cliProgress from "cli-progress";
 import { Effect } from "effect";
 
+import type { RunCommandResult } from "@/process";
+import { ui } from "@/ui";
+
 const STEP_ICON = "󰄭";
 const ACTIVITY_ICON = "󰔛";
 
@@ -13,6 +16,18 @@ export interface ProgressRenderer {
   track<A, E, R>(label: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   log(message: string): void;
   finish(): void;
+}
+
+export function logCommandOutput(progress: ProgressRenderer, result: RunCommandResult): void {
+  // Carriage-return download updates overwrite a row; only replay its last state.
+  const stdout = result.stdout.replace(/\r\n/g, "\n").replace(/[^\n]*\r(?=[^\n])/g, "");
+  const stderr = result.stderr.replace(/\r\n/g, "\n").replace(/[^\n]*\r(?=[^\n])/g, "");
+  if (stdout.trim()) {
+    progress.log(ui.info(stdout));
+  }
+  if (stderr.trim()) {
+    progress.log(result.code === 0 ? ui.note(stderr) : ui.error(stderr));
+  }
 }
 
 function displayLabel(label: string, maxLength: number): string {
@@ -40,9 +55,9 @@ export function createProgress(
   const columns = stream.columns ?? 80;
   const maxLabelLength = Math.min(48, Math.max(8, columns - (isActivity ? 12 : 33 + title.length)));
 
-  const bar =
+  const container =
     isTTY && (total === undefined || total > 0)
-      ? new cliProgress.SingleBar({
+      ? new cliProgress.MultiBar({
           format: isActivity
             ? `${ACTIVITY_ICON} {step} · {duration_formatted}`
             : `${STEP_ICON} ${title} [{bar}] {value}/${total} tried · {step} · {duration_formatted}`,
@@ -54,9 +69,13 @@ export function createProgress(
           fps: 5,
           gracefulExit: true,
           hideCursor: true,
+          // cli-progress clips the bar to terminal width, but lets logs wrap.
           linewrap: true,
+          clearOnComplete: true,
+          stopOnComplete: false,
         })
       : undefined;
+  let bar: ReturnType<cliProgress.MultiBar["create"]> | undefined;
 
   const announceNonTTY = () => {
     if (options.announceNonTTY === false) {
@@ -79,8 +98,8 @@ export function createProgress(
       return;
     }
     started = true;
-    if (bar !== undefined) {
-      bar.start(operationCount, attempted, { step: activeStep });
+    if (container !== undefined) {
+      bar = container.create(operationCount, attempted, { step: activeStep });
     } else {
       announceNonTTY();
     }
@@ -91,10 +110,8 @@ export function createProgress(
     if (output.length === 0) {
       return;
     }
-    if (bar !== undefined && started && !finished) {
-      bar.stop();
-      stream.write(`${output}\n`);
-      bar.start(operationCount, attempted, { step: activeStep });
+    if (container !== undefined && bar !== undefined && !finished) {
+      container.log(`${output}\n`);
       return;
     }
     stream.write(`${output}\n`);
@@ -121,7 +138,11 @@ export function createProgress(
         return;
       }
       finished = true;
-      bar?.stop();
+      if (container !== undefined && bar !== undefined) {
+        // remove() flushes queued logs before stop() clears the progress row.
+        container.remove(bar);
+        container.stop();
+      }
     },
   };
 }
