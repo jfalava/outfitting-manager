@@ -173,7 +173,7 @@ test("Linux commands expose init, apply, Nix, and native update as distinct oper
     execFileAsync("bun", [linuxEntry, "--config", "--help"], { encoding: "utf8" }),
   ).rejects.toMatchObject({
     code: 1,
-    stderr: expect.stringContaining("Error: --config requires a path."),
+    stderr: expect.stringContaining("--config requires a path."),
   });
 
   const nix = await execFileAsync("bun", [linuxEntry, "nix", "switch", "--help"], {
