@@ -80,8 +80,10 @@ describe("macOS CLI command boundaries", () => {
     const { code, stdout, stderr } = await runCli(["update", "--help"]);
     const text = `${stdout}\n${stderr}`;
     expect(code).toBe(0);
-    expect(text).toMatch(/Homebrew/i);
-    expect(text).not.toMatch(/\bnix\b|subcommands/i);
+    const commandHelp = text.split("RELATED COMMANDS\n")[0];
+    expect(commandHelp).toMatch(/Upgrade installed Homebrew packages/);
+    expect(commandHelp).not.toMatch(/\bnix\b|subcommands/i);
+    expect(text).toMatch(/^\s+nix\s+Build, test, dry-run, update, or activate/m);
   });
 
   test("update rejects a foreign package-manager selection", async () => {

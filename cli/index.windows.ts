@@ -5,19 +5,21 @@ import { Effect } from "effect";
 import { CliError, Command } from "effect/cli";
 
 import { normalizeCommandAlias } from "@/arguments";
+import { makeCommandHelpLayer } from "@/cli/help";
 import { makeWindowsRootCommand } from "@/cli/windows";
 import { emitTerminalAlert } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 import packageJson from "./package.json" with { type: "json" };
 
+const root = makeWindowsRootCommand(packageJson.version);
 const program = Effect.sync(() => normalizeCommandAlias(Bun.argv.slice(2))).pipe(
   Effect.flatMap((args) =>
-    Command.runWith(makeWindowsRootCommand(packageJson.version), {
+    Command.runWith(root, {
       version: packageJson.version,
     })(args.length === 0 ? ["--help"] : args),
   ),
-  Effect.provide(BunServices.layer),
+  Effect.provide([makeCommandHelpLayer(root), BunServices.layer]),
   Effect.catch((error) =>
     Effect.sync(() => {
       process.exitCode = 1;
