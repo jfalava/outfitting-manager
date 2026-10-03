@@ -28,6 +28,15 @@ export const Snapshot = Schema.Struct({
 });
 export type Snapshot = typeof Snapshot.Type;
 
+// Historical metadata can contain empty paths or omit backup statistics.
+// New backup results still use the strict Snapshot schema above.
+export const SnapshotMetadata = Schema.Struct({
+  ...Snapshot.fields,
+  paths: Schema.Array(Schema.String),
+  summary: Schema.optionalKey(Snapshot.fields.summary),
+});
+export type SnapshotMetadata = typeof SnapshotMetadata.Type;
+
 export const Anchor = Schema.Struct({
   id: SnapshotId,
   tree: SnapshotId,
@@ -86,12 +95,14 @@ export const Profile = Schema.Struct({
 });
 export type Profile = typeof Profile.Type;
 
-export const SnapshotGroups = Schema.Array(Schema.Struct({ snapshots: Schema.Array(Snapshot) }));
+export const SnapshotGroups = Schema.Array(
+  Schema.Struct({ snapshots: Schema.Array(SnapshotMetadata) }),
+);
 export const RetentionPlan = Schema.Array(
   Schema.Struct({
     items: Schema.Array(
       Schema.Struct({
-        snapshot: Snapshot,
+        snapshot: SnapshotMetadata,
         keep: Schema.Boolean,
       }),
     ),

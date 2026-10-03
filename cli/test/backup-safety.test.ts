@@ -10,7 +10,14 @@ import { afterEach, expect, test } from "vitest";
 
 import { Backup as MacBackup, isCheckDue, isDue } from "@/backups/backup";
 import { launchAgent } from "@/backups/launchd";
-import { JobState, macJobs as jobs, windowsJobs, type Job, type Snapshot } from "@/backups/model";
+import {
+  JobState,
+  macJobs as jobs,
+  windowsJobs,
+  type Job,
+  type Snapshot,
+  type SnapshotMetadata,
+} from "@/backups/model";
 import { Processes, type ProcessOutput } from "@/backups/process";
 import { Secrets } from "@/backups/secrets";
 import { Settings, type SettingsData } from "@/backups/settings";
@@ -80,7 +87,7 @@ const fixture = async (real = false, windows = false) => {
       },
     },
   };
-  const inventory: Array<RawSnapshot> = [];
+  const inventory: Array<typeof SnapshotMetadata.Encoded> = [];
   const calls: Array<{
     args: ReadonlyArray<string>;
     env: Record<string, string | undefined> | undefined;
@@ -302,6 +309,71 @@ test("weekly checks catch up on Monday without repeating before Sunday's 15:00 d
       zone,
     ),
   ).toBe(false);
+});
+
+test("legacy empty paths and absent summaries do not block healthy backup anchors or listings", async () => {
+  const f = await fixture();
+  const empty = { ...f.snapshot("images", 0, 0), paths: [""] };
+  const { summary: _summary, ...withoutSummary } = f.snapshot("images");
+  f.inventory.push(empty, withoutSummary);
+  f.setBackup((job) => {
+    const saved = f.snapshot(job, 23, 5_017);
+    f.inventory.push(saved);
+    return ok(saved);
+  });
+  const [first] = await f.backup(["images"]);
+  expect(first?.outcome).toBe("accepted-changed");
+  expect(first?.current).toMatchObject({ files: 23, bytes: 5_017 });
+  expect(first?.current?.id).not.toBe(empty.id);
+  expect(first?.current?.id).not.toBe(withoutSummary.id);
+  const [second] = await f.backup(["images"]);
+  expect(second?.outcome).toBe("accepted-changed");
+  expect(second?.previous).toEqual(first?.current);
+  const listed = await f.run(
+    Effect.gen(function* () {
+      return yield* (yield* MacBackup).snapshots("images");
+    }),
+  );
+  expect(listed).toHaveLength(4);
+  expect(listed.find((snapshot) => snapshot.id === empty.id)?.paths).toEqual([""]);
+  expect(listed.find((snapshot) => snapshot.id === withoutSummary.id)?.summary).toBeUndefined();
+  expect(f.alerts).toEqual([]);
+});
+
+test.each(["missing-summary", "empty-path", "zero-files"])(
+  "fresh %s backups still fail without accepting a recovery anchor",
+  async (problem) => {
+    const f = await fixture();
+    f.setBackup((job) => {
+      const saved = f.snapshot(job);
+      if (problem === "missing-summary") {
+        const { summary: _summary, ...withoutSummary } = saved;
+        return ok(withoutSummary);
+      }
+      if (problem === "empty-path") return ok({ ...saved, paths: [""] });
+      return ok({ ...saved, summary: { total_files_processed: 0, total_bytes_processed: 0 } });
+    });
+    const [state] = await f.backup(["images"]);
+    expect(state?.outcome).toBe("failed");
+    expect(state?.current).toBeUndefined();
+    expect(state?.acceptedAt).toBeUndefined();
+  },
+);
+
+test("an empty historical path cannot resolve to the working directory for restore", async () => {
+  const f = await fixture();
+  f.settings.sources.documents[0] = process.cwd();
+  const empty = { ...f.snapshot("documents", 0, 0), paths: [""] };
+  f.inventory.push(empty);
+  await fails(
+    f.run(
+      Effect.gen(function* () {
+        return yield* (yield* MacBackup).restore("documents", empty.id!, join(f.root, "restored"));
+      }),
+    ),
+    "Snapshot identity or sources do not match",
+  );
+  expect(f.calls.some((call) => call.args.includes("restore"))).toBe(false);
 });
 
 test("unchanged results refresh success only for the accepted parent and tree", async () => {

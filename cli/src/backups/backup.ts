@@ -11,6 +11,7 @@ import {
   RetentionPlan,
   Snapshot,
   SnapshotGroups,
+  type SnapshotMetadata,
   type Job,
 } from "./model.ts";
 import { Processes, parseJson, successful } from "./process.ts";
@@ -77,7 +78,7 @@ export class Backup extends Context.Service<
       due: boolean,
     ): Effect.Effect<ReadonlyArray<JobState>, BackupError>;
     status: Effect.Effect<ReadonlyArray<JobState>, BackupError>;
-    snapshots(job?: Job): Effect.Effect<ReadonlyArray<Snapshot>, BackupError>;
+    snapshots(job?: Job): Effect.Effect<ReadonlyArray<SnapshotMetadata>, BackupError>;
     check(readData: boolean, due?: boolean): Effect.Effect<boolean, BackupError>;
     maintenance(
       apply: boolean,
@@ -267,12 +268,16 @@ export class Backup extends Context.Service<
         return groups.flatMap((group) => group.snapshots);
       });
 
-      const validate = Effect.fn("MacBackup.validate")(function* (snapshot: Snapshot, job: Job) {
+      const validate = Effect.fn("MacBackup.validate")(function* (
+        snapshot: SnapshotMetadata,
+        job: Job,
+      ) {
         const sources = paths(job).map(canonicalPath).sort();
         if (
           snapshot.hostname !== config.hostname ||
           !snapshot.tags.includes(job) ||
           snapshot.paths.length !== sources.length ||
+          snapshot.paths.some((path) => path.length === 0) ||
           snapshot.paths
             .map(canonicalPath)
             .sort()
@@ -571,7 +576,7 @@ export class Backup extends Context.Service<
       const previewRetention = Effect.fn("Backup.previewRetention")(function* (
         job: Job,
         args: ReadonlyArray<string>,
-        inventory: ReadonlyArray<Snapshot>,
+        inventory: ReadonlyArray<SnapshotMetadata>,
         anchors: ReadonlyArray<Anchor>,
       ) {
         const output = yield* invoke([...args, "--dry-run", "--json"]);
