@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { stringify } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 import { afterEach, expect, test } from "vitest";
 
 import { composeBackupProfile, composeTomlDocuments } from "@/backups";
@@ -276,7 +276,12 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
   };
   const options = { config, platform: "macos" as const, sourceRoot };
   await syncByorSparseSource(options);
-  expect(await readFile(join(sourceRoot, "common.toml"), "utf8")).toBe(files["common.toml"]);
+  // Git may convert checkout newlines on Windows; validate the TOML content.
+  expect(parse(await readFile(join(sourceRoot, "common.toml"), "utf8"))).toEqual(
+    parse(files["common.toml"]),
+  );
+  const cachedMac = await readFile(join(sourceRoot, "mac.toml"), "utf8");
+  expect(parse(cachedMac)).toEqual(parse(files["mac.toml"]));
   await expect(syncByorSparseSource({ ...options, offline: true })).resolves.toMatchObject({
     root: sourceRoot,
   });
@@ -302,5 +307,5 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
     "invalid composition",
   ]);
   await expect(syncByorSparseSource(options)).rejects.toThrow("Duplicate");
-  expect(await readFile(join(sourceRoot, "mac.toml"), "utf8")).toBe(files["mac.toml"]);
+  expect(await readFile(join(sourceRoot, "mac.toml"), "utf8")).toBe(cachedMac);
 });
