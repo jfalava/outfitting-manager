@@ -1,0 +1,95 @@
+---
+title: Backups
+description: Guarded Rustic backup operations for macOS and Windows.
+sidebar:
+  order: 35
+---
+
+`outfitting-manager backups` is available on macOS and Windows. It composes the selected repository-owned TOML fragments, resolves the configured sparse source, and runs Rustic with native credentials. Linux does not register this command family.
+
+## Import a repository manifest
+
+Backup declarations live beside the machine declarations in a schema-2 `outfitting.json`. The manifest is source data; editing it does not silently change a local `config.toml`. Import it explicitly with the wizard:
+
+```sh
+outfitting-manager config wizard --manifest system/macos/outfitting.json
+outfitting-manager init
+outfitting-manager backups doctor
+```
+
+Use `system/windows/outfitting.json` on Windows. The initial profiles are `ultramar` on macOS and `gaming-pc` on Windows. A manifest lists ordered, repository-relative TOML fragments:
+
+```json
+{
+  "schema": 2,
+  "backups": {
+    "defaultProfile": "ultramar",
+    "profiles": {
+      "ultramar": {
+        "platform": "macos",
+        "files": ["backups/common/common.toml", "backups/macos/ultramar.toml"]
+      }
+    }
+  }
+}
+```
+
+Re-importing replaces backup declarations for the selected platform and preserves declarations for other platforms. File order is significant. Paths must be safe, unique, non-reserved TOML files; unknown fields are rejected.
+
+## Runtime configuration
+
+The wizard writes the selected profile to local `config.toml`. Runtime configuration retains its existing schema version:
+
+```toml
+[backups]
+profile = "ultramar"
+
+[backups.profiles.ultramar]
+platform = "macos"
+files = [
+  "backups/common/common.toml",
+  "backups/macos/ultramar.toml",
+]
+```
+
+The manager includes all platform backup fragments in the sparse-source closure. It validates every selected composition before publishing or replacing the sparse cache. The ordered declaration participates in the cache hash, so reordering fragments forces a refresh.
+
+Composition recursively merges tables, lets later scalar values override earlier values, appends `[[backup.snapshots]]`, rejects duplicate snapshot names, and replaces other arrays. The final configuration must contain exactly the supported donor jobs and their existing tags. Credentials never enter generated TOML or command arguments.
+
+## Commands
+
+All commands accept the shared `--profile NAME` flag. A profile must be explicit or unambiguous; the manager never runs every declared backup profile.
+
+| Command                                     | Behavior                                                      |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `backups doctor`                            | Show resolved configuration without accessing the repository. |
+| `backups status`                            | Read local receipts without accessing the repository.         |
+| `backups run [--job JOB]`                   | Run selected backups without retention or pruning.            |
+| `backups run-due`                           | Catch up daily jobs and perform a due weekly check.           |
+| `backups snapshots [--job JOB]`             | List repository snapshots.                                    |
+| `backups check [--read-data]`               | Check repository metadata, optionally including file data.    |
+| `backups maintenance`                       | Preview retention; no deletion is applied.                    |
+| `backups maintenance --apply`               | Apply reviewed retention and two-phase pruning.               |
+| `backups accept JOB SNAPSHOT_ID`            | Accept the exact shrinkage candidate saved in a receipt.      |
+| `backups restore JOB SNAPSHOT_ID DIRECTORY` | Restore into a new non-source directory.                      |
+| `backups secrets set NAME`                  | Interactively store a native credential.                      |
+| `backups secrets check`                     | Verify native credentials without printing values.            |
+| `backups secrets import-secretstore`        | Explicitly migrate Windows SecretStore credentials.           |
+| `backups schedule --binary PATH`            | Print schedule XML; never install it.                         |
+
+The initial donor-compatible jobs are macOS `documents` and `images`, and Windows `ffxiv-mods`, `ffxiv-configs`, and `mmo-screenshots`.
+
+## Safety contracts
+
+The manager preserves the donor repository fingerprint, receipt directories, hostname rules, native secret identities, and shared repository lock. Keep existing receipts and repositories; never initialize or recreate a production repository.
+
+- Rustic non-zero exits and warning/error output fail the operation closed.
+- Each accepted backup records recovery anchors. A file or byte reduction greater than 50% requires review and the exact `accept` command.
+- Maintenance previews every job, protects both accepted anchors, checks before applying deletion, and requires `--acknowledge-history` for unmanaged history.
+- Restore refuses existing destinations and source-overlapping paths, including symlink aliases.
+- The Windows FFXIV process guard skips only `ffxiv-configs`; an unverifiable process probe fails closed and preserves retry eligibility.
+- Scheduled runs never perform retention. Generated schedules are print-only and invoke `run-due` with the selected profile.
+
+## Cutover
+
+Before cutover, verify native credentials, source access, a disposable backup, and a disposable restore on the target host. Compare `doctor` and `status` with the donor while preserving receipt state. Replace the stopped legacy schedule; do not run competing writers or pruners. Windows tasks use `InteractiveToken`, support a locked logged-in session, use `IgnoreNew`, and have no execution timeout. The implementation does not install schedules or run production Rustic operations automatically.
