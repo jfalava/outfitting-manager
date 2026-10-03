@@ -5,10 +5,11 @@ import { Result, Schema } from "effect";
 
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
+import { isReservedSourcePath } from "@/source/reserved";
 import { parseWindowsPackageList } from "@/source/windows-manifest";
 
 export const BYOR_CONTRACT_PATH = "outfitting.json";
-export const BYOR_CONTRACT_SCHEMA = 1;
+export const BYOR_CONTRACT_SCHEMA = 2;
 
 /** Sentinel winget path template for BYOR contracts without a common `{profile}` pattern. */
 export const BYOR_WINDOWS_WINGET_SENTINEL = "byor/{profile}";
@@ -81,6 +82,18 @@ export interface ByorWindowsShared {
   registry?: WindowsPathDeclaration;
 }
 
+export type BackupPlatform = "macos" | "windows";
+
+export interface BackupProfileDeclaration {
+  platform: BackupPlatform;
+  files: string[];
+}
+
+export interface ByorBackupsDeclaration {
+  defaultProfile: string;
+  profiles: Readonly<Record<string, BackupProfileDeclaration>>;
+}
+
 export interface ByorProfileDeclaration {
   linux?: LinuxProfileDeclaration;
   windows?: WindowsProfileDeclaration;
@@ -88,8 +101,9 @@ export interface ByorProfileDeclaration {
 }
 
 export interface ByorContract {
-  schema: typeof BYOR_CONTRACT_SCHEMA;
+  schema: 1 | typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
+  backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
 }
 
@@ -140,8 +154,9 @@ export interface ValidatedWindowsByorSource {
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type ByorContractInput = {
-  schema: typeof BYOR_CONTRACT_SCHEMA;
+  schema: 1 | typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
+  backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
 };
 type ByorContractValue = JsonValue | ByorContractInput;
@@ -203,6 +218,16 @@ const ByorWindowsSharedSchema = Schema.Struct({
   registry: Schema.optionalKey(WindowsPathSchema),
 });
 
+export const BackupProfileSchema = Schema.Struct({
+  platform: Schema.Union([Schema.Literal("macos"), Schema.Literal("windows")]),
+  files: Schema.Array(Schema.String),
+});
+
+const BackupsSchema = Schema.Struct({
+  defaultProfile: Schema.String,
+  profiles: Schema.Record(Schema.String, BackupProfileSchema),
+});
+
 const ByorProfileSchema = Schema.Struct({
   linux: Schema.optionalKey(LinuxProfileSchema),
   windows: Schema.optionalKey(WindowsProfileSchema),
@@ -210,8 +235,9 @@ const ByorProfileSchema = Schema.Struct({
 });
 
 const ByorContractSchema = Schema.Struct({
-  schema: Schema.Literal(BYOR_CONTRACT_SCHEMA),
+  schema: Schema.Union([Schema.Literal(1), Schema.Literal(BYOR_CONTRACT_SCHEMA)]),
   windows: Schema.optionalKey(ByorWindowsSharedSchema),
+  backups: Schema.optionalKey(BackupsSchema),
   profiles: Schema.Record(Schema.String, ByorProfileSchema),
 });
 
@@ -223,7 +249,9 @@ type DecodedMacosProfile = Schema.Schema.Type<typeof MacosProfileSchema>;
 type DecodedWindowsShared = Schema.Schema.Type<typeof ByorWindowsSharedSchema>;
 type DecodedContract = Schema.Schema.Type<typeof ByorContractSchema>;
 
-const decodeByorContract = Schema.decodeUnknownResult(ByorContractSchema);
+const decodeByorContract = Schema.decodeUnknownResult(ByorContractSchema, {
+  onExcessProperty: "error",
+});
 
 function isEnoent(cause: unknown): boolean {
   return (
@@ -236,6 +264,64 @@ function requiredString(value: string, label: string): string {
     throw new Error(`${label} must be a non-empty string.`);
   }
   return value.trim();
+}
+
+export function normalizeBackupPath(path: string): string {
+  const value = path.trim().replaceAll("\\", "/");
+  if (value.length === 0 || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
+    throw new Error("Backup TOML paths must be non-empty repository-relative paths.");
+  }
+  const parts = value.split("/");
+  if (
+    parts.some(
+      (part) =>
+        part === "" ||
+        part === "." ||
+        part === ".." ||
+        /[. ]$|^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part) ||
+        /[<>:"|?*]/.test(part) ||
+        [...part].some((char) => char.charCodeAt(0) < 32),
+    )
+  ) {
+    throw new Error(`Unsafe backup TOML path: ${path}.`);
+  }
+  if (
+    !value.endsWith(".toml") ||
+    isReservedSourcePath(value.toLowerCase()) ||
+    parts.some((part) => part.toLowerCase() === ".git")
+  ) {
+    throw new Error(`Backup path must name a non-reserved TOML file: ${path}.`);
+  }
+  return parts.join("/");
+}
+
+export function normalizeBackups(
+  value: DecodedContract["backups"],
+): ByorBackupsDeclaration | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const names = Object.keys(value.profiles);
+  if (names.length === 0 || !names.includes(value.defaultProfile)) {
+    throw new Error("backups.defaultProfile must name a declared backup profile.");
+  }
+  const profiles: Record<string, BackupProfileDeclaration> = {};
+  for (const [name, profile] of Object.entries(value.profiles)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+      throw new Error(`Invalid backup profile name: ${name}.`);
+    }
+    if (profile.files.length === 0) {
+      throw new Error(`Backup profile ${name} must declare files.`);
+    }
+    const files = profile.files.map(normalizeBackupPath);
+    const identities =
+      profile.platform === "windows" ? files.map((file) => file.toLowerCase()) : files;
+    if (new Set(identities).size !== files.length) {
+      throw new Error(`Backup profile ${name} contains duplicate files.`);
+    }
+    profiles[name] = { platform: profile.platform, files };
+  }
+  return { defaultProfile: value.defaultProfile, profiles };
 }
 
 function profileName(value: string, label: string): LinuxProfile {
@@ -412,6 +498,9 @@ function decodeContractRoot(value: ByorContractValue): DecodedContract {
   if (Object.keys(decoded.success.profiles).length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH}.profiles must contain at least one profile.`);
   }
+  if (decoded.success.schema === 1 && decoded.success.backups !== undefined) {
+    throw new Error("Backup declarations require manifest schema 2.");
+  }
   return decoded.success;
 }
 
@@ -468,9 +557,18 @@ export function parseByorContract(value: ByorContractValue): ByorContract {
     profiles[parsed.name] = parsed.profile;
   }
   const windows = parseOptionalWindowsShared(contract.windows, profiles);
-  return windows === undefined
-    ? { schema: BYOR_CONTRACT_SCHEMA, profiles }
-    : { schema: BYOR_CONTRACT_SCHEMA, windows, profiles };
+  const backups = normalizeBackups(contract.backups);
+  const result: ByorContract = {
+    schema: backups === undefined ? contract.schema : BYOR_CONTRACT_SCHEMA,
+    profiles,
+  };
+  if (windows !== undefined) {
+    result.windows = windows;
+  }
+  if (backups !== undefined) {
+    result.backups = backups;
+  }
+  return result;
 }
 
 /** Parse a JSON repository manifest with an error that names its actual path. */

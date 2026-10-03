@@ -24,6 +24,8 @@ import {
   linuxPathsFromProfile,
   macosPathsFromProfile,
   parseByorContract,
+  normalizeBackups,
+  BackupProfileSchema,
   type ByorContract,
 } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";
@@ -41,6 +43,11 @@ const WindowsFileSchema = Schema.Struct({
   shared: Schema.optionalKey(Schema.MutableJson),
 });
 
+const BackupsFileSchema = Schema.Struct({
+  profile: Schema.NonEmptyString,
+  profiles: Schema.Record(Schema.String, BackupProfileSchema),
+});
+
 const SourceFileSchema = Schema.Struct({
   path: Schema.optionalKey(Schema.NonEmptyString),
   repository: Schema.optionalKey(Schema.NonEmptyString),
@@ -54,6 +61,7 @@ const ConfigFileSchema = Schema.Struct({
   linux: Schema.optionalKey(LinuxFileSchema),
   macos: Schema.optionalKey(MacosFileSchema),
   windows: Schema.optionalKey(WindowsFileSchema),
+  backups: Schema.optionalKey(BackupsFileSchema),
   profiles: Schema.optionalKey(Schema.Record(Schema.String, Schema.MutableJson)),
 });
 
@@ -99,7 +107,7 @@ function assertTableKeys(
 function assertConfigTableKeys(parsed: TomlTableWithoutBigInt, configPath: string): void {
   assertTableKeys(
     parsed,
-    ["schema", "machine_id", "source", "linux", "macos", "windows", "profiles"],
+    ["schema", "machine_id", "source", "linux", "macos", "windows", "backups", "profiles"],
     configPath,
   );
   if (parsed.source !== undefined) {
@@ -113,6 +121,9 @@ function assertConfigTableKeys(parsed: TomlTableWithoutBigInt, configPath: strin
   }
   if (parsed.windows !== undefined) {
     assertTableKeys(parsed.windows, ["profiles", "shared"], `${configPath} [windows]`);
+  }
+  if (parsed.backups !== undefined) {
+    Schema.decodeUnknownSync(BackupsFileSchema, { onExcessProperty: "error" })(parsed.backups);
   }
 }
 
@@ -243,6 +254,13 @@ function configFileFromDecoded(decoded: DecodedConfig, configPath: string): Mana
     }
     file.windows = { profiles: [...new Set(profiles)] };
   }
+  if (decoded.backups !== undefined) {
+    const validated = normalizeBackups({
+      defaultProfile: decoded.backups.profile,
+      profiles: decoded.backups.profiles,
+    })!;
+    file.backups = { profile: validated.defaultProfile, profiles: validated.profiles };
+  }
   const declarations = normalizeDeclarations(decoded);
   if (declarations !== undefined) {
     file.declarations = declarations;
@@ -349,6 +367,9 @@ function managerConfigFromFile(
   }
   if (file.declarations !== undefined) {
     config.declarations = file.declarations;
+  }
+  if (file.backups !== undefined) {
+    config.backups = file.backups;
   }
   return config;
 }

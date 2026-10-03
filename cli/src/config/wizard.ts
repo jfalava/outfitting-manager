@@ -5,11 +5,13 @@ import { Console, Effect, Option, Result } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
+import { composeBackupProfile } from "@/backups/composition";
 import { applyWindows } from "@/commands/windows-apply";
 import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { loadConfig } from "@/config/load";
 import { configFilePath, stateRoot } from "@/config/paths";
 import type { OutfittingRepo } from "@/config/repo";
+import type { BackupsConfig } from "@/config/types";
 import { publishValidatedConfig } from "@/config/write";
 import { classifyGitHubRepository, readGitHubFile } from "@/fetch/github";
 import { tryPromise } from "@/lockfiles/effect";
@@ -19,6 +21,8 @@ import { runSetup } from "@/setup/run";
 import { readGitFile } from "@/setup/source";
 import {
   BYOR_CONTRACT_PATH,
+  normalizeBackups,
+  normalizeBackupPath,
   parseByorContract,
   parseByorContractJson,
   readByorContractFile,
@@ -44,6 +48,7 @@ type WizardSource = { path: string } | { repository: string; ref: string };
 
 interface WizardConfigDocument {
   schema: 1;
+  backups?: import("@/config/types").BackupsConfig;
   machine_id?: string;
   source: WizardSource;
   linux?: { profile: string };
@@ -54,6 +59,7 @@ interface WizardConfigDocument {
 
 interface ExistingWizardConfigDocument {
   schema?: 1;
+  backups?: import("@/config/types").BackupsConfig;
   machine_id?: string;
   source?: WizardSource;
   linux?: { profile?: string };
@@ -494,6 +500,10 @@ export function mergeByorContractDefaults(
     schema: 1,
     profiles,
   };
+  if (toml.backups ?? manifest.backups) {
+    merged.schema = 2;
+    merged.backups = toml.backups ?? manifest.backups;
+  }
   if (Object.keys(windows).length > 0) {
     merged.windows = windows;
   }
@@ -666,6 +676,11 @@ export function buildWizardConfigDocument(
 
   preserveExistingConfig(document, existing);
 
+  const backups = importedBackups(manifest, existing?.backups, platform);
+  if (backups !== undefined) {
+    document.backups = backups;
+  }
+
   switch (platform) {
     case "linux":
       document.linux = { profile: profiles[0]! };
@@ -678,6 +693,72 @@ export function buildWizardConfigDocument(
       break;
   }
   return document;
+}
+
+function importedBackups(
+  manifest: ByorContract | undefined,
+  existing: BackupsConfig | undefined,
+  platform: HostPlatform,
+): BackupsConfig | undefined {
+  if (manifest === undefined) {
+    return existing;
+  }
+  const declaration = manifest.backups;
+  const profiles = Object.fromEntries(
+    Object.entries(existing?.profiles ?? {}).filter(([, profile]) => profile.platform !== platform),
+  );
+  for (const [name, profile] of Object.entries(declaration?.profiles ?? {}).filter(
+    ([, entry]) => entry.platform === platform,
+  )) {
+    if (profiles[name] !== undefined) {
+      throw new Error(`Backup profile ${name} conflicts with an unrelated platform.`);
+    }
+    profiles[name] = profile;
+  }
+  const preferred = declaration?.defaultProfile ?? "";
+  const profile = Object.hasOwn(profiles, preferred) ? preferred : Object.keys(profiles)[0];
+  return profile === undefined ? undefined : { profile, profiles };
+}
+
+function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatform, root?: string) {
+  return Effect.gen(function* () {
+    if (platform === "linux") {
+      return;
+    }
+    const current = document.backups;
+    if (
+      !(yield* Prompt.run(
+        Prompt.Confirm({
+          message: "Configure independent backup profiles?",
+          initial: current !== undefined,
+        }),
+      ))
+    ) {
+      return;
+    }
+    const profiles = { ...current?.profiles };
+    const candidates = Object.keys(profiles).filter(
+      (name) => profiles[name]?.platform === platform,
+    );
+    const name = yield* profileNamePrompt("Backup profile", current?.profile, candidates);
+    const files = yield* normalizedTextPrompt(
+      "Backup TOML files, comma-separated in composition order",
+      (value) => value.split(",").map(normalizeBackupPath).join(", "),
+      profiles[name]?.files.join(", "),
+    );
+    profiles[name] = { platform, files: files.split(",").map((file) => file.trim()) };
+    const validated = yield* tryPromise(async () =>
+      normalizeBackups({ defaultProfile: name, profiles })!,
+    );
+    if (root !== undefined) {
+      for (const [profile, declaration] of Object.entries(validated.profiles)) {
+        if (declaration.platform === platform) {
+          yield* tryPromise(() => composeBackupProfile({ root, profile, declaration }));
+        }
+      }
+    }
+    document.backups = { profile: name, profiles: validated.profiles };
+  });
 }
 
 export function addLinuxSourcePaths(
@@ -1310,6 +1391,7 @@ const runWizard = (strict: boolean, manifestPath?: string) =>
       manifest: answers.manifest,
       existing: answers.existing?.document,
     });
+    yield* backupSetupPrompt(document, platform, answers.localRoot);
     if (answers.machineId === undefined) {
       delete document.machine_id;
     } else {

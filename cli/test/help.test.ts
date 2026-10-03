@@ -51,16 +51,41 @@ const nixPaths = [
   "recover",
   "recover nix",
 ];
+const backupPaths = [
+  "backups",
+  "backups doctor",
+  "backups status",
+  "backups run",
+  "backups run-due",
+  "backups snapshots",
+  "backups check",
+  "backups restore",
+  "backups accept",
+  "backups maintenance",
+  "backups secrets",
+  "backups secrets set",
+  "backups secrets check",
+  "backups secrets import-secretstore",
+  "backups schedule",
+];
 
 afterEach(() => vi.restoreAllMocks());
 
 describe.each([
   ["linux", "index.ts", nixPaths],
-  ["macos", "index.macos.ts", [...nixPaths, "homebrew", "homebrew inventory"]],
+  ["macos", "index.macos.ts", [...nixPaths, ...backupPaths, "homebrew", "homebrew inventory"]],
   [
     "windows",
     "index.windows.ts",
-    ["winget", "winget install", "winget uninstall", "scoop", "scoop install", "scoop uninstall"],
+    [
+      ...backupPaths,
+      "winget",
+      "winget install",
+      "winget uninstall",
+      "scoop",
+      "scoop install",
+      "scoop uninstall",
+    ],
   ],
 ] as const)("%s command help", (_platform, entry, platformPaths) => {
   const cliEntry = fileURLToPath(new URL(`../${entry}`, import.meta.url));

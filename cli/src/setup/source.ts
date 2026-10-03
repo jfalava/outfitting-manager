@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 
 import { Schema } from "effect";
 
+import { composeBackupProfile } from "@/backups/composition";
 import { sparseSourceRoot } from "@/config/paths";
 import { configuredProfile } from "@/config/profile";
 import type { ManagerConfig } from "@/config/types";
@@ -136,22 +137,26 @@ function byorClosure(
   contract: ByorContract,
   platform: HostPlatform,
   profile: string | undefined,
+  additionalFiles: ReadonlyArray<string> = [],
 ): string[] {
-  switch (platform) {
-    case "macos":
-      return macosPathsFromProfile(selectMacosByorProfile(contract, profile).macos);
-    case "linux":
-      return linuxPathsFromProfile(selectByorProfile(contract, profile).linux);
-    case "windows":
-      return windowsPathsFromContract(
-        contract,
-        profile === undefined ? undefined : profile.split(","),
-      );
-    default: {
-      const exhaustive: never = platform;
-      return exhaustive;
+  const base = (() => {
+    switch (platform) {
+      case "macos":
+        return macosPathsFromProfile(selectMacosByorProfile(contract, profile).macos);
+      case "linux":
+        return linuxPathsFromProfile(selectByorProfile(contract, profile).linux);
+      case "windows":
+        return windowsPathsFromContract(
+          contract,
+          profile === undefined ? undefined : profile.split(","),
+        );
+      default: {
+        const exhaustive: never = platform;
+        return exhaustive;
+      }
     }
-  }
+  })();
+  return [...new Set([...base, ...additionalFiles])];
 }
 
 function requiredContract(config: ManagerConfig): ByorContract {
@@ -164,10 +169,28 @@ function requiredContract(config: ManagerConfig): ByorContract {
 function declarationHash(options: ByorSparseSourceOptions, contract: ByorContract): string {
   const hashInput = JSON.stringify({
     contract: selectedContract(contract, options),
+    backups: options.config.backups,
     platform: options.platform,
     profile: configuredProfile(options.config, options.platform, options.profile),
   });
   return createHash("sha256").update(hashInput).digest("hex");
+}
+
+function backupFiles(options: ByorSparseSourceOptions): string[] {
+  return Object.values(options.config.backups?.profiles ?? {})
+    .filter((profile) => profile.platform === options.platform)
+    .flatMap((profile) => profile.files);
+}
+
+export async function validateBackups(
+  root: string,
+  options: Pick<ByorSparseSourceOptions, "config" | "platform">,
+): Promise<void> {
+  for (const [profile, declaration] of Object.entries(options.config.backups?.profiles ?? {})) {
+    if (declaration.platform === options.platform) {
+      await composeBackupProfile({ root, profile, declaration });
+    }
+  }
 }
 
 function withinPath(path: string, root: string): boolean {
@@ -471,16 +494,18 @@ export async function syncByorSparseSource(
       );
     }
     await validateByorSource(target, selectedOptions, contract);
-    const paths = byorClosure(contract, options.platform, profile);
+    await validateBackups(target, selectedOptions);
+    const paths = byorClosure(contract, options.platform, profile, backupFiles(selectedOptions));
     return { root: target, files: paths.map((path) => ({ path, source: "cache" })) };
   }
   const selected = selectedContract(contract, selectedOptions);
-  const paths = byorClosure(selected, options.platform, profile);
+  const paths = byorClosure(selected, options.platform, profile, backupFiles(selectedOptions));
   await mkdir(dirname(target), { recursive: true });
   const staged = await mkdtemp(join(dirname(target), ".outfitting-source-"));
   try {
     const files = await stageByorFiles({ staged, options: selectedOptions, contract, paths });
     await validateByorSource(staged, selectedOptions, contract);
+    await validateBackups(staged, selectedOptions);
     await replaceSourceTree(staged, target);
     return { root: target, files };
   } catch (cause) {

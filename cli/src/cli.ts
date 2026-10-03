@@ -1,6 +1,7 @@
 import { Command } from "effect/cli";
 
 import { macosApplyCommand } from "@/commands/apply/macos";
+import { makeBackupsCommand } from "@/commands/backups";
 import { configCommand } from "@/commands/config";
 import { makeMacosDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
@@ -29,6 +30,7 @@ export const makeMacosRootCommand = (currentVersion: string) =>
       macosInitCommand,
       macosApplyCommand,
       configCommand,
+      makeBackupsCommand(),
       sourceCommand,
       validateCommand,
       makeNixCommand("macos"),

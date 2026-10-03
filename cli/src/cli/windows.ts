@@ -1,5 +1,6 @@
 import { Command } from "effect/cli";
 
+import { makeBackupsCommand } from "@/commands/backups";
 import { configCommand } from "@/commands/config";
 import { makeWindowsDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
@@ -23,6 +24,7 @@ export const makeWindowsRootCommand = (currentVersion: string) =>
     Command.withSubcommands([
       windowsInitCommand,
       configCommand,
+      makeBackupsCommand(),
       sourceCommand,
       validateCommand,
       makeWindowsUpdateCommand(),

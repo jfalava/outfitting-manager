@@ -1,0 +1,99 @@
+import { Schema } from "effect";
+
+export class BackupError extends Schema.TaggedError<BackupError>()("BackupError", {
+  message: Schema.String,
+}) {}
+
+export const macJobs = ["documents", "images"] as const;
+export const windowsJobs = ["ffxiv-mods", "ffxiv-configs", "mmo-screenshots"] as const;
+export const jobs = [...macJobs, ...windowsJobs] as const;
+export const Job = Schema.Literals(jobs);
+export type Job = typeof Job.Type;
+
+export const SnapshotId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
+const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export const Snapshot = Schema.Struct({
+  id: Schema.optionalKey(SnapshotId),
+  parent: Schema.optionalKey(SnapshotId),
+  tree: SnapshotId,
+  hostname: Schema.NonEmptyString,
+  paths: Schema.NonEmptyArray(Schema.NonEmptyString),
+  tags: Schema.Array(Schema.String),
+  time: Schema.DateTimeUtcFromString,
+  delete: Schema.optionalKey(Schema.Unknown),
+  summary: Schema.Struct({
+    total_files_processed: Count,
+    total_bytes_processed: Count,
+  }),
+});
+export type Snapshot = typeof Snapshot.Type;
+
+export const Anchor = Schema.Struct({
+  id: SnapshotId,
+  tree: SnapshotId,
+  files: Count,
+  bytes: Count,
+});
+export type Anchor = typeof Anchor.Type;
+
+export const JobState = Schema.Struct({
+  version: Schema.Literal(1),
+  repository: Schema.NonEmptyString,
+  hostname: Schema.NonEmptyString,
+  job: Job,
+  startedAt: Schema.DateTimeUtcFromString,
+  finishedAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
+  outcome: Schema.Literals([
+    "running",
+    "accepted-changed",
+    "accepted-unchanged",
+    "failed",
+    "review-required",
+  ]),
+  error: Schema.optionalKey(Schema.String),
+  acceptedAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
+  current: Schema.optionalKey(Anchor),
+  previous: Schema.optionalKey(Anchor),
+  candidate: Schema.optionalKey(Anchor),
+  knownIds: Schema.Array(SnapshotId),
+});
+export type JobState = typeof JobState.Type;
+
+export const Retention = Schema.Struct({
+  "keep-daily": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
+  "keep-weekly": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
+  "keep-monthly": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
+  "keep-id": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+});
+
+export const Profile = Schema.Struct({
+  repository: Schema.Struct({
+    repository: Schema.NonEmptyString,
+    options: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  }),
+  forget: Retention,
+  backup: Schema.Struct({
+    snapshots: Schema.Array(
+      Schema.Struct({
+        name: Job,
+        sources: Schema.NonEmptyArray(Schema.NonEmptyString),
+        tags: Schema.NonEmptyArray(Schema.NonEmptyString),
+        globs: Schema.optionalKey(Schema.Array(Schema.String)),
+        "skip-if-unchanged": Schema.Boolean,
+      }),
+    ),
+  }),
+});
+export type Profile = typeof Profile.Type;
+
+export const SnapshotGroups = Schema.Array(Schema.Struct({ snapshots: Schema.Array(Snapshot) }));
+export const RetentionPlan = Schema.Array(
+  Schema.Struct({
+    items: Schema.Array(
+      Schema.Struct({
+        snapshot: Snapshot,
+        keep: Schema.Boolean,
+      }),
+    ),
+  }),
+);

@@ -13,7 +13,7 @@ import { tryPromise } from "@/lockfiles/effect";
 import type { HostPlatform } from "@/platform";
 import type { runCommand } from "@/process";
 import { envValue } from "@/secrets";
-import { syncByorSparseSource } from "@/setup/source";
+import { syncByorSparseSource, validateBackups } from "@/setup/source";
 import {
   validateLinuxByorSource,
   validateMacosByorSource,
@@ -133,6 +133,7 @@ export const runSetup = (input: SetupOptions = {}) =>
 
     const platform = options.platform!;
     yield* tryPromise(async () => {
+      await validateBackups(selectedRepo!, { config, platform });
       if (platform === "macos") {
         await validateMacosByorSource({
           root: selectedRepo!,

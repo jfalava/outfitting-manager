@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Console, Effect, Option } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 
+import { composeBackupProfile } from "@/backups/composition";
 import { loadConfig } from "@/config/load";
 import {
   collectLinuxDeclaration,
@@ -198,6 +199,10 @@ export function buildManifestWithPlatformEdits(
     schema: 1,
     profiles,
   };
+  if (existing?.backups !== undefined) {
+    result.schema = 2;
+    result.backups = existing?.backups;
+  }
   if (windows !== undefined) {
     result.windows = windows;
   }
@@ -205,6 +210,9 @@ export function buildManifestWithPlatformEdits(
 }
 
 async function validateManifestArtifacts(root: string, contract: ByorContract): Promise<void> {
+  for (const [profile, declaration] of Object.entries(contract.backups?.profiles ?? {})) {
+    await composeBackupProfile({ root, profile, declaration });
+  }
   for (const name of platformProfiles(contract, "linux")) {
     await validateLinuxByorSource({ root, contract, profile: name });
   }

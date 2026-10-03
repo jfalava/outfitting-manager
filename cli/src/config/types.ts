@@ -1,4 +1,4 @@
-import type { ByorContract } from "@/source/contract";
+import type { ByorBackupsDeclaration, ByorContract } from "@/source/contract";
 
 /** Platform profile selected for this machine. */
 export interface LinuxConfig {
@@ -13,6 +13,11 @@ export interface WindowsConfig {
   profiles: string[];
 }
 
+export interface BackupsConfig {
+  profile: string;
+  profiles: ByorBackupsDeclaration["profiles"];
+}
+
 export type ConfiguredSource =
   | { kind: "local"; path: string }
   | { kind: "remote"; repository: string; ref: string };
@@ -25,6 +30,7 @@ export interface ManagerConfigFile {
   linux?: Partial<LinuxConfig>;
   macos?: Partial<MacosConfig>;
   windows?: Partial<WindowsConfig>;
+  backups?: BackupsConfig;
   declarations?: ByorContract;
 }
 
@@ -43,6 +49,7 @@ export interface ManagerConfig {
   linux?: LinuxConfig;
   macos?: MacosConfig;
   windows?: WindowsConfig;
+  backups?: BackupsConfig;
   /** Validated profile declarations, absent until configured. */
   declarations?: ByorContract;
 }
