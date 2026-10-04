@@ -471,7 +471,7 @@ export class Backup extends Context.Service<
                       "-NoProfile",
                       "-NonInteractive",
                       "-Command",
-                      "$ErrorActionPreference = 'Stop'; $names = @(ConvertFrom-Json -InputObject $env:OUTFITTING_BACKUP_PROCESSES); $running = @(Get-Process -ErrorAction Stop | Where-Object { $names -contains $_.ProcessName }); if ($running.Count -gt 0) { Write-Output 'running' } else { Write-Output 'stopped' }",
+                      "$ErrorActionPreference = 'Stop'; $names = ConvertFrom-Json -InputObject $env:OUTFITTING_BACKUP_PROCESSES; $running = @(Get-Process -ErrorAction Stop | Where-Object { $names -contains $_.ProcessName }); if ($running.Count -gt 0) { Write-Output 'running' } else { Write-Output 'stopped' }",
                     ],
                     {
                       ...config.environment,

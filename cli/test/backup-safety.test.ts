@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { BunServices } from "@effect/platform-bun";
 import { DateTime, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
@@ -986,6 +986,57 @@ test("Windows retention uses six months for game data and three for screenshots,
   }
   expect(f.calls.some((call) => call.args.includes("prune"))).toBe(false);
 });
+
+test.skipIf(process.platform !== "win32" || rustic === undefined)(
+  "real Windows process guards match exact basenames case-insensitively and preserve custom-job receipts",
+  async () => {
+    const policies: Record<Job, JobPolicy> = {};
+    const f = await fixture(true, true, ["project-data", "photos", "ffxiv-configs"], policies);
+    for (const job of f.settings.jobs) {
+      await writeFile(join(f.settings.sources[job]![0]!, "fixture.txt"), `${job}\n`);
+    }
+    await f.run(
+      Effect.flatMap(Processes, (service) =>
+        service.run(
+          f.settings.rustic,
+          ["--no-progress", "-r", f.settings.profile.repository.repository, "init"],
+          { ...f.settings.environment, RUSTIC_PASSWORD: "fixture-password" },
+        ),
+      ).pipe(Effect.map((output) => expect(output.exitCode).toBe(0))),
+    );
+    const first = await f.backup();
+    expect(first.map((state) => state.outcome)).toEqual([
+      "accepted-changed",
+      "accepted-changed",
+      "accepted-changed",
+    ]);
+    const receiptPath = join(f.settings.stateDirectory, f.settings.repository, "project-data.json");
+    const before = await readFile(receiptPath, "utf8");
+    const processName = basename(process.execPath, ".exe");
+    policies.photos = { skipIfProcessesRunning: [processName.slice(0, -1)] };
+    const absentProcess = `outfitting-absent-${process.pid}`;
+    for (const names of [[processName.toUpperCase()], [absentProcess, processName.toUpperCase()]]) {
+      policies["project-data"] = { skipIfProcessesRunning: names };
+      const callCount = f.calls.length;
+      const skipped = await f.backup();
+      expect(skipped.map((state) => state.job)).toEqual(["photos", "ffxiv-configs"]);
+      expect(skipped.map((state) => state.outcome)).toEqual([
+        "accepted-unchanged",
+        "accepted-unchanged",
+      ]);
+      expect(await readFile(receiptPath, "utf8")).toBe(before);
+      expect(f.calls.slice(callCount).some((call) => call.args.includes("project-data"))).toBe(
+        false,
+      );
+    }
+    policies["project-data"] = { skipIfProcessesRunning: [absentProcess] };
+    const [resumed] = await f.backup(["project-data"]);
+    expect(resumed?.outcome).toBe("accepted-unchanged");
+    expect(resumed?.current).toEqual(first[0]?.current);
+    expect(f.alerts).toEqual([]);
+  },
+  30_000,
+);
 
 test.skipIf(process.platform !== "win32" || rustic === undefined)(
   "real Windows Rustic validates multi-source game jobs, unchanged parents, checks and restored bytes",
