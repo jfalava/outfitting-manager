@@ -5,6 +5,8 @@
     "/",
     "/404",
     "/docs/api",
+    "/docs/backups/how-it-works",
+    "/docs/backups/requirements",
     "/docs/cli",
     "/docs/cli/apply",
     "/docs/cli/backups",

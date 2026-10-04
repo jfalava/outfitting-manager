@@ -1,0 +1,70 @@
+---
+title: How the command works
+description: How the backup command operates, runs scheduled tasks, and protects data.
+sidebar:
+  order: 10
+---
+
+<Aside type="note" title="Rustic wrapper">
+`outfitting-manager backups` is nothing but a wrapper around [Rustic](https://github.com/rustic-rs/rustic). It does not implement custom backup formats or storage backends; it automates running Rustic with your configuration and native credentials while providing safety checks and scheduling.
+</Aside>
+
+## Overview
+
+When you run a backup command, Outfitting Manager:
+
+1. Loads the backup profile declared in your setup files.
+2. Retrieves credentials securely from your OS keychain or credential manager.
+3. Invokes `rustic` to back up files to your remote repository (such as S3 or Cloudflare R2).
+4. Records local receipts and verifies that the new backup meets safety standards.
+
+## Running backups
+
+### Manual runs (`backups run`)
+
+Use `backups run` to trigger an immediate backup of your configured folders without running cleanup or pruning:
+
+```sh
+# Back up all configured folders
+outfitting-manager backups run
+
+# Back up only one specific job
+outfitting-manager backups run --job documents
+```
+
+If files have not changed since the last run, Rustic records that without re-uploading existing data.
+
+### Scheduled runs (`backups run-due`)
+
+The `run-due` command is designed for automated schedules (like macOS LaunchAgents or Windows Task Scheduler):
+
+- **Daily backups:** Runs backup jobs if they haven't run today (scheduled for 10:00 on macOS and 09:00 on Windows).
+- **Weekly checks:** Runs a repository integrity check if one hasn't completed since the previous Sunday at 15:00.
+
+## Safety checks
+
+To prevent accidental data loss or corrupted backups, the wrapper enforces several safety guards:
+
+- **Shrinkage guard:** If a backup suddenly loses more than 50% of its file count or byte size compared to the last good backup, the run is flagged as `review-required`. The snapshot is not accepted automatically until you inspect it and run [`backups accept`](/docs/cli/backups/#accept).
+- **Zero-file protection:** Rejects any backup that processes zero files (for instance, if an external drive or sync folder was unmounted).
+- **Process guard (Windows):** Checks whether game processes are running before backing up game configurations (`ffxiv-configs`). If the game is running, the backup is skipped and retries during the next scheduled run.
+- **Locking:** Uses an exclusive local lock to prevent multiple backup jobs from running at the same time.
+- **Failure alerts:** Dispatches a webhook notification if a backup fails or requires review.
+
+## Maintenance and retention
+
+Pruning and deletion are separated from daily backup runs:
+
+- **Preview by default:** Running `backups maintenance` previews which snapshots would be forgotten according to your retention policy, without deleting anything.
+- **Dual recovery anchors:** The two most recent accepted backup snapshots for every job are automatically protected from deletion during maintenance.
+- **Apply changes:** Pass `--apply` to actually delete expired snapshots and reclaim storage space (`prune`).
+
+## Restoring files
+
+Restoring is handled via `backups restore`:
+
+```sh
+outfitting-manager backups restore documents <snapshot-id> ~/Desktop/restored-files
+```
+
+To prevent accidental overwrites, the restore command requires the destination folder to be brand new and refuses destinations that overlap with your backup source paths.

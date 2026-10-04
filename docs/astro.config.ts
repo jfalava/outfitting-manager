@@ -37,6 +37,10 @@ const nimbusConfig = defineNimbusConfig({
       },
       { label: "API", link: "/docs/api/" },
       {
+        label: "Backups",
+        items: [{ autogenerate: { directory: "docs/backups" } }],
+      },
+      {
         label: "CLI",
         collapsed: true,
         items: [{ autogenerate: { directory: "docs/cli" } }],

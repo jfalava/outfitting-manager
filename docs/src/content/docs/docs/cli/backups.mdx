@@ -1,95 +1,231 @@
 ---
-title: Backups
-description: Guarded Rustic backup operations for macOS and Windows.
+title: backups
+description: Run guarded Rustic backups, inspect snapshots, verify integrity, and manage credentials.
 sidebar:
   order: 35
 ---
 
-`outfitting-manager backups` is available on macOS and Windows. It composes the selected repository-owned TOML fragments, resolves the configured sparse source, and runs Rustic with native credentials. Linux does not register this command family.
+**Syntax:** `outfitting-manager backups <subcommand> [flags]`
 
-## Import a repository manifest
+<Aside type="note" title="Rustic wrapper">
+`outfitting-manager backups` is a wrapper around **Rustic**. It coordinates running Rustic using your repository declarations and native credentials.
+</Aside>
 
-Backup declarations live beside the machine declarations in a schema-2 `outfitting.json`. The manifest is source data; editing it does not silently change a local `config.toml`. Import it explicitly with the wizard:
+`backups` manages Rustic backup operations on macOS and Windows. Linux does not register this command family. For conceptual guides, see [How the command works](/docs/backups/how-it-works/) and [What the command requires](/docs/backups/requirements/).
+
+## `doctor`
+
+**Syntax:** `outfitting-manager backups doctor`
+
+Show resolved configuration, hostname, repository fingerprint, sources, and state directory without accessing the repository or native credentials.
 
 ```sh
-outfitting-manager config wizard --manifest system/macos/outfitting.json
-outfitting-manager init
 outfitting-manager backups doctor
 ```
 
-Use `system/windows/outfitting.json` on Windows. The initial profiles are `ultramar` on macOS and `gaming-pc` on Windows. A manifest lists ordered, repository-relative TOML fragments:
+## `status`
 
-```json
-{
-  "schema": 2,
-  "backups": {
-    "defaultProfile": "ultramar",
-    "profiles": {
-      "ultramar": {
-        "platform": "macos",
-        "files": ["backups/common/common.toml", "backups/macos/ultramar.toml"]
-      }
-    }
-  }
-}
+**Syntax:** `outfitting-manager backups status`
+
+Read local backup receipts and print current outcomes, timestamps, and recovery anchors without accessing native credentials or the remote repository.
+
+```sh
+outfitting-manager backups status
 ```
 
-Re-importing replaces backup declarations for the selected platform and preserves declarations for other platforms. File order is significant. Paths must be safe, unique, non-reserved TOML files; unknown fields are rejected.
+## `run`
 
-## Runtime configuration
+**Syntax:** `outfitting-manager backups run [--job <job>]`
 
-The wizard writes the selected profile to local `config.toml`. Runtime configuration retains its existing schema version:
+Run backup jobs immediately. By default, all jobs in the active profile are executed. Does not perform retention or pruning.
 
-```toml
-[backups]
-profile = "ultramar"
+```sh
+# Run all backup jobs
+outfitting-manager backups run
 
-[backups.profiles.ultramar]
-platform = "macos"
-files = [
-  "backups/common/common.toml",
-  "backups/macos/ultramar.toml",
-]
+# Run one job
+outfitting-manager backups run --job documents
 ```
 
-The manager includes all platform backup fragments in the sparse-source closure. It validates every selected composition before publishing or replacing the sparse cache. The ordered declaration participates in the cache hash, so reordering fragments forces a refresh.
+| Option        | Description                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--job <job>` | Run only one job. Available macOS jobs: `documents`, `images`. Available Windows jobs: `ffxiv-mods`, `ffxiv-configs`, `mmo-screenshots`. |
 
-Composition recursively merges tables, lets later scalar values override earlier values, appends `[[backup.snapshots]]`, rejects duplicate snapshot names, and replaces other arrays. The final configuration must contain exactly the supported donor jobs and their existing tags. Credentials never enter generated TOML or command arguments.
+## `run-due`
 
-## Commands
+**Syntax:** `outfitting-manager backups run-due`
 
-All commands accept the shared `--profile NAME` flag. A profile must be explicit or unambiguous; the manager never runs every declared backup profile.
+Run daily backup jobs that are currently due and perform a weekly repository integrity check if due. Daily jobs run after 10:00 on macOS and 09:00 on Windows. Weekly checks run after Sunday 15:00.
 
-| Command                                     | Behavior                                                      |
-| ------------------------------------------- | ------------------------------------------------------------- |
-| `backups doctor`                            | Show resolved configuration without accessing the repository. |
-| `backups status`                            | Read local receipts without accessing the repository.         |
-| `backups run [--job JOB]`                   | Run selected backups without retention or pruning.            |
-| `backups run-due`                           | Catch up daily jobs and perform a due weekly check.           |
-| `backups snapshots [--job JOB]`             | List repository snapshots.                                    |
-| `backups check [--read-data]`               | Check repository metadata, optionally including file data.    |
-| `backups maintenance`                       | Preview retention; no deletion is applied.                    |
-| `backups maintenance --apply`               | Apply reviewed retention and two-phase pruning.               |
-| `backups accept JOB SNAPSHOT_ID`            | Accept the exact shrinkage candidate saved in a receipt.      |
-| `backups restore JOB SNAPSHOT_ID DIRECTORY` | Restore into a new non-source directory.                      |
-| `backups secrets set NAME`                  | Interactively store a native credential.                      |
-| `backups secrets check`                     | Verify native credentials without printing values.            |
-| `backups secrets import-secretstore`        | Explicitly migrate Windows SecretStore credentials.           |
-| `backups schedule --binary PATH`            | Print schedule XML; never install it.                         |
+```sh
+outfitting-manager backups run-due
+```
 
-The initial donor-compatible jobs are macOS `documents` and `images`, and Windows `ffxiv-mods`, `ffxiv-configs`, and `mmo-screenshots`.
+## `snapshots`
 
-## Safety contracts
+**Syntax:** `outfitting-manager backups snapshots [--job <job>]`
 
-The manager preserves the donor repository fingerprint, receipt directories, hostname rules, native secret identities, and shared repository lock. Keep existing receipts and repositories; never initialize or recreate a production repository.
+List repository snapshots for this host, optionally filtered by job.
 
-- Rustic non-zero exits and warning/error output fail the operation closed.
-- Each accepted backup records recovery anchors. A file or byte reduction greater than 50% requires review and the exact `accept` command.
-- Maintenance previews every job, protects both accepted anchors, checks before applying deletion, and requires `--acknowledge-history` for unmanaged history.
-- Restore refuses existing destinations and source-overlapping paths, including symlink aliases.
-- The Windows FFXIV process guard skips only `ffxiv-configs`; an unverifiable process probe fails closed and preserves retry eligibility.
-- Scheduled runs never perform retention. Generated schedules are print-only and invoke `run-due` with the selected profile.
+```sh
+# List all snapshots for this host
+outfitting-manager backups snapshots
 
-## Cutover
+# List snapshots for a specific job
+outfitting-manager backups snapshots --job images
+```
 
-Before cutover, verify native credentials, source access, a disposable backup, and a disposable restore on the target host. Compare `doctor` and `status` with the donor while preserving receipt state. Replace the stopped legacy schedule; do not run competing writers or pruners. Windows tasks use `InteractiveToken`, support a locked logged-in session, use `IgnoreNew`, and have no execution timeout. The implementation does not install schedules or run production Rustic operations automatically.
+| Option        | Description                     |
+| ------------- | ------------------------------- |
+| `--job <job>` | Filter snapshot results by job. |
+
+## `check`
+
+**Syntax:** `outfitting-manager backups check [--read-data]`
+
+Check repository metadata. Use `--read-data` to also verify file data packs.
+
+```sh
+# Check repository metadata
+outfitting-manager backups check
+
+# Check metadata and all file data packs
+outfitting-manager backups check --read-data
+```
+
+| Option        | Description                                                          |
+| ------------- | -------------------------------------------------------------------- |
+| `--read-data` | Verify file data packs in addition to metadata. Takes longer to run. |
+
+## `maintenance`
+
+**Syntax:** `outfitting-manager backups maintenance [--apply] [--acknowledge-history]`
+
+Preview or apply snapshot retention and pruning. By default, previews planned snapshot deletions while protecting accepted recovery anchors. Use `--apply` to apply retention and run two-phase pruning.
+
+```sh
+# Preview retention changes (dry run)
+outfitting-manager backups maintenance
+
+# Apply retention policy and prune data
+outfitting-manager backups maintenance --apply
+
+# Apply retention when unmanaged historical snapshots exist
+outfitting-manager backups maintenance --apply --acknowledge-history
+```
+
+| Option                  | Description                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `--apply`               | Apply retention policies and execute two-phase pruning (`prune --max-unused 10%`).                           |
+| `--acknowledge-history` | Required with `--apply` if unmanaged historical snapshots exist in the repository that are not saved locally. |
+
+## `accept`
+
+**Syntax:** `outfitting-manager backups accept <job> <snapshot-id>`
+
+Approve a backup candidate whose file count or processed bytes shrank by more than 50% compared to the previous anchor. Candidates flagged as `review-required` must be accepted before serving as parent snapshots or recovery anchors.
+
+```sh
+outfitting-manager backups accept documents 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+| Argument        | Description                                                    |
+| --------------- | -------------------------------------------------------------- |
+| `<job>`         | The job name associated with the candidate.                    |
+| `<snapshot-id>` | The 64-character hexadecimal snapshot ID saved in the receipt. |
+
+## `restore`
+
+**Syntax:** `outfitting-manager backups restore <job> <snapshot-id> <destination>`
+
+Restore a snapshot into a new directory. The destination path must not already exist and cannot overlap any backup source path.
+
+```sh
+outfitting-manager backups restore documents 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ~/Desktop/restored-docs
+```
+
+| Argument        | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `<job>`         | The job name to restore.                             |
+| `<snapshot-id>` | The snapshot ID to restore.                          |
+| `<destination>` | Target directory for restored files. Must not exist. |
+
+## `secrets`
+
+Manage backup credentials in macOS Keychain or Windows Credential Manager.
+
+### `secrets set`
+
+**Syntax:** `outfitting-manager backups secrets set <name>`
+
+Store a credential interactively in the native credential store. Prompts for the value with password masking and requires confirmation.
+
+```sh
+outfitting-manager backups secrets set repository-password
+```
+
+| Argument | Description                                                                           |
+| -------- | ------------------------------------------------------------------------------------- |
+| `<name>` | Credential name: `access-key`, `secret-key`, `repository-password`, or `alert-token`. |
+
+### `secrets check`
+
+**Syntax:** `outfitting-manager backups secrets check`
+
+Verify required credentials in the native store without printing their values.
+
+```sh
+outfitting-manager backups secrets check
+```
+
+### `secrets import-secretstore`
+
+**Syntax:** `outfitting-manager backups secrets import-secretstore [--vault <vault>]`
+
+Migrate backup credentials from PowerShell SecretStore to Windows Credential Manager. Supported on Windows only.
+
+```sh
+# Import credentials from the default 'ResticVault'
+outfitting-manager backups secrets import-secretstore
+
+# Import from a custom vault name
+outfitting-manager backups secrets import-secretstore --vault CustomVault
+```
+
+| Option            | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `--vault <vault>` | PowerShell SecretStore vault name. Defaults to `ResticVault`. |
+
+## `schedule`
+
+**Syntax:** `outfitting-manager backups schedule --binary <path>`
+
+Print a LaunchAgent property list (macOS) or Task Scheduler XML (Windows) configured to invoke `outfitting-manager backups run-due` using the specified executable path. The command is print-only and does not install schedules.
+
+```sh
+# Generate macOS LaunchAgent XML
+outfitting-manager backups schedule --binary ~/.local/bin/outfitting-manager
+
+# Generate Windows Task Scheduler XML
+outfitting-manager backups schedule --binary "C:\Users\username\AppData\Local\Programs\OutfittingManager\outfitting-manager.exe"
+```
+
+| Option            | Description                                                               |
+| ----------------- | ------------------------------------------------------------------------- |
+| `--binary <path>` | Path to the installed `outfitting-manager` executable to run on schedule. |
+
+## Global options
+
+All `backups` subcommands accept the shared `--profile` flag:
+
+| Option                | Description                                                                                          |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--profile <profile>` | Select an independent backup profile from `config.toml`. Defaults to the configured backup profile. |
+
+## Platform availability
+
+| Platform | Available jobs                                   | Native credential store    | Schedule type  |
+| -------- | ------------------------------------------------ | -------------------------- | -------------- |
+| macOS    | `documents`, `images`                            | macOS Keychain             | LaunchAgent    |
+| Windows  | `ffxiv-mods`, `ffxiv-configs`, `mmo-screenshots` | Windows Credential Manager | Task Scheduler |
+| Linux    | Not supported                                    | None                       | None           |
