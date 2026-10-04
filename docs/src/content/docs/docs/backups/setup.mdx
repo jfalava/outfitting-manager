@@ -1,0 +1,109 @@
+---
+title: Set up backups
+description: Install Rustic, store credentials, and configure a backup profile.
+sidebar:
+  order: 20
+---
+
+Before setting up backups, check the [prerequisites](/docs/backups/prerequisites/). This guide covers Rustic, credentials, and profile configuration.
+
+See the [backups CLI reference](/docs/cli/backups/) for command syntax and examples.
+
+## Install Rustic
+
+Install [Rustic](https://github.com/rustic-rs/rustic) 0.9 or later and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
+
+On Windows, `powershell.exe` checks whether FFXIV is running before the `ffxiv-configs` job. The optional `secrets import-secretstore` command requires PowerShell 7 (`pwsh.exe`) with the SecretManagement and SecretStore modules installed.
+
+```sh
+rustic --version
+```
+
+## Store credentials
+
+Use `backups secrets set` to enter credentials in a prompt. The CLI stores them in the OS credential store and supplies repository credentials to Rustic at run time; values are not accepted as command arguments or saved in your repository configuration.
+
+- macOS: Keychain
+- Windows: Credential Manager
+
+Set these credentials on each machine:
+
+| Secret                | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| `access-key`          | Storage access key ID, such as an S3 or Cloudflare R2 key. |
+| `secret-key`          | Storage secret access key.                                 |
+| `repository-password` | Password that encrypts the Rustic repository.              |
+| `alert-token`         | Bearer token for failure and review alerts.                |
+
+Run `secrets check` after setting them. It verifies all four credentials, including the alert token.
+
+```sh
+outfitting-manager backups secrets set access-key
+outfitting-manager backups secrets set secret-key
+outfitting-manager backups secrets set repository-password
+outfitting-manager backups secrets set alert-token
+outfitting-manager backups secrets check
+```
+
+## Configure a backup profile
+
+Backup profiles are separate from package profiles. Declare a profile in your `outfitting.json` manifest, then import it into the local `config.toml` with the configuration wizard. The profile selects Rustic TOML files; those files define the repository and source folders.
+
+### Declare the profile in `outfitting.json`
+
+```json
+{
+  "schema": 2,
+  "backups": {
+    "defaultProfile": "ultramar",
+    "profiles": {
+      "ultramar": {
+        "platform": "macos",
+        "files": ["backups/common.toml", "backups/ultramar.toml"]
+      }
+    }
+  }
+}
+```
+
+The `files` paths are relative to the repository. Import the manifest and check the selected profile:
+
+```sh
+outfitting-manager config wizard \
+  --manifest system/macos/outfitting.json
+outfitting-manager backups doctor
+```
+
+For a local setup, declare the same `profile`, `platform`, and `files` fields in `config.toml` under `[backups]` and `[backups.profiles.<name>]`.
+
+### Configure the Rustic TOML files
+
+The declared TOML files specify the repository, retention policy, and source folders. For example:
+
+```toml
+[repository]
+repository = "opendal:s3"
+
+[repository.options]
+bucket = "my-backup-bucket"
+endpoint = "https://<account-id>.r2.cloudflarestorage.com"
+region = "auto"
+
+[forget]
+keep-daily = 7
+keep-weekly = 4
+keep-monthly = 12
+
+[[backup.snapshots]]
+name = "documents"
+sources = ["~/Documents"]
+tags = ["documents"]
+skip-if-unchanged = true
+```
+
+Declare one `[[backup.snapshots]]` entry for each job available on the selected platform.
+
+## Run schedules with the right permissions
+
+- The account running a backup needs read access to every source folder.
+- Run the LaunchAgent or scheduled task as the same logged-in user who stored the credentials. On Windows, the user must remain logged in; a locked session is fine.

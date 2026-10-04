@@ -1,17 +1,13 @@
 ---
 title: backups
-description: Run guarded Rustic backups, inspect snapshots, verify integrity, and manage credentials.
+description: Run Rustic backups, inspect snapshots, verify integrity, and manage credentials.
 sidebar:
   order: 35
 ---
 
 **Syntax:** `outfitting-manager backups <subcommand> [flags]`
 
-<Aside type="note" title="Rustic wrapper">
-`outfitting-manager backups` is a wrapper around **Rustic**. It coordinates running Rustic using your repository declarations and native credentials.
-</Aside>
-
-`backups` manages Rustic backup operations on macOS and Windows. Linux does not register this command family. For conceptual guides, see [How the command works](/docs/backups/how-it-works/) and [What the command requires](/docs/backups/requirements/).
+`backups` runs Rustic on macOS and Windows using the selected profile and native credentials. Linux does not include this command family. See [How backups work](/docs/backups/how-it-works/) for behavior, [Prerequisites](/docs/backups/prerequisites/) to check what you need, or [Set up backups](/docs/backups/setup/) to configure a profile.
 
 ## `doctor`
 
@@ -47,8 +43,8 @@ outfitting-manager backups run
 outfitting-manager backups run --job documents
 ```
 
-| Option        | Description                                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Option        | Description                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `--job <job>` | Run only one job. Available macOS jobs: `documents`, `images`. Available Windows jobs: `ffxiv-mods`, `ffxiv-configs`, `mmo-screenshots`. |
 
 ## `run-due`
@@ -116,7 +112,7 @@ outfitting-manager backups maintenance --apply --acknowledge-history
 
 | Option                  | Description                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `--apply`               | Apply retention policies and execute two-phase pruning (`prune --max-unused 10%`).                           |
+| `--apply`               | Apply retention policies and execute two-phase pruning (`prune --max-unused 10%`).                            |
 | `--acknowledge-history` | Required with `--apply` if unmanaged historical snapshots exist in the repository that are not saved locally. |
 
 ## `accept`
@@ -218,8 +214,8 @@ outfitting-manager backups schedule --binary "C:\Users\username\AppData\Local\Pr
 
 All `backups` subcommands accept the shared `--profile` flag:
 
-| Option                | Description                                                                                          |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Option                | Description                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------- |
 | `--profile <profile>` | Select an independent backup profile from `config.toml`. Defaults to the configured backup profile. |
 
 ## Platform availability

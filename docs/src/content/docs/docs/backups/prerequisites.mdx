@@ -1,0 +1,24 @@
+---
+title: Prerequisites
+description: Check the platform, tools, credentials, and permissions you need before setting up backups.
+sidebar:
+  order: 10
+---
+
+`outfitting-manager backups` is available on macOS (Apple silicon or Intel) and Windows (x64). Linux does not include the backups command family.
+
+Before the first backup, make sure you have:
+
+- [Outfitting Manager installed](/docs/installation/) and Rustic 0.9 or later available on your `PATH`.
+- A backup profile for this machine's platform, with a repository and source folders configured. See [Set up backups](/docs/backups/setup/).
+- Read access to every configured source folder.
+- These credentials stored on this machine: `access-key`, `secret-key`, `repository-password`, and `alert-token`. They are kept in macOS Keychain or Windows Credential Manager.
+
+If you generate a scheduled task, use the same logged-in account that stores the credentials. On Windows, that account must stay logged in; locking the session is fine. The schedule also requires absolute paths to both the Outfitting Manager and Rustic executables.
+
+Check the profile and credentials before running a backup:
+
+```sh
+outfitting-manager backups doctor
+outfitting-manager backups secrets check
+```

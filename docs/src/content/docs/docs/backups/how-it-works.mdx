@@ -1,28 +1,17 @@
 ---
-title: How the command works
-description: How the backup command operates, runs scheduled tasks, and protects data.
+title: How backups work
+description: How backups run, when snapshots are accepted, and how to restore or prune them.
 sidebar:
-  order: 10
+  order: 30
 ---
 
-<Aside type="note" title="Rustic wrapper">
-`outfitting-manager backups` is nothing but a wrapper around [Rustic](https://github.com/rustic-rs/rustic). It does not implement custom backup formats or storage backends; it automates running Rustic with your configuration and native credentials while providing safety checks and scheduling.
-</Aside>
+`outfitting-manager backups` runs [Rustic](https://github.com/rustic-rs/rustic) with the selected backup profile and credentials from your OS credential store. It records each result locally and checks snapshots before accepting them.
 
-## Overview
+See the [backups CLI reference](/docs/cli/backups/) for command syntax and examples.
 
-When you run a backup command, Outfitting Manager:
+## Run a backup now
 
-1. Loads the backup profile declared in your setup files.
-2. Retrieves credentials securely from your OS keychain or credential manager.
-3. Invokes `rustic` to back up files to your remote repository (such as S3 or Cloudflare R2).
-4. Records local receipts and verifies that the new backup meets safety standards.
-
-## Running backups
-
-### Manual runs (`backups run`)
-
-Use `backups run` to trigger an immediate backup of your configured folders without running cleanup or pruning:
+`backups run` runs every job in the selected profile. Use `--job` to run just one. Neither `run` nor `run-due` applies retention or deletes snapshots.
 
 ```sh
 # Back up all configured folders
@@ -32,39 +21,30 @@ outfitting-manager backups run
 outfitting-manager backups run --job documents
 ```
 
-If files have not changed since the last run, Rustic records that without re-uploading existing data.
+Rustic deduplicates unchanged data. If a snapshot uses `skip-if-unchanged = true`, it can also skip creating a new snapshot when its sources have not changed.
 
-### Scheduled runs (`backups run-due`)
+## Let the schedule catch up
 
-The `run-due` command is designed for automated schedules (like macOS LaunchAgents or Windows Task Scheduler):
+Generated LaunchAgents and Windows Task Scheduler jobs call `backups run-due` hourly. The command starts each daily backup after local time reaches 10:00 on macOS or 09:00 on Windows. It also checks repository metadata after Sunday at 15:00, if a weekly check is due. A failed job stays due for the next invocation; a candidate marked `review-required` waits for manual acceptance.
 
-- **Daily backups:** Runs backup jobs if they haven't run today (scheduled for 10:00 on macOS and 09:00 on Windows).
-- **Weekly checks:** Runs a repository integrity check if one hasn't completed since the previous Sunday at 15:00.
+`backups schedule` prints the LaunchAgent or Task Scheduler definition; it does not install it.
 
-## Safety checks
+## When a snapshot needs review
 
-To prevent accidental data loss or corrupted backups, the wrapper enforces several safety guards:
+The CLI rejects a backup that processes zero files. It marks a candidate `review-required` if either its processed file count or logical bytes drop by more than 50% from the last accepted snapshot. The candidate does not become a recovery point until you inspect it and accept that exact snapshot with `backups accept`.
 
-- **Shrinkage guard:** If a backup suddenly loses more than 50% of its file count or byte size compared to the last good backup, the run is flagged as `review-required`. The snapshot is not accepted automatically until you inspect it and run [`backups accept`](/docs/cli/backups/#accept).
-- **Zero-file protection:** Rejects any backup that processes zero files (for instance, if an external drive or sync folder was unmounted).
-- **Process guard (Windows):** Checks whether game processes are running before backing up game configurations (`ffxiv-configs`). If the game is running, the backup is skipped and retries during the next scheduled run.
-- **Locking:** Uses an exclusive local lock to prevent multiple backup jobs from running at the same time.
-- **Failure alerts:** Dispatches a webhook notification if a backup fails or requires review.
+On Windows, the CLI checks for running FFXIV processes before backing up `ffxiv-configs`. If the game is running, it skips that job and leaves it due for the next run. If it cannot determine whether the game is running, the command fails rather than risk capturing files in use.
 
-## Maintenance and retention
+Failed backups and candidates that need review trigger a webhook alert.
 
-Pruning and deletion are separated from daily backup runs:
+A local lock prevents backup operations against the same repository from running at the same time.
 
-- **Preview by default:** Running `backups maintenance` previews which snapshots would be forgotten according to your retention policy, without deleting anything.
-- **Dual recovery anchors:** The two most recent accepted backup snapshots for every job are automatically protected from deletion during maintenance.
-- **Apply changes:** Pass `--apply` to actually delete expired snapshots and reclaim storage space (`prune`).
+## Preview and apply retention
 
-## Restoring files
+`backups maintenance` previews which snapshots the retention policy would remove. It requires two accepted snapshots for every job and a successful backup within the last 48 hours. The two accepted snapshots for each job are protected from deletion.
 
-Restoring is handled via `backups restore`:
+Pass `--apply` to apply the retention policy and prune unused data. If the repository contains snapshots not recorded in local receipts, review them and pass `--acknowledge-history` before applying retention.
 
-```sh
-outfitting-manager backups restore documents <snapshot-id> ~/Desktop/restored-files
-```
+## Restore a snapshot
 
-To prevent accidental overwrites, the restore command requires the destination folder to be brand new and refuses destinations that overlap with your backup source paths.
+`backups restore` writes into a directory that does not exist yet. It refuses a destination that overlaps any configured backup source, so restore elsewhere and inspect the recovered files before relying on them.
