@@ -9,8 +9,12 @@ import {
   type TomlValueWithoutBigInt,
 } from "smol-toml";
 
-import { Profile, macJobs, windowsJobs } from "@/backups/model";
-import { normalizeBackupPath, type BackupProfileDeclaration } from "@/source/contract";
+import { Profile, type JobPolicy } from "@/backups/model";
+import {
+  normalizeBackupPath,
+  normalizeBackups,
+  type BackupProfileDeclaration,
+} from "@/source/contract";
 
 export type TomlTable = Record<string, TomlValueWithoutBigInt>;
 
@@ -71,6 +75,7 @@ export interface ComposedBackupProfile {
   profile: string;
   platform: BackupProfileDeclaration["platform"];
   files: string[];
+  jobs: Readonly<Record<string, JobPolicy>>;
   hash: string;
   document: TomlTable;
   toml: string;
@@ -110,8 +115,12 @@ export async function composeBackupProfile(options: {
   profile: string;
   declaration: BackupProfileDeclaration;
 }): Promise<ComposedBackupProfile> {
+  const declaration = normalizeBackups({
+    defaultProfile: options.profile,
+    profiles: { [options.profile]: options.declaration },
+  })!.profiles[options.profile]!;
   const documents: TomlTable[] = [];
-  for (const path of options.declaration.files) {
+  for (const path of declaration.files) {
     const source = await safeSourcePath(options.root, path);
     let parsed: TomlTable;
     try {
@@ -122,16 +131,19 @@ export async function composeBackupProfile(options: {
     documents.push(parsed);
   }
   const document = composeTomlDocuments(documents);
-  validateComposedBackup(document, options.declaration.platform);
+  const jobs = declaration.jobs ?? {};
+  validateComposedBackup(document, declaration.platform, jobs);
   const canonical = JSON.stringify({
-    platform: options.declaration.platform,
-    files: options.declaration.files,
+    platform: declaration.platform,
+    files: declaration.files,
     document,
+    jobs,
   });
   return {
     profile: options.profile,
-    platform: options.declaration.platform,
-    files: [...options.declaration.files],
+    platform: declaration.platform,
+    files: [...declaration.files],
+    jobs,
     hash: createHash("sha256").update(canonical).digest("hex"),
     document,
     toml: `${stringifyToml(document).trimEnd()}\n`,
@@ -141,6 +153,7 @@ export async function composeBackupProfile(options: {
 export function validateComposedBackup(
   document: TomlTable,
   platform: BackupProfileDeclaration["platform"],
+  policies: Readonly<Record<string, JobPolicy>> = {},
 ): void {
   // Legacy global logging/hooks are deliberately replaced by manager-owned logging and alerts.
   const { global, ...managed } = document;
@@ -153,18 +166,47 @@ export function validateComposedBackup(
       profile.repository.options,
     );
   }
-  const allowed: ReadonlyArray<string> = platform === "macos" ? macJobs : windowsJobs;
+  validateJobInventory(profile, policies);
+  for (const snapshot of profile.backup.snapshots) {
+    validateSubstitutions([...snapshot.sources, ...(snapshot.globs ?? [])], platform);
+  }
+}
+
+function validateJobInventory(profile: Profile, policies: Readonly<Record<string, JobPolicy>>) {
   const names = new Set(profile.backup.snapshots.map((snapshot) => snapshot.name));
-  if (names.size !== allowed.length || names.size !== profile.backup.snapshots.length) {
-    throw new Error(
-      `Backup profile must declare each ${platform} job exactly once: ${allowed.join(", ")}.`,
-    );
+  if (names.size !== profile.backup.snapshots.length) {
+    throw new Error("Backup snapshot names must be unique.");
+  }
+  for (const job of Object.keys(policies)) {
+    if (!names.has(job)) {
+      throw new Error(`Job policy ${job} does not match a declared Rustic snapshot.`);
+    }
   }
   for (const snapshot of profile.backup.snapshots) {
-    if (!allowed.includes(snapshot.name) || !snapshot.tags.includes(snapshot.name)) {
-      throw new Error(`Snapshot ${snapshot.name} must use its existing tag and match ${platform}.`);
+    if (
+      !snapshot.tags.includes(snapshot.name) ||
+      snapshot.tags.some(
+        (tag) =>
+          tag.length === 0 ||
+          tag.trim() !== tag ||
+          tag.includes(",") ||
+          [...tag].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+          (tag !== snapshot.name && names.has(tag)),
+      )
+    ) {
+      throw new Error(
+        `Snapshot ${snapshot.name} must have only its own job identity tag; tags cannot contain commas, controls, or surrounding whitespace.`,
+      );
     }
-    validateSubstitutions([...snapshot.sources, ...(snapshot.globs ?? [])], platform);
+    const { "keep-id": _ids, ...defaults } = profile.forget;
+    const policy = Object.hasOwn(policies, snapshot.name) ? policies[snapshot.name] : undefined;
+    const retention = {
+      ...defaults,
+      ...policy?.retention,
+    };
+    if (!Object.values(retention).some((count) => count !== undefined && count !== 0)) {
+      throw new Error(`Job ${snapshot.name} needs at least one enabled retention counter.`);
+    }
   }
 }
 
@@ -191,6 +233,7 @@ export function backupPlan(profile: ComposedBackupProfile): string {
     `platform: ${profile.platform}`,
     `files:`,
     ...profile.files.map((file) => `  - ${file}`),
+    `job policies: ${JSON.stringify(profile.jobs)}`,
     `declaration hash: ${profile.hash}`,
   ].join("\n");
 }

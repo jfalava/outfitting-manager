@@ -3,13 +3,14 @@ import { isAbsolute, join, relative } from "node:path";
 
 import { Result, Schema } from "effect";
 
+import { Job, JobPolicy } from "@/backups/model";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 import { isReservedSourcePath } from "@/source/reserved";
 import { parseWindowsPackageList } from "@/source/windows-manifest";
 
 export const BYOR_CONTRACT_PATH = "outfitting.json";
-export const BYOR_CONTRACT_SCHEMA = 2;
+export const BYOR_CONTRACT_SCHEMA = 3;
 
 /** Sentinel winget path template for BYOR contracts without a common `{profile}` pattern. */
 export const BYOR_WINDOWS_WINGET_SENTINEL = "byor/{profile}";
@@ -87,6 +88,7 @@ export type BackupPlatform = "macos" | "windows";
 export interface BackupProfileDeclaration {
   platform: BackupPlatform;
   files: string[];
+  jobs?: Readonly<Record<string, JobPolicy>>;
 }
 
 export interface ByorBackupsDeclaration {
@@ -101,7 +103,7 @@ export interface ByorProfileDeclaration {
 }
 
 export interface ByorContract {
-  schema: 1 | typeof BYOR_CONTRACT_SCHEMA;
+  schema: 1 | 2 | typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
   backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
@@ -154,7 +156,7 @@ export interface ValidatedWindowsByorSource {
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type ByorContractInput = {
-  schema: 1 | typeof BYOR_CONTRACT_SCHEMA;
+  schema: 1 | 2 | typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
   backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
@@ -221,6 +223,7 @@ const ByorWindowsSharedSchema = Schema.Struct({
 export const BackupProfileSchema = Schema.Struct({
   platform: Schema.Union([Schema.Literal("macos"), Schema.Literal("windows")]),
   files: Schema.Array(Schema.String),
+  jobs: Schema.optionalKey(Schema.Record(Job, JobPolicy)),
 });
 
 const BackupsSchema = Schema.Struct({
@@ -235,7 +238,7 @@ const ByorProfileSchema = Schema.Struct({
 });
 
 const ByorContractSchema = Schema.Struct({
-  schema: Schema.Union([Schema.Literal(1), Schema.Literal(BYOR_CONTRACT_SCHEMA)]),
+  schema: Schema.Literals([1, 2, BYOR_CONTRACT_SCHEMA]),
   windows: Schema.optionalKey(ByorWindowsSharedSchema),
   backups: Schema.optionalKey(BackupsSchema),
   profiles: Schema.Record(Schema.String, ByorProfileSchema),
@@ -295,6 +298,28 @@ export function normalizeBackupPath(path: string): string {
   return parts.join("/");
 }
 
+function normalizeBackupPolicies(
+  jobs: NonNullable<BackupProfileDeclaration["jobs"]>,
+  platform: BackupPlatform,
+) {
+  const policies = Schema.decodeSync(Schema.Record(Job, JobPolicy), {
+    onExcessProperty: "error",
+  })(jobs);
+  for (const [job, policy] of Object.entries(policies)) {
+    const processes = policy.skipIfProcessesRunning ?? [];
+    if (processes.length > 0 && platform !== "windows") {
+      throw new Error(`Process guards for ${job} currently support Windows only.`);
+    }
+    if (
+      processes.some((process) => process.toLowerCase().endsWith(".exe")) ||
+      new Set(processes.map((process) => process.toLowerCase())).size !== processes.length
+    ) {
+      throw new Error(`Process names for ${job} must be unique basenames without .exe.`);
+    }
+  }
+  return policies;
+}
+
 export function normalizeBackups(
   value: DecodedContract["backups"],
 ): ByorBackupsDeclaration | undefined {
@@ -320,6 +345,9 @@ export function normalizeBackups(
       throw new Error(`Backup profile ${name} contains duplicate files.`);
     }
     profiles[name] = { platform: profile.platform, files };
+    if (profile.jobs !== undefined) {
+      profiles[name].jobs = normalizeBackupPolicies(profile.jobs, profile.platform);
+    }
   }
   return { defaultProfile: value.defaultProfile, profiles };
 }
@@ -498,8 +526,10 @@ function decodeContractRoot(value: ByorContractValue): DecodedContract {
   if (Object.keys(decoded.success.profiles).length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH}.profiles must contain at least one profile.`);
   }
-  if (decoded.success.schema === 1 && decoded.success.backups !== undefined) {
-    throw new Error("Backup declarations require manifest schema 2.");
+  if (decoded.success.schema !== BYOR_CONTRACT_SCHEMA && decoded.success.backups !== undefined) {
+    throw new Error(
+      "Backups require manifest schema 3 and explicit job policies. Migrate retention overrides and process guards before importing.",
+    );
   }
   return decoded.success;
 }

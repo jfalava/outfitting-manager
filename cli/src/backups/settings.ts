@@ -9,7 +9,11 @@ import { loadConfig } from "@/config/load";
 import type { ManagerConfig } from "@/config/types";
 import { syncByorSparseSource } from "@/setup/source";
 
-import { BackupError, Profile, Retention, macJobs, windowsJobs, type Job } from "./model.ts";
+import { BackupError, Profile, type JobPolicy, type Job } from "./model.ts";
+
+type BackupSubstitutions =
+  | { APPDATA: string; USERPROFILE: string; LOCALAPPDATA: string }
+  | { PROTON_DRIVE_PATH: string; PROTON_IMAGES_DIR: string };
 
 export interface SettingsData {
   readonly repoRoot: string;
@@ -26,8 +30,9 @@ export interface SettingsData {
   readonly profile: Profile;
   readonly jobs: ReadonlyArray<Job>;
   readonly dailyHour: number;
-  readonly jobRetention: Partial<Record<Job, typeof Retention.Type>>;
-  readonly sources: Partial<Record<Job, ReadonlyArray<string>>>;
+  readonly jobPolicies: Readonly<Record<Job, JobPolicy>>;
+  readonly substitutions: BackupSubstitutions;
+  readonly sources: Readonly<Record<Job, ReadonlyArray<string>>>;
   readonly environment: Record<string, string | undefined>;
 }
 
@@ -48,12 +53,10 @@ function hostSettings(windows: boolean) {
       ? join(localAppData, "rustic/rustic-gaming-pc.log")
       : join(home, "Library/Logs/rustic-protondrive.log"),
     dailyHour: windows ? 9 : 10,
-    jobs: windows ? windowsJobs : macJobs,
-    jobRetention: windows ? { "mmo-screenshots": { "keep-monthly": 3 } } : {},
   };
 }
 
-function substitutionsFor(windows: boolean, home: string) {
+function substitutionsFor(windows: boolean, home: string): BackupSubstitutions {
   if (windows) {
     return {
       APPDATA: process.env.APPDATA ?? join(home, "AppData/Roaming"),
@@ -137,7 +140,8 @@ export async function loadBackupSettings(
   const composed = await composeBackupProfile({ root: repoRoot, profile: name, declaration });
   const profile = Schema.decodeUnknownSync(Profile)(composed.document);
   const host = hostSettings(platform === "win32");
-  const effective = resolveSources(profile, substitutionsFor(platform === "win32", host.home));
+  const substitutions = substitutionsFor(platform === "win32", host.home);
+  const effective = resolveSources(profile, substitutions);
   return {
     ...host,
     repoRoot: resolve(repoRoot),
@@ -146,6 +150,9 @@ export async function loadBackupSettings(
     alertUrl: "https://backup-alert.jfalava.workers.dev/",
     repository: createHash("sha256").update(JSON.stringify(profile.repository)).digest("hex"),
     profile: effective,
+    jobs: effective.backup.snapshots.map((snapshot) => snapshot.name),
+    jobPolicies: composed.jobs,
+    substitutions,
     sources: Object.fromEntries(
       effective.backup.snapshots.map((snapshot) => [snapshot.name, snapshot.sources]),
     ),

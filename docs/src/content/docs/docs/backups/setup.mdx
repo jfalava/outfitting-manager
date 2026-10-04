@@ -11,9 +11,9 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 ## Install Rustic
 
-Install [Rustic](https://github.com/rustic-rs/rustic) 0.9 or later and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
+Install [Rustic](https://github.com/rustic-rs/rustic) 0.10 or later (with named backup selection) and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
 
-On Windows, `powershell.exe` checks whether FFXIV is running before the `ffxiv-configs` job. The optional `secrets import-secretstore` command requires PowerShell 7 (`pwsh.exe`) with the SecretManagement and SecretStore modules installed.
+On Windows, optional per-job process guards use `powershell.exe`. The optional `secrets import-secretstore` command requires PowerShell 7 (`pwsh.exe`) with the SecretManagement and SecretStore modules installed.
 
 ```sh
 rustic --version
@@ -47,26 +47,34 @@ outfitting-manager backups secrets check
 
 ## Configure a backup profile
 
-Backup profiles are separate from package profiles. Declare a profile in your `outfitting.json` manifest, then import it into the local `config.toml` with the configuration wizard. The profile selects Rustic TOML files; those files define the repository and source folders.
+Backup profiles are separate from package profiles. Declare a profile in your `outfitting.json` manifest, then import it into the local `config.toml` with the configuration wizard. The profile selects Rustic TOML files; those files define the repository, jobs, source folders, and default retention. Outfitting can attach optional policies to those jobs. After import, local `config.toml` is authoritative; runtime does not reread the manifest.
 
 ### Declare the profile in `outfitting.json`
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
+  "profiles": {
+    "workstation": {
+      "macos": { "nix": { "flake": "nix", "attribute": "workstation" } }
+    }
+  },
   "backups": {
-    "defaultProfile": "ultramar",
+    "defaultProfile": "personal",
     "profiles": {
-      "ultramar": {
+      "personal": {
         "platform": "macos",
-        "files": ["backups/common.toml", "backups/ultramar.toml"]
+        "files": ["backups/common.toml", "backups/personal.toml"],
+        "jobs": {
+          "photos": { "retention": { "keep-monthly": 3 } }
+        }
       }
     }
   }
 }
 ```
 
-The `files` paths are relative to the repository. Import the manifest and check the selected profile:
+Replace the package profile with your own declarations. The `files` paths are relative to the repository. Import the manifest and check the selected profile:
 
 ```sh
 outfitting-manager config wizard \
@@ -74,7 +82,21 @@ outfitting-manager config wizard \
 outfitting-manager backups doctor
 ```
 
-For a local setup, declare the same `profile`, `platform`, and `files` fields in `config.toml` under `[backups]` and `[backups.profiles.<name>]`.
+For a local setup, use `schema = 2` and declare the same profile and policies in `config.toml`:
+
+```toml
+schema = 2
+
+[backups]
+profile = "personal"
+
+[backups.profiles.personal]
+platform = "macos"
+files = ["backups/common.toml", "backups/personal.toml"]
+
+[backups.profiles.personal.jobs.photos.retention]
+keep-monthly = 3
+```
 
 ### Configure the Rustic TOML files
 
@@ -96,12 +118,52 @@ keep-monthly = 12
 
 [[backup.snapshots]]
 name = "documents"
-sources = ["~/Documents"]
+sources = ["/Users/your-user/Documents"]
 tags = ["documents"]
+skip-if-unchanged = true
+
+[[backup.snapshots]]
+name = "photos"
+sources = ["/Users/your-user/Pictures"]
+tags = ["photos"]
 skip-if-unchanged = true
 ```
 
-Declare one `[[backup.snapshots]]` entry for each job available on the selected platform.
+Replace the source paths with your actual absolute folders.
+
+Every `[[backup.snapshots]]` entry creates a job, in composition order. There is no built-in job list on either platform. Declare at least one snapshot with a unique name. Names use 1–64 lowercase ASCII letters, digits, `_`, or `-`, starting with a letter or digit. `check` and Windows device names such as `con` are reserved.
+
+Tags must include the job's name and must not include another configured job's name, commas, control characters, or surrounding whitespace. Other annotation tags can be shared.
+
+### Attach optional job policies
+
+The `jobs` map attaches policies to existing TOML snapshots; it does not create jobs. Unknown job references or policy fields are errors. Jobs without policies inherit `[forget]` and have no process guard.
+
+- `retention` overrides `keep-daily`, `keep-weekly`, and `keep-monthly` individually. Omitted counters inherit the TOML default; `0` disables a counter and `-1` keeps all qualifying period representatives. Each job needs at least one enabled counter. Global `keep-id` pins and recovery anchors remain protected.
+- `skipIfProcessesRunning` lists up to 32 exact Windows process basenames without `.exe`, paths, or wildcards. Matching ignores case. Names use letters, digits, `.`, `_`, or `-`, start with a letter or digit, and are at most 128 characters. Process guards are currently Windows-only; macOS rejects nonempty lists.
+
+For a Windows profile with a `project-data` snapshot, add:
+
+```toml
+[backups.profiles.workstation.jobs.project-data]
+skipIfProcessesRunning = ["ExampleEditor", "Editor_Helper"]
+```
+
+### Migrate an existing backup configuration
+
+Backup declarations now require manifest schema 3 and local config schema 2. Older backup-bearing configurations are rejected rather than silently losing implicit policies. Configurations without backups remain readable.
+
+Pause scheduled invocations during cutover. Preserve the existing job names, tags, repository configuration, hostname, credentials, and receipt directory. Before updating the schema versions, move any previous implicit behavior into explicit policies. For the former built-in Windows profile, the equivalent local policy is:
+
+```toml
+[backups.profiles.gaming-pc.jobs.ffxiv-configs]
+skipIfProcessesRunning = ["ffxiv_dx11", "ffxiv", "ffxivlauncher", "XIVLauncher"]
+
+[backups.profiles.gaming-pc.jobs.mmo-screenshots.retention]
+keep-monthly = 3
+```
+
+Use your actual backup profile name instead of `gaming-pc`; declare the equivalent `jobs` map in the manifest if you import it. Then set manifest `schema` to 3 and local `schema` to 2. Re-importing replaces current-platform policies, while ordinary wizard edits preserve them. Refresh any remote source cache using the configuration wizard before offline scheduled runs. Run `backups doctor`, verify a backup without retention, and resume the schedule only after checking the results. Do not initialize the existing repository or discard its receipts.
 
 ## Run schedules with the right permissions
 

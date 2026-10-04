@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { Schema } from "effect";
 import { parse, stringify } from "smol-toml";
 import { afterEach, expect, test } from "vitest";
 
 import { composeBackupProfile, composeTomlDocuments } from "@/backups";
+import { Job } from "@/backups/model";
 import { loadBackupSettings } from "@/backups/settings";
 import { loadConfig } from "@/config/load";
 import { buildWizardConfigDocument } from "@/config/wizard";
@@ -130,9 +132,11 @@ test("rejects empty, duplicate, and unknown declarations", () => {
     defaultProfile: "mac",
     profiles: { mac: { platform: "macos" as const, files: ["a.toml"] } },
   };
-  expect(() => parseByorContract({ schema: 1, profiles, backups })).toThrow("schema 2");
+  for (const schema of [1, 2] as const) {
+    expect(() => parseByorContract({ schema, profiles, backups })).toThrow("schema 3");
+  }
   expect(() =>
-    parseByorContract({ schema: 2, profiles, backups: { ...backups, typo: true } } as never),
+    parseByorContract({ schema: 3, profiles, backups: { ...backups, typo: true } } as never),
   ).toThrow();
   expect(() => normalizeBackups({ ...backups, defaultProfile: "absent" })).toThrow();
 });
@@ -173,7 +177,7 @@ test("rejects external symlinks, unsupported substitutions, and unknown Rustic k
 test("manifest re-import replaces current-platform backups, preserves other platforms and ordered runtime files", async () => {
   const root = await tempRoot();
   const contract = parseByorContract({
-    schema: 2,
+    schema: 3,
     profiles: { desk: { windows: { winget: { manifest: "packages.txt" } } } },
     backups: {
       defaultProfile: "gaming",
@@ -290,6 +294,11 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
     "does not match",
   );
   config.backups.profiles.mac!.files.reverse();
+  config.backups.profiles.mac!.jobs = { documents: { retention: { "keep-monthly": 2 } } };
+  await expect(syncByorSparseSource({ ...options, offline: true })).rejects.toThrow(
+    "does not match",
+  );
+  delete config.backups.profiles.mac!.jobs;
   await writeFile(
     join(repo, "mac.toml"),
     stringify({ ...base, backup: { snapshots: [documents, documents] } }),
@@ -308,4 +317,201 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
   ]);
   await expect(syncByorSparseSource(options)).rejects.toThrow("Duplicate");
   expect(await readFile(join(sourceRoot, "mac.toml"), "utf8")).toBe(cachedMac);
+});
+
+test.each(["macos", "windows"] as const)(
+  "%s jobs come only from ordered Rustic snapshots, with local policies",
+  async (platform) => {
+    const root = await tempRoot();
+    const snapshots = ["photos", "constructor", "project-data"].map((name) => ({
+      ...documents,
+      name,
+      sources: [join(root, name)],
+      tags: [name, "personal"],
+    }));
+    await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots } }));
+    const policies = { photos: { retention: { "keep-monthly": 3 } } };
+    const local = {
+      schema: 2,
+      source: { path: root },
+      backups: {
+        profile: "personal",
+        profiles: { personal: { platform, files: ["jobs.toml"], jobs: policies } },
+      },
+    };
+    await writeFile(join(root, "config.toml"), stringify(local));
+    // Runtime must not read this conflicting manifest.
+    await writeFile(join(root, "outfitting.json"), "invalid manifest");
+    const config = await loadConfig({ stateRoot: root });
+    const first = await loadBackupSettings(
+      config,
+      undefined,
+      platform === "windows" ? "win32" : "darwin",
+    );
+    expect(first.jobs).toEqual(["photos", "constructor", "project-data"]);
+    expect(first.jobPolicies).toEqual(policies);
+    expect(first.sources.photos).toEqual([join(root, "photos")]);
+    const hash = first.repository;
+    config.backups!.profiles.personal!.jobs = { photos: { retention: { "keep-monthly": 9 } } };
+    const second = await loadBackupSettings(
+      config,
+      undefined,
+      platform === "windows" ? "win32" : "darwin",
+    );
+    expect(second.repository).toBe(hash);
+    expect(second.jobPolicies.photos?.retention).toEqual({ "keep-monthly": 9 });
+    await writeFile(
+      join(root, "jobs.toml"),
+      stringify({ ...base, backup: { snapshots: [snapshots[1]!] } }),
+    );
+    delete config.backups!.profiles.personal!.jobs;
+    expect(
+      (await loadBackupSettings(config, undefined, platform === "windows" ? "win32" : "darwin"))
+        .jobs,
+    ).toEqual(["constructor"]);
+  },
+);
+
+test.each([
+  "",
+  "../escape",
+  "photos.json",
+  "Photos",
+  "check",
+  "con",
+  "lpt9",
+  "a,b",
+  "a".repeat(65),
+])("rejects unsafe job ID %j", (name) => {
+  expect(Schema.is(Job)(name)).toBe(false);
+});
+
+test("policies round-trip through import and local config; re-import replaces stale policies", async () => {
+  const root = await tempRoot();
+  const jobs = {
+    photos: { retention: { "keep-daily": 0, "keep-monthly": -1 } },
+    "project-data": { skipIfProcessesRunning: ["Editor", "Editor_Helper"] },
+  };
+  const contract = parseByorContract({
+    schema: 3,
+    profiles: { desk: { windows: { winget: { manifest: "packages.txt" } } } },
+    backups: {
+      defaultProfile: "desk",
+      profiles: { desk: { platform: "windows", files: ["jobs.toml"], jobs } },
+    },
+  });
+  const document = buildWizardConfigDocument(
+    contract,
+    { path: root },
+    {
+      platform: "windows",
+      profiles: ["desk"],
+      manifest: contract,
+      existing: {
+        backups: {
+          profile: "desk",
+          profiles: {
+            desk: {
+              platform: "windows",
+              files: ["old.toml"],
+              jobs: { obsolete: { retention: { "keep-monthly": 1 } } },
+            },
+          },
+        },
+      },
+    },
+  );
+  expect(document.schema).toBe(2);
+  expect(document.backups?.profiles.desk?.jobs).toEqual(jobs);
+  await writeFile(join(root, "config.toml"), stringify(document));
+  expect((await loadConfig({ stateRoot: root })).backups?.profiles.desk?.jobs).toEqual(jobs);
+  const edited = buildWizardConfigDocument(
+    contract,
+    { path: root },
+    { platform: "windows", profiles: ["desk"], existing: document },
+  );
+  expect(edited.backups?.profiles.desk?.jobs).toEqual(jobs);
+  await writeFile(join(root, "config.toml"), stringify({ ...document, schema: 1 }));
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
+    "Migrate retention overrides and process guards",
+  );
+});
+
+test.each([
+  { photos: { typo: true } },
+  { photos: { retention: { "keep-id": ["anchor"] } } },
+  { photos: { retention: { "keep-monthly": -2 } } },
+  { photos: { retention: { "keep-monthly": 2_147_483_648 } } },
+  { photos: { skipIfProcessesRunning: ["Editor", "editor"] } },
+  { photos: { skipIfProcessesRunning: ["Editor.exe"] } },
+  { photos: { skipIfProcessesRunning: ["Editor;exit"] } },
+  { photos: { skipIfProcessesRunning: ["Edit*"] } },
+  { "../escape": {} },
+])("rejects invalid job policy %j", (jobs) => {
+  expect(() =>
+    parseByorContract({
+      schema: 3,
+      profiles: { desk: { windows: { winget: { manifest: "packages.txt" } } } },
+      backups: {
+        defaultProfile: "desk",
+        profiles: { desk: { platform: "windows", files: ["jobs.toml"], jobs } },
+      },
+    } as never),
+  ).toThrow();
+});
+
+test("composition rejects dangling policies, overlapping tags, empty jobs and disabled retention", async () => {
+  const root = await tempRoot();
+  const photos = { ...documents, name: "photos", sources: ["/photos"], tags: ["photos"] };
+  const projects = { ...photos, name: "projects", tags: ["projects"] };
+  const declaration = { platform: "windows" as const, files: ["jobs.toml"] };
+  const compose = (jobs = {}) =>
+    composeBackupProfile({ root, profile: "desk", declaration: { ...declaration, jobs } });
+  await writeFile(
+    join(root, "jobs.toml"),
+    stringify({ ...base, backup: { snapshots: [photos, projects] } }),
+  );
+  await expect(compose({ absent: {} })).rejects.toThrow("does not match");
+  const first = await compose();
+  const policy = await compose({ photos: { retention: { "keep-monthly": 3 } } });
+  expect(policy.hash).not.toBe(first.hash);
+  for (const tags of [
+    ["photos", "projects"],
+    ["photos", "annotation,projects"],
+    ["photos", " "],
+    ["photos", " projects "],
+    ["photos", "annotation\u0000"],
+  ]) {
+    await writeFile(
+      join(root, "jobs.toml"),
+      stringify({ ...base, backup: { snapshots: [{ ...photos, tags }, projects] } }),
+    );
+    await expect(compose()).rejects.toThrow("identity tag");
+  }
+  await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots: [] } }));
+  await expect(compose()).rejects.toThrow();
+  await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots: [photos] } }));
+  await expect(compose({ photos: { retention: { "keep-daily": 0 } } })).rejects.toThrow(
+    "enabled retention",
+  );
+  await expect(compose({ photos: { retention: { "keep-daily": -1 } } })).resolves.toBeDefined();
+});
+
+test("process guards are explicitly Windows-only and enforce the process-count boundary", () => {
+  const processes = Array.from({ length: 32 }, (_, index) => `Process_${index}`);
+  const declaration = (platform: "macos" | "windows", names: string[]) => ({
+    defaultProfile: "desk",
+    profiles: {
+      desk: { platform, files: ["jobs.toml"], jobs: { photos: { skipIfProcessesRunning: names } } },
+    },
+  });
+  expect(() => normalizeBackups(declaration("macos", ["Editor"]))).toThrow("Windows only");
+  expect(normalizeBackups(declaration("macos", []))?.profiles.desk?.jobs?.photos).toEqual({
+    skipIfProcessesRunning: [],
+  });
+  expect(
+    normalizeBackups(declaration("windows", processes))?.profiles.desk?.jobs?.photos
+      ?.skipIfProcessesRunning,
+  ).toHaveLength(32);
+  expect(() => normalizeBackups(declaration("windows", [...processes, "OneTooMany"]))).toThrow();
 });

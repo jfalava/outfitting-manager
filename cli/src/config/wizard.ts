@@ -21,6 +21,7 @@ import { runSetup } from "@/setup/run";
 import { readGitFile } from "@/setup/source";
 import {
   BYOR_CONTRACT_PATH,
+  BYOR_CONTRACT_SCHEMA,
   normalizeBackups,
   normalizeBackupPath,
   parseByorContract,
@@ -47,7 +48,7 @@ import { updateNix } from "@/update/nix/run";
 type WizardSource = { path: string } | { repository: string; ref: string };
 
 interface WizardConfigDocument {
-  schema: 1;
+  schema: 1 | 2;
   backups?: import("@/config/types").BackupsConfig;
   machine_id?: string;
   source: WizardSource;
@@ -58,7 +59,7 @@ interface WizardConfigDocument {
 }
 
 interface ExistingWizardConfigDocument {
-  schema?: 1;
+  schema?: 1 | 2;
   backups?: import("@/config/types").BackupsConfig;
   machine_id?: string;
   source?: WizardSource;
@@ -501,7 +502,7 @@ export function mergeByorContractDefaults(
     profiles,
   };
   if (toml.backups ?? manifest.backups) {
-    merged.schema = 2;
+    merged.schema = BYOR_CONTRACT_SCHEMA;
     merged.backups = toml.backups ?? manifest.backups;
   }
   if (Object.keys(windows).length > 0) {
@@ -678,6 +679,7 @@ export function buildWizardConfigDocument(
 
   const backups = importedBackups(manifest, existing?.backups, platform);
   if (backups !== undefined) {
+    document.schema = 2;
     document.backups = backups;
   }
 
@@ -746,7 +748,11 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
       (value) => value.split(",").map(normalizeBackupPath).join(", "),
       profiles[name]?.files.join(", "),
     );
-    profiles[name] = { platform, files: files.split(",").map((file) => file.trim()) };
+    profiles[name] = {
+      ...profiles[name],
+      platform,
+      files: files.split(",").map((file) => file.trim()),
+    };
     const validated = yield* tryPromise(async () =>
       normalizeBackups({ defaultProfile: name, profiles })!,
     );
@@ -757,6 +763,7 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
         }
       }
     }
+    document.schema = 2;
     document.backups = { profile: name, profiles: validated.profiles };
   });
 }

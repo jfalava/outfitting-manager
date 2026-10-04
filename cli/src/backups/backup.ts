@@ -7,12 +7,12 @@ import { stringify } from "smol-toml";
 import {
   Anchor,
   BackupError,
+  Job,
   JobState,
   RetentionPlan,
   Snapshot,
   SnapshotGroups,
   type SnapshotMetadata,
-  type Job,
 } from "./model.ts";
 import { Processes, parseJson, successful } from "./process.ts";
 import { Secrets } from "./secrets.ts";
@@ -103,6 +103,12 @@ export class Backup extends Context.Service<
       const directory = join(config.stateDirectory, config.repository);
       const statePath = (job: Job) => join(directory, `${job}.json`);
       const localFailure = (message: string) => new BackupError({ message });
+      const requireJob = (job: Job) =>
+        Schema.is(Job)(job) && jobs.includes(job)
+          ? Effect.void
+          : Effect.fail(localFailure(`Job ${job} is not configured in this backup profile.`));
+      const policy = (job: Job) =>
+        Object.hasOwn(config.jobPolicies, job) ? config.jobPolicies[job] : undefined;
       const decodeState = parseJson(JobState);
       const encodeState = Schema.encodeEffect(Schema.fromJsonString(JobState, { space: 2 }));
 
@@ -190,10 +196,12 @@ export class Backup extends Context.Service<
           const env = yield* credentials();
           const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "rustic-wrapper-" });
           const profilePath = join(temporary, "managed.toml");
+          // Manager pins are passed as --keep-id during maintenance, not Rustic TOML fields.
+          const { "keep-id": _keepIds, ...retention } = config.profile.forget;
           const profile = {
             ...config.profile,
             global: { "log-file": config.logFile, "log-level-logfile": "info" },
-            forget: { ...config.profile.forget, "delete-unchanged": false },
+            forget: { ...retention, "delete-unchanged": false },
             backup: {
               snapshots: config.profile.backup.snapshots.map((snapshot) => ({
                 ...snapshot,
@@ -276,6 +284,7 @@ export class Backup extends Context.Service<
         if (
           snapshot.hostname !== config.hostname ||
           !snapshot.tags.includes(job) ||
+          jobs.filter((name) => snapshot.tags.includes(name)).length !== 1 ||
           snapshot.paths.length !== sources.length ||
           snapshot.paths.some((path) => path.length === 0) ||
           snapshot.paths
@@ -434,14 +443,14 @@ export class Backup extends Context.Service<
       );
       const run = Effect.fn("MacBackup.run")(
         function* (selected: ReadonlyArray<Job>, due: boolean) {
+          for (const job of selected) {
+            yield* requireJob(job);
+          }
           yield* lock();
           const results: Array<JobState> = [];
           const errors: Array<string> = [];
           for (const job of selected) {
             yield* Effect.gen(function* () {
-              if (!jobs.includes(job)) {
-                return yield* localFailure(`Job ${job} is not configured on this platform.`);
-              }
               const previous = yield* readState(job);
               if (previous?.outcome === "review-required") {
                 results.push(previous);
@@ -453,28 +462,42 @@ export class Backup extends Context.Service<
               ) {
                 return;
               }
-              if (job === "ffxiv-configs") {
-                const running = yield* processes.run(
-                  "powershell.exe",
-                  [
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "if (Get-Process -Name ffxiv_dx11,ffxiv,ffxivlauncher,XIVLauncher -ErrorAction SilentlyContinue) { Write-Output 'running' } else { Write-Output 'stopped' }",
-                  ],
-                  config.environment,
-                );
+              const guardedProcesses = policy(job)?.skipIfProcessesRunning ?? [];
+              if (guardedProcesses.length > 0) {
+                const running = yield* processes
+                  .run(
+                    "powershell.exe",
+                    [
+                      "-NoProfile",
+                      "-NonInteractive",
+                      "-Command",
+                      "$ErrorActionPreference = 'Stop'; $names = @(ConvertFrom-Json -InputObject $env:OUTFITTING_BACKUP_PROCESSES); $running = @(Get-Process -ErrorAction Stop | Where-Object { $names -contains $_.ProcessName }); if ($running.Count -gt 0) { Write-Output 'running' } else { Write-Output 'stopped' }",
+                    ],
+                    {
+                      ...config.environment,
+                      OUTFITTING_BACKUP_PROCESSES: JSON.stringify(guardedProcesses),
+                    },
+                  )
+                  .pipe(
+                    Effect.timeout("10 seconds"),
+                    Effect.mapError(() =>
+                      localFailure(
+                        `Could not verify running processes for ${job}; backup was not started.`,
+                      ),
+                    ),
+                  );
                 if (
                   running.exitCode !== 0 ||
+                  running.stderr.trim().length > 0 ||
                   !["running", "stopped"].includes(running.stdout.trim())
                 ) {
                   return yield* localFailure(
-                    "Could not verify whether FFXIV is running; config backup was not started.",
+                    `Could not verify running processes for ${job}; backup was not started.`,
                   );
                 }
                 if (running.stdout.trim() === "running") {
                   yield* Effect.logInfo(
-                    "FFXIV is running; config backup remains due and will retry on the next wake-up.",
+                    `A guarded process is running; ${job} remains due and will retry on the next wake-up.`,
                   );
                   return;
                 }
@@ -614,9 +637,24 @@ export class Backup extends Context.Service<
         return removed;
       });
 
+      const requireActiveReceipts = Effect.gen(function* () {
+        const retired = (yield* fs.readDirectory(directory)).filter(
+          (file) =>
+            file.endsWith(".json") && file !== "check.json" && !jobs.includes(file.slice(0, -5)),
+        );
+        if (retired.length > 0) {
+          return yield* localFailure(
+            `Receipts for removed jobs require explicit reconciliation before deletion: ${retired.join(", ")}. Recovery anchors were preserved.`,
+          );
+        }
+      });
+
       const maintenance = Effect.fn("MacBackup.maintenance")(
         function* (apply: boolean, acknowledgeHistory: boolean) {
           yield* lock();
+          if (apply) {
+            yield* requireActiveReceipts;
+          }
           const states = yield* maintenanceStates;
           const anchors = states.flatMap((state) =>
             [state.current, state.previous].filter((anchor) => anchor !== undefined),
@@ -624,6 +662,17 @@ export class Backup extends Context.Service<
           yield* verifyStates(states);
           const known = new Set(states.flatMap((state) => state.knownIds));
           const inventory = yield* list();
+          if (
+            inventory.some(
+              (snapshot) =>
+                snapshot.hostname === config.hostname &&
+                jobs.filter((job) => snapshot.tags.includes(job)).length > 1,
+            )
+          ) {
+            return yield* localFailure(
+              "Snapshot tags overlap multiple configured jobs; retention requires reconciliation.",
+            );
+          }
           const unknown = inventory.filter(
             (snapshot) => snapshot.id !== undefined && !known.has(snapshot.id),
           );
@@ -645,7 +694,7 @@ export class Backup extends Context.Service<
               config.hostname,
               "--filter-tags",
               job,
-              ...Object.entries(config.jobRetention[job] ?? {}).flatMap(([key, value]) => [
+              ...Object.entries(policy(job)?.retention ?? {}).flatMap(([key, value]) => [
                 "--" + key,
                 String(value),
               ]),
@@ -672,6 +721,7 @@ export class Backup extends Context.Service<
 
       const accept = Effect.fn("MacBackup.accept")(
         function* (job: Job, id: string) {
+          yield* requireJob(job);
           yield* lock();
           const state = yield* readState(job);
           if (state?.outcome !== "review-required" || state.candidate?.id !== id) {
@@ -697,6 +747,7 @@ export class Backup extends Context.Service<
 
       const restore = Effect.fn("MacBackup.restore")(
         function* (job: Job, id: string, destination: string) {
+          yield* requireJob(job);
           yield* lock();
           const target = join(
             yield* fs.realPath(dirname(resolve(destination))),
@@ -733,6 +784,9 @@ export class Backup extends Context.Service<
 
       const snapshots = Effect.fn("MacBackup.snapshots")(
         function* (job?: Job) {
+          if (job !== undefined) {
+            yield* requireJob(job);
+          }
           yield* lock();
           return yield* list(job);
         },

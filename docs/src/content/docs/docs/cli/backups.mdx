@@ -13,7 +13,7 @@ sidebar:
 
 **Syntax:** `outfitting-manager backups doctor`
 
-Show resolved configuration, hostname, repository fingerprint, sources, and state directory without accessing the repository or native credentials.
+Show resolved configuration, hostname, repository configuration, ordered job names, job policies, retention defaults, sources, and state directory without accessing the repository or native credentials.
 
 ```sh
 outfitting-manager backups doctor
@@ -43,9 +43,9 @@ outfitting-manager backups run
 outfitting-manager backups run --job documents
 ```
 
-| Option        | Description                                                                                                                              |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `--job <job>` | Run only one job. Available macOS jobs: `documents`, `images`. Available Windows jobs: `ffxiv-mods`, `ffxiv-configs`, `mmo-screenshots`. |
+| Option        | Description                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--job <job>` | Run one configured job by its Rustic snapshot `name`. Use `doctor` to see names; there are no built-in platform job lists. |
 
 ## `run-due`
 
@@ -68,7 +68,7 @@ List repository snapshots for this host, optionally filtered by job.
 outfitting-manager backups snapshots
 
 # List snapshots for a specific job
-outfitting-manager backups snapshots --job images
+outfitting-manager backups snapshots --job photos
 ```
 
 | Option        | Description                     |
@@ -98,6 +98,8 @@ outfitting-manager backups check --read-data
 **Syntax:** `outfitting-manager backups maintenance [--apply] [--acknowledge-history]`
 
 Preview or apply snapshot retention and pruning. By default, previews planned snapshot deletions while protecting accepted recovery anchors. Use `--apply` to apply retention and run two-phase pruning.
+
+Retention inherits Rustic `[forget]` with optional per-job Outfitting counter overrides. Overlapping job-identity tags block retention. Receipts for removed jobs block `--apply` until reconciled; `--acknowledge-history` does not bypass these safeguards.
 
 ```sh
 # Preview retention changes (dry run)
@@ -220,8 +222,8 @@ All `backups` subcommands accept the shared `--profile` flag:
 
 ## Platform availability
 
-| Platform | Available jobs                                   | Native credential store    | Schedule type  |
-| -------- | ------------------------------------------------ | -------------------------- | -------------- |
-| macOS    | `documents`, `images`                            | macOS Keychain             | LaunchAgent    |
-| Windows  | `ffxiv-mods`, `ffxiv-configs`, `mmo-screenshots` | Windows Credential Manager | Task Scheduler |
-| Linux    | Not supported                                    | None                       | None           |
+| Platform | Available jobs                                 | Native credential store    | Schedule type  |
+| -------- | ---------------------------------------------- | -------------------------- | -------------- |
+| macOS    | Named snapshots in the selected Rustic profile | macOS Keychain             | LaunchAgent    |
+| Windows  | Named snapshots in the selected Rustic profile | Windows Credential Manager | Task Scheduler |
+| Linux    | Not supported                                  | None                       | None           |

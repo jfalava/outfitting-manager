@@ -44,8 +44,9 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
     <key>HOME</key><string>${xml(config.home)}</string>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>BACKUP_RUSTIC</key><string>${xml(config.rustic)}</string>
-    <key>PROTON_DRIVE_PATH</key><string>${xml(config.environment.PROTON_DRIVE_PATH ?? join(config.home, "Library/CloudStorage/ProtonDrive-jfalava@protonmail.com-folder"))}</string>
-    <key>PROTON_IMAGES_DIR</key><string>${xml(config.sources.images?.[0] ?? "")}</string>
+    ${Object.entries(config.substitutions)
+      .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
+      .join("\n    ")}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>3600</integer>

@@ -12,9 +12,8 @@ import { Backup as MacBackup, isCheckDue, isDue } from "@/backups/backup";
 import { launchAgent } from "@/backups/launchd";
 import {
   JobState,
-  macJobs as jobs,
-  windowsJobs,
   type Job,
+  type JobPolicy,
   type Snapshot,
   type SnapshotMetadata,
 } from "@/backups/model";
@@ -25,6 +24,8 @@ import { scheduledTask } from "@/backups/windows";
 
 // Opt in with an absolute Rustic executable; all repositories and data remain disposable.
 const rustic = process.env.OUTFITTING_TEST_RUSTIC;
+const jobs = ["documents", "images"] as const;
+const windowsJobs = ["ffxiv-mods", "ffxiv-configs", "mmo-screenshots"] as const;
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -45,7 +46,13 @@ const fails = async (promise: Promise<unknown>, message: string) => {
   expect(String(result)).toContain(message);
 };
 
-const fixture = async (real = false, windows = false) => {
+const fixture = async (
+  real = false,
+  windows = false,
+  customJobs?: ReadonlyArray<Job>,
+  policies?: Record<Job, JobPolicy>,
+  keepIds: string[] = [],
+) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "backup-wrapper-test-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const sources = {
@@ -54,8 +61,17 @@ const fixture = async (real = false, windows = false) => {
     "ffxiv-mods": [join(root, "Mods Space")],
     "ffxiv-configs": [join(root, "Plugins"), join(root, "Game Configs")],
     "mmo-screenshots": [join(root, "FFXIV Pictures"), join(root, "WoW Pictures")],
+  } as Record<Job, string[]> & {
+    documents: string[];
+    images: string[];
+    "ffxiv-mods": string[];
+    "ffxiv-configs": string[];
+    "mmo-screenshots": string[];
   };
-  const activeJobs = windows ? windowsJobs : jobs;
+  const activeJobs = customJobs ?? (windows ? windowsJobs : jobs);
+  for (const job of activeJobs) {
+    if (!Object.hasOwn(sources, job)) sources[job] = [join(root, job)];
+  }
   for (const path of Object.values(sources).flat()) await mkdir(path);
   const settings: SettingsData & { sources: typeof sources } = {
     repoRoot: root,
@@ -71,16 +87,31 @@ const fixture = async (real = false, windows = false) => {
     repository: "fixture-repository",
     jobs: activeJobs,
     dailyHour: windows ? 9 : 10,
-    jobRetention: windows ? { "mmo-screenshots": { "keep-monthly": 3 } } : {},
+    jobPolicies:
+      policies ??
+      (windows
+        ? {
+            "mmo-screenshots": { retention: { "keep-monthly": 3 } },
+            "ffxiv-configs": {
+              skipIfProcessesRunning: ["ffxiv_dx11", "ffxiv", "ffxivlauncher", "XIVLauncher"],
+            },
+          }
+        : {}),
+    substitutions: { PROTON_DRIVE_PATH: root, PROTON_IMAGES_DIR: join(root, "Resolved Photos") },
     sources,
     environment: { PATH: process.env.PATH, HOME: root, SystemRoot: process.env.SystemRoot },
     profile: {
       repository: { repository: join(root, "repository") },
-      forget: { "keep-daily": 7, "keep-weekly": 4, "keep-monthly": windows ? 6 : 12 },
+      forget: {
+        "keep-daily": 7,
+        "keep-weekly": 4,
+        "keep-monthly": windows ? 6 : 12,
+        "keep-id": keepIds,
+      },
       backup: {
         snapshots: activeJobs.map((job) => ({
           name: job,
-          sources: [sources[job][0]!, ...sources[job].slice(1)],
+          sources: [sources[job]![0]!, ...sources[job]!.slice(1)],
           tags: [job],
           "skip-if-unchanged": true,
         })),
@@ -95,13 +126,14 @@ const fixture = async (real = false, windows = false) => {
   }> = [];
   const alerts: Array<string> = [];
   let gameStatus = ok("stopped");
+  let backupTime: string | undefined;
   let next = 1;
   const snapshot = (job: Job, files = 10, bytes = 1_000): RawSnapshot => ({
     id: id(next++),
     tree: id(next + 100),
     time: DateTime.formatIso(DateTime.nowUnsafe()),
     hostname: settings.hostname,
-    paths: [sources[job][0]!, ...sources[job].slice(1)],
+    paths: [sources[job]![0]!, ...sources[job]!.slice(1)],
     tags: [job],
     delete: "NotSet",
     summary: { total_files_processed: files, total_bytes_processed: bytes },
@@ -133,7 +165,7 @@ const fixture = async (real = false, windows = false) => {
       run: Effect.fn("test.run")(function* (_exe, args, env) {
         yield* Effect.promise(() => record(args, env));
         if (_exe === "powershell.exe") return gameStatus;
-        const job = activeJobs.find((job) => args.includes(job)) ?? activeJobs[0];
+        const job = activeJobs.find((job) => args.includes(job)) ?? activeJobs[0]!;
         if (args.includes("backup")) return backupOutput(job);
         if (args.includes("snapshots"))
           return ok([
@@ -155,9 +187,13 @@ const fixture = async (real = false, windows = false) => {
       return Processes.of({
         run: Effect.fn("test.actualRun")(function* (exe, args, env) {
           yield* Effect.promise(() => record(args, env));
+          const timedArgs =
+            args.includes("backup") && backupTime !== undefined
+              ? [...args, "--time", backupTime]
+              : args;
           return yield* service.run(
             exe,
-            exe === settings.rustic ? ["--cache-dir", join(root, "cache"), ...args] : args,
+            exe === settings.rustic ? ["--cache-dir", join(root, "cache"), ...timedArgs] : args,
             env,
           );
         }),
@@ -243,6 +279,9 @@ const fixture = async (real = false, windows = false) => {
     backup,
     run,
     seed,
+    setTime: (time: string) => {
+      backupTime = time;
+    },
     setGame: (output: ProcessOutput) => {
       gameStatus = output;
     },
@@ -619,11 +658,13 @@ test("managed profiles disable hooks and first-run skipping, and secrets stay ou
 });
 
 test.skipIf(rustic === undefined)(
-  "real Rustic saves, skips, rotates anchors, checks, previews retention, and restores known bytes",
+  "real Rustic uses custom job IDs, saves, skips, rotates anchors, checks, previews retention, and restores known bytes",
   async () => {
-    const f = await fixture(true);
-    const doc = join(f.settings.sources.documents[0]!, "report.txt");
-    const image = join(f.settings.sources.images[0]!, "photo.bin");
+    const f = await fixture(true, false, ["project-data", "photos"], {
+      photos: { retention: { "keep-monthly": 3 } },
+    });
+    const doc = join(f.settings.sources["project-data"]![0]!, "report.txt");
+    const image = join(f.settings.sources.photos![0]!, "photo.bin");
     await writeFile(doc, "first report\n");
     await writeFile(image, new Uint8Array([0, 19, 255, 8, 41]));
     await f.run(
@@ -637,7 +678,11 @@ test.skipIf(rustic === undefined)(
       }),
     );
     const first = await f.backup();
-    expect(first.map((s) => s.outcome)).toEqual(["accepted-changed", "accepted-changed"]);
+    expect(first.map((state) => state.job)).toEqual(["project-data", "photos"]);
+    expect(
+      first.map((s) => s.outcome),
+      JSON.stringify(first),
+    ).toEqual(["accepted-changed", "accepted-changed"]);
     expect(first[0]?.current?.files).toBe(1);
     expect(first[0]?.current?.bytes).toBe(13);
     expect(first[1]?.current?.bytes).toBe(5);
@@ -667,7 +712,7 @@ test.skipIf(rustic === undefined)(
     const destination = join(f.root, "restored");
     await f.run(
       Effect.gen(function* () {
-        yield* (yield* MacBackup).restore("documents", first[0]!.current!.id, destination);
+        yield* (yield* MacBackup).restore("project-data", first[0]!.current!.id, destination);
       }),
     );
     const restoredPath = process.platform === "win32" ? doc.replace(":", "") : doc.slice(1);
@@ -677,6 +722,229 @@ test.skipIf(rustic === undefined)(
   },
   30_000,
 );
+
+test.skipIf(rustic === undefined)(
+  "real Rustic applies per-job retention without deleting another job's history or recovery anchors",
+  async () => {
+    const pins: string[] = [];
+    const f = await fixture(
+      true,
+      false,
+      ["photos", "project-data"],
+      {
+        photos: { retention: { "keep-daily": 0, "keep-weekly": 0, "keep-monthly": 1 } },
+      },
+      pins,
+    );
+    await f.run(
+      Effect.flatMap(Processes, (service) =>
+        service.run(
+          f.settings.rustic,
+          ["--no-progress", "-r", f.settings.profile.repository.repository, "init"],
+          { ...f.settings.environment, RUSTIC_PASSWORD: "fixture-password" },
+        ),
+      ).pipe(Effect.map((output) => expect(output.exitCode).toBe(0))),
+    );
+    const generations: ReadonlyArray<JobState>[] = [];
+    for (const month of [1, 2, 3, 4]) {
+      f.setTime(`2026-0${month}-15 12:00:00+0000`);
+      for (const job of f.settings.jobs) {
+        await writeFile(join(f.settings.sources[job]![0]!, "data.txt"), "content".repeat(month));
+      }
+      const states = await f.backup();
+      expect(
+        states.map((state) => state.outcome),
+        JSON.stringify(states),
+      ).toEqual(["accepted-changed", "accepted-changed"]);
+      generations.push(states);
+    }
+    pins.push(generations[0]![0]!.current!.id);
+    const unpinnedPhoto = generations[1]![0]!.current!.id;
+    const oldestProject = generations[0]![1]!.current!.id;
+    const preview = await f.run(
+      Effect.flatMap(MacBackup, (service) => service.maintenance(false, false)),
+    );
+    expect(preview).toEqual([unpinnedPhoto]);
+    const before = await f.run(Effect.flatMap(MacBackup, (service) => service.snapshots()));
+    expect(before.map((snapshot) => snapshot.id)).toContain(unpinnedPhoto);
+    expect(
+      await f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(true, false))),
+    ).toEqual([unpinnedPhoto]);
+    const after = await f.run(Effect.flatMap(MacBackup, (service) => service.snapshots()));
+    const remainingIds = after.map((snapshot) => snapshot.id);
+    expect(remainingIds).not.toContain(unpinnedPhoto);
+    expect(remainingIds).toContain(pins[0]);
+    expect(remainingIds).toContain(oldestProject);
+    for (const state of generations[3]!) {
+      expect(remainingIds).toContain(state.current!.id);
+      expect(remainingIds).toContain(state.previous!.id);
+    }
+    expect(after).toHaveLength(7);
+    expect(f.alerts).toEqual([]);
+  },
+  30_000,
+);
+
+test("arbitrary configured IDs run in order, persist receipts, list, accept and restore", async () => {
+  const f = await fixture(false, false, ["project-data", "constructor", "photos"]);
+  const first = await f.backup();
+  expect(first.map((state) => state.job)).toEqual(["project-data", "constructor", "photos"]);
+  expect(first.every((state) => state.outcome === "accepted-changed")).toBe(true);
+  expect(await f.run(Effect.flatMap(MacBackup, (service) => service.status))).toEqual(first);
+  const listed = await f.run(
+    Effect.flatMap(MacBackup, (service) => service.snapshots("constructor")),
+  );
+  expect(listed.map((snapshot) => snapshot.id)).toEqual([first[1]!.current!.id]);
+  f.setBackup((job) => {
+    const saved = f.snapshot(job, 3, 201);
+    f.inventory.push(saved);
+    return ok(saved);
+  });
+  const [review] = await f.backup(["constructor"]);
+  expect(review?.outcome).toBe("review-required");
+  const accepted = await f.run(
+    Effect.flatMap(MacBackup, (service) => service.accept("constructor", review!.candidate!.id)),
+  );
+  expect(accepted.previous).toEqual(first[1]!.current);
+  await f.run(
+    Effect.flatMap(MacBackup, (service) =>
+      service.restore("constructor", first[1]!.current!.id, join(f.root, "restored")),
+    ),
+  );
+  expect(f.calls.at(-1)?.args).toContain("restore");
+  const plist = await f.run(launchAgent(join(f.root, "manager")));
+  expect(plist).toContain(
+    `<key>PROTON_IMAGES_DIR</key><string>${join(f.root, "Resolved Photos")}</string>`,
+  );
+  expect(plist).not.toContain(f.settings.sources.images[0]);
+});
+
+test.each(["absent", "../escape", "check", "Photos"])(
+  "all job entry points reject %s before side effects",
+  async (job) => {
+    const f = await fixture();
+    await fails(f.backup(["documents", job]), "not configured");
+    await fails(
+      f.run(Effect.flatMap(MacBackup, (service) => service.snapshots(job))),
+      "not configured",
+    );
+    await fails(
+      f.run(Effect.flatMap(MacBackup, (service) => service.accept(job, id(1)))),
+      "not configured",
+    );
+    await fails(
+      f.run(
+        Effect.flatMap(MacBackup, (service) =>
+          service.restore(job, id(1), join(f.root, "restore")),
+        ),
+      ),
+      "not configured",
+    );
+    expect(f.calls).toEqual([]);
+    await fails(stat(join(f.settings.stateDirectory, f.settings.repository)), "ENOENT");
+  },
+);
+
+test("process guards follow explicit policy, never job names, and pass process names as data", async () => {
+  const f = await fixture(false, true, ["photos", "project-data", "ffxiv-configs"], {
+    "project-data": { skipIfProcessesRunning: ["ExampleEditor", "Editor_Helper"] },
+  });
+  const saved = await f.seed("project-data", [f.snapshot("project-data")]);
+  const receiptPath = join(f.settings.stateDirectory, f.settings.repository, "project-data.json");
+  const before = await readFile(receiptPath, "utf8");
+  f.setGame(ok("running"));
+  expect((await f.backup()).map((state) => state.job)).toEqual(["photos", "ffxiv-configs"]);
+  expect(await readFile(receiptPath, "utf8")).toBe(before);
+  const probe = f.calls.find((call) => call.env?.OUTFITTING_BACKUP_PROCESSES)!;
+  expect(JSON.parse(probe.env!.OUTFITTING_BACKUP_PROCESSES!)).toEqual([
+    "ExampleEditor",
+    "Editor_Helper",
+  ]);
+  expect(probe.args.join(" ")).not.toContain("ExampleEditor");
+  for (const output of [
+    ok("unknown"),
+    { ...ok("stopped"), stderr: "unexpected warning" },
+    { ...ok("stopped"), exitCode: 1 },
+  ]) {
+    f.setGame(output);
+    const calls = f.calls.length;
+    await fails(f.backup(["project-data"]), "Could not verify running processes");
+    expect(f.calls.slice(calls).some((call) => call.args.includes("backup"))).toBe(false);
+    expect(await readFile(receiptPath, "utf8")).toBe(before);
+  }
+  f.setGame(ok("stopped"));
+  const [next] = await f.backup(["project-data"]);
+  expect(next?.outcome).toBe("accepted-changed");
+  expect(next?.previous).toEqual(saved.current);
+});
+
+test("retention overrides apply only to their configured job and preserve default counters and pins", async () => {
+  const f = await fixture(
+    false,
+    false,
+    ["photos", "constructor"],
+    {
+      photos: { retention: { "keep-daily": 0, "keep-monthly": 3 } },
+    },
+    [id(990)],
+  );
+  for (const job of f.settings.jobs) await f.seed(job, [f.snapshot(job), f.snapshot(job)]);
+  expect(
+    await f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(false, false))),
+  ).toEqual([]);
+  const forgets = f.calls.filter((call) => call.args.includes("forget"));
+  expect(forgets).toHaveLength(2);
+  const photos = forgets.find((call) => call.args.includes("photos"))!;
+  expect(photos.args[photos.args.indexOf("--keep-daily") + 1]).toBe("0");
+  expect(photos.args[photos.args.indexOf("--keep-monthly") + 1]).toBe("3");
+  const other = forgets.find((call) => call.args.includes("constructor"))!;
+  expect(other.args).not.toContain("--keep-monthly");
+  expect(other.profile).toContain("keep-monthly = 12");
+  expect(photos.profile).toContain("keep-weekly = 4");
+  for (const call of forgets) expect(call.args).toContain(id(990));
+});
+
+test("removed-job receipts block deletion but stay intact and allow inspection", async () => {
+  const f = await fixture(false, false, ["photos"]);
+  await f.seed("photos", [f.snapshot("photos"), f.snapshot("photos")]);
+  await f.seed("documents", [f.snapshot("documents"), f.snapshot("documents")]);
+  const receipt = join(f.settings.stateDirectory, f.settings.repository, "documents.json");
+  const before = await readFile(receipt, "utf8");
+  await f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(false, false)));
+  const count = f.calls.length;
+  await fails(
+    f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(true, true))),
+    "removed jobs",
+  );
+  expect(f.calls.slice(count)).toEqual([]);
+  expect(await readFile(receipt, "utf8")).toBe(before);
+});
+
+test("historical snapshots with overlapping job tags block retention even with acknowledgement", async () => {
+  const f = await fixture(false, false, ["photos", "project-data"]);
+  for (const job of f.settings.jobs) await f.seed(job, [f.snapshot(job), f.snapshot(job)]);
+  f.inventory.push({ ...f.snapshot("photos"), tags: ["photos", "project-data"] });
+  await fails(
+    f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(true, true))),
+    "overlap multiple",
+  );
+  expect(f.calls.some((call) => call.args.includes("forget") || call.args.includes("prune"))).toBe(
+    false,
+  );
+});
+
+test("new backup results with overlapping job tags never become accepted anchors", async () => {
+  const f = await fixture(false, false, ["photos", "project-data"]);
+  f.setBackup((job) => {
+    const saved = { ...f.snapshot(job), tags: ["photos", "project-data"] };
+    f.inventory.push(saved);
+    return ok(saved);
+  });
+  const [state] = await f.backup(["photos"]);
+  expect(state?.outcome).toBe("failed");
+  expect(state?.current).toBeUndefined();
+  expect(state?.error).toContain("identity");
+});
 
 test("Windows skips only FFXIV configs while the game runs, preserving anchors and retry eligibility", async () => {
   const f = await fixture(false, true);
@@ -695,7 +963,7 @@ test("Windows skips only FFXIV configs while the game runs, preserving anchors a
   expect((await f.backup(["ffxiv-configs"]))[0]?.outcome).toBe("accepted-changed");
   f.setGame({ stdout: "", stderr: "probe failed", exitCode: 1 });
   const before = f.calls.length;
-  await fails(f.backup(["ffxiv-configs"]), "Could not verify whether FFXIV");
+  await fails(f.backup(["ffxiv-configs"]), "Could not verify running processes");
   expect(f.calls.slice(before).some((call) => call.args.includes("backup"))).toBe(false);
 });
 

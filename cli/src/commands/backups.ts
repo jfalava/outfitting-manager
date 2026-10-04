@@ -7,7 +7,7 @@ import { FetchHttpClient } from "effect/http";
 
 import { Backup } from "@/backups/backup";
 import { launchAgent } from "@/backups/launchd";
-import { BackupError, JobState, SnapshotGroups, SnapshotId, jobs } from "@/backups/model";
+import { BackupError, Job, JobState, SnapshotGroups, SnapshotId } from "@/backups/model";
 import { Processes } from "@/backups/process";
 import { Secrets, secretNames, importSecretStore } from "@/backups/secrets";
 import { Settings } from "@/backups/settings";
@@ -54,9 +54,13 @@ const json = <S extends Schema.Constraint>(schema: S, value: S["Type"]) =>
   Schema.encodeEffect(Schema.fromJsonString(schema, { space: 2 }))(value).pipe(
     Effect.flatMap(Console.log),
   );
-const jobArgument = Argument.Literals("job", jobs);
+const jobArgument = Argument.String("job").pipe(Argument.withSchema(Job));
 const idArgument = Argument.String("snapshot-id").pipe(Argument.withSchema(SnapshotId));
-const selection = Flag.Literals("job", jobs).pipe(Flag.optional);
+const selection = Flag.String("job").pipe(
+  Flag.withSchema(Job),
+  Flag.withDescription("Job name from the selected profile's Rustic snapshots."),
+  Flag.optional,
+);
 
 const report = Effect.fn("report")(function* (states: ReadonlyArray<JobState>) {
   yield* json(Schema.Array(JobState), states);
@@ -304,6 +308,9 @@ const doctor = Command.make(
               bun: Bun.version,
               hostname: settings.hostname,
               repository: settings.profile.repository,
+              jobs: settings.jobs,
+              jobPolicies: settings.jobPolicies,
+              retentionDefaults: settings.profile.forget,
               sources: settings.sources,
               stateDirectory: settings.stateDirectory,
               checkedAt: DateTime.formatIso(yield* DateTime.now),

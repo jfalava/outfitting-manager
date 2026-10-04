@@ -11,7 +11,7 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 ## Run a backup now
 
-`backups run` runs every job in the selected profile. Use `--job` to run just one. Neither `run` nor `run-due` applies retention or deletes snapshots.
+`backups run` runs every named snapshot in the selected profile's composed Rustic TOML, in declaration order. Job names and counts are not built into the CLI. Use `--job` to run just one; unknown names are rejected before operations start. Neither `run` nor `run-due` applies retention or deletes snapshots.
 
 ```sh
 # Back up all configured folders
@@ -33,7 +33,7 @@ Generated LaunchAgents and Windows Task Scheduler jobs call `backups run-due` ho
 
 The CLI rejects a backup that processes zero files. It marks a candidate `review-required` if either its processed file count or logical bytes drop by more than 50% from the last accepted snapshot. The candidate does not become a recovery point until you inspect it and accept that exact snapshot with `backups accept`.
 
-On Windows, the CLI checks for running FFXIV processes before backing up `ffxiv-configs`. If the game is running, it skips that job and leaves it due for the next run. If it cannot determine whether the game is running, the command fails rather than risk capturing files in use.
+On Windows, a job with `skipIfProcessesRunning` checks its configured process names before backing up. If any match, it skips only that job without changing its receipt or recovery anchors, leaving it due for the next run. The guard also applies to manual runs. A failed, malformed, or timed-out process check fails closed. Jobs without this policy have no process guard. This is a preflight check, not a guarantee that an application cannot start during the backup.
 
 Failed backups and candidates that need review trigger a webhook alert.
 
@@ -43,7 +43,11 @@ A local lock prevents backup operations against the same repository from running
 
 `backups maintenance` previews which snapshots the retention policy would remove. It requires two accepted snapshots for every job and a successful backup within the last 48 hours. The two accepted snapshots for each job are protected from deletion.
 
+Retention defaults come from Rustic `[forget]`; optional Outfitting per-job overrides replace individual counters. A snapshot must belong to only one configured job's identity tag. Ambiguous tags block retention, including when history is acknowledged.
+
 Pass `--apply` to apply the retention policy and prune unused data. If the repository contains snapshots not recorded in local receipts, review them and pass `--acknowledge-history` before applying retention.
+
+Adding a job starts fresh receipt history and blocks maintenance until it meets the same prerequisites. Removing a job stops its runs but does not remove receipts or snapshots. Receipts for removed jobs block `--apply` until their recovery anchors are explicitly reconciled; preview and inspection remain available. Renaming a job is removal plus addition, not an automatic history transfer. Profile names do not create separate receipt namespaces: jobs share receipts when repository, hostname, and job ID match. Changing sources under an existing ID requires reconciliation if they no longer match accepted anchors.
 
 ## Restore a snapshot
 

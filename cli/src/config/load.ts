@@ -55,7 +55,7 @@ const SourceFileSchema = Schema.Struct({
 });
 
 const ConfigFileSchema = Schema.Struct({
-  schema: Schema.Literal(1),
+  schema: Schema.Literals([1, 2]),
   machine_id: Schema.optionalKey(Schema.NonEmptyString),
   source: Schema.optionalKey(SourceFileSchema),
   linux: Schema.optionalKey(LinuxFileSchema),
@@ -233,7 +233,7 @@ function normalizeDeclarations(decoded: DecodedConfig): ByorContract | undefined
 }
 
 function configFileFromDecoded(decoded: DecodedConfig, configPath: string): ManagerConfigFile {
-  const file: ManagerConfigFile = { schema: 1 };
+  const file: ManagerConfigFile = { schema: decoded.schema };
   if (decoded.machine_id !== undefined) {
     file.machineId = decoded.machine_id.trim();
   }
@@ -278,7 +278,12 @@ function parseConfigFile(raw: string, configPath: string): ManagerConfigFile {
   assertConfigTableKeys(parsed, configPath);
   const decoded = decodeConfigFile(parsed);
   if (Option.isNone(decoded)) {
-    throw new Error(`${configPath} must use config schema 1 and the supported TOML tables.`);
+    throw new Error(`${configPath} must use config schema 1 or 2 and the supported TOML tables.`);
+  }
+  if (decoded.value.backups !== undefined && decoded.value.schema !== 2) {
+    throw new Error(
+      "Backups require config schema 2 and explicit job policies. Migrate retention overrides and process guards before upgrading.",
+    );
   }
   return configFileFromDecoded(decoded.value, configPath);
 }

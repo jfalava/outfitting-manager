@@ -200,7 +200,7 @@ export function buildManifestWithPlatformEdits(
     profiles,
   };
   if (existing?.backups !== undefined) {
-    result.schema = 2;
+    result.schema = 3;
     result.backups = existing?.backups;
   }
   if (windows !== undefined) {

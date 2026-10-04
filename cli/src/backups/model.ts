@@ -4,10 +4,10 @@ export class BackupError extends Schema.TaggedError<BackupError>()("BackupError"
   message: Schema.String,
 }) {}
 
-export const macJobs = ["documents", "images"] as const;
-export const windowsJobs = ["ffxiv-mods", "ffxiv-configs", "mmo-screenshots"] as const;
-export const jobs = [...macJobs, ...windowsJobs] as const;
-export const Job = Schema.Literals(jobs);
+// Job IDs are also receipt filenames and single Rustic identity tags.
+export const Job = Schema.String.check(
+  Schema.isPattern(/^(?!check$|con$|prn$|aux$|nul$|com[1-9]$|lpt[1-9]$)[a-z0-9][a-z0-9_-]{0,63}$/),
+);
 export type Job = typeof Job.Type;
 
 export const SnapshotId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
@@ -68,12 +68,29 @@ export const JobState = Schema.Struct({
 });
 export type JobState = typeof JobState.Type;
 
+const RetentionCount = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(-1),
+  Schema.isLessThanOrEqualTo(2_147_483_647),
+);
+export const RetentionCounters = Schema.Struct({
+  "keep-daily": Schema.optionalKey(RetentionCount),
+  "keep-weekly": Schema.optionalKey(RetentionCount),
+  "keep-monthly": Schema.optionalKey(RetentionCount),
+});
 export const Retention = Schema.Struct({
-  "keep-daily": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
-  "keep-weekly": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
-  "keep-monthly": Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
+  ...RetentionCounters.fields,
   "keep-id": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
+
+export const JobPolicy = Schema.Struct({
+  retention: Schema.optionalKey(RetentionCounters),
+  skipIfProcessesRunning: Schema.optionalKey(
+    Schema.Array(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/))).check(
+      Schema.isMaxLength(32),
+    ),
+  ),
+});
+export type JobPolicy = typeof JobPolicy.Type;
 
 export const Profile = Schema.Struct({
   repository: Schema.Struct({
@@ -90,7 +107,7 @@ export const Profile = Schema.Struct({
         globs: Schema.optionalKey(Schema.Array(Schema.String)),
         "skip-if-unchanged": Schema.Boolean,
       }),
-    ),
+    ).check(Schema.isMinLength(1)),
   }),
 });
 export type Profile = typeof Profile.Type;
