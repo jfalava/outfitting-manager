@@ -13,12 +13,14 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 `backups run` runs every named snapshot in the selected profile's composed Rustic TOML, in declaration order. Job names and counts are not built into the CLI. Use `--job` to run just one; unknown names are rejected before operations start. Neither `run` nor `run-due` applies retention or deletes snapshots.
 
+Use `backups doctor` to see the selected profile's job names. The `project-data` job below is an example from the [setup guide](/docs/backups/setup/); use the `name` of a snapshot in your own profile.
+
 ```sh
 # Back up all configured folders
 outfitting-manager backups run
 
 # Back up only one specific job
-outfitting-manager backups run --job documents
+outfitting-manager backups run --job project-data
 ```
 
 Rustic deduplicates unchanged data. If a snapshot uses `skip-if-unchanged = true`, it can also skip creating a new snapshot when its sources have not changed.

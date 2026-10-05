@@ -100,7 +100,9 @@ keep-monthly = 3
 
 ### Configure the Rustic TOML files
 
-The declared TOML files specify the repository, retention policy, and source folders. For example:
+The declared TOML files specify the repository, retention policy, and source folders.
+
+The names `project-data` and `photos` below are examples, not defaults. Choose names for your own jobs; the source folders and policies determine what each job backs up and how it behaves.
 
 ```toml
 [repository]
@@ -117,9 +119,9 @@ keep-weekly = 4
 keep-monthly = 12
 
 [[backup.snapshots]]
-name = "documents"
-sources = ["/Users/your-user/Documents"]
-tags = ["documents"]
+name = "project-data"
+sources = ["/Users/your-user/Projects"]
+tags = ["project-data"]
 skip-if-unchanged = true
 
 [[backup.snapshots]]
@@ -133,7 +135,7 @@ Replace the source paths with your actual absolute folders.
 
 Every `[[backup.snapshots]]` entry creates a job, in composition order. There is no built-in job list on either platform. Declare at least one snapshot with a unique name. Names use 1–64 lowercase ASCII letters, digits, `_`, or `-`, starting with a letter or digit. `check` and Windows device names such as `con` are reserved.
 
-Tags must include the job's name and must not include another configured job's name, commas, control characters, or surrounding whitespace. Other annotation tags can be shared.
+Use the snapshot's `name` in CLI job arguments and any matching `jobs` policy key. Tags must include that same name and must not include another configured job's name, commas, control characters, or surrounding whitespace. Other annotation tags can be shared.
 
 ### Attach optional job policies
 
@@ -162,6 +164,8 @@ skipIfProcessesRunning = ["ffxiv_dx11", "ffxiv", "ffxivlauncher", "XIVLauncher"]
 [backups.profiles.gaming-pc.jobs.mmo-screenshots.retention]
 keep-monthly = 3
 ```
+
+These are historical job names, not required names for new profiles. Keep the names already associated with your snapshots and receipts when migrating.
 
 Use your actual backup profile name instead of `gaming-pc`; declare the equivalent `jobs` map in the manifest if you import it. Then set manifest `schema` to 3 and local `schema` to 2. Re-importing replaces current-platform policies, while ordinary wizard edits preserve them. Refresh any remote source cache using the configuration wizard before offline scheduled runs. Run `backups doctor`, verify a backup without retention, and resume the schedule only after checking the results. Do not initialize the existing repository or discard its receipts.
 

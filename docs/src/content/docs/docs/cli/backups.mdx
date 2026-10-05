@@ -9,6 +9,8 @@ sidebar:
 
 `backups` runs Rustic on macOS and Windows using the selected profile and native credentials. Linux does not include this command family. See [How backups work](/docs/backups/how-it-works/) for behavior, [Prerequisites](/docs/backups/prerequisites/) to check what you need, or [Set up backups](/docs/backups/setup/) to configure a profile.
 
+Job arguments use the `name` from a configured Rustic `[[backup.snapshots]]` entry. There are no built-in platform job names. The examples use `project-data` and `photos` from the setup guide; replace them with names shown by `backups doctor` for your selected profile.
+
 ## `doctor`
 
 **Syntax:** `outfitting-manager backups doctor`
@@ -40,7 +42,7 @@ Run backup jobs immediately. By default, all jobs in the active profile are exec
 outfitting-manager backups run
 
 # Run one job
-outfitting-manager backups run --job documents
+outfitting-manager backups run --job project-data
 ```
 
 | Option        | Description                                                                                                                |
@@ -71,9 +73,9 @@ outfitting-manager backups snapshots
 outfitting-manager backups snapshots --job photos
 ```
 
-| Option        | Description                     |
-| ------------- | ------------------------------- |
-| `--job <job>` | Filter snapshot results by job. |
+| Option        | Description                                                     |
+| ------------- | --------------------------------------------------------------- |
+| `--job <job>` | Filter snapshot results by a configured Rustic snapshot `name`. |
 
 ## `check`
 
@@ -124,13 +126,13 @@ outfitting-manager backups maintenance --apply --acknowledge-history
 Approve a backup candidate whose file count or processed bytes shrank by more than 50% compared to the previous anchor. Candidates flagged as `review-required` must be accepted before serving as parent snapshots or recovery anchors.
 
 ```sh
-outfitting-manager backups accept documents 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+outfitting-manager backups accept project-data 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-| Argument        | Description                                                    |
-| --------------- | -------------------------------------------------------------- |
-| `<job>`         | The job name associated with the candidate.                    |
-| `<snapshot-id>` | The 64-character hexadecimal snapshot ID saved in the receipt. |
+| Argument        | Description                                                          |
+| --------------- | -------------------------------------------------------------------- |
+| `<job>`         | The configured Rustic snapshot `name` associated with the candidate. |
+| `<snapshot-id>` | The 64-character hexadecimal snapshot ID saved in the receipt.       |
 
 ## `restore`
 
@@ -139,12 +141,12 @@ outfitting-manager backups accept documents 0123456789abcdef0123456789abcdef0123
 Restore a snapshot into a new directory. The destination path must not already exist and cannot overlap any backup source path.
 
 ```sh
-outfitting-manager backups restore documents 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ~/Desktop/restored-docs
+outfitting-manager backups restore project-data 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ~/Desktop/restored-project-data
 ```
 
 | Argument        | Description                                          |
 | --------------- | ---------------------------------------------------- |
-| `<job>`         | The job name to restore.                             |
+| `<job>`         | The configured Rustic snapshot `name` to restore.    |
 | `<snapshot-id>` | The snapshot ID to restore.                          |
 | `<destination>` | Target directory for restored files. Must not exist. |
 
