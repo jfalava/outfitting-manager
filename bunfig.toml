@@ -2,14 +2,7 @@
 minimumReleaseAge = 86400
 minimumReleaseAgeExcludes = [
   "@types/node",
-  "effect",
-  "@effect/platform",
-  "@effect/platform-bun",
-  "@effect/platform-node",
-  "@effect/platform-node-shared",
-  "@effect/sql-d1",
-  "@effect/sql-sqlite-do",
-  "@effect/vitest",
+  "@effect/tsgo",
   "@cloudflare/workers-types",
   "alchemy",
   "@alchemy.run/cloudflare-runtime",
