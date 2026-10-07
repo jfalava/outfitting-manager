@@ -1,18 +1,18 @@
 import { decodeResponse, isJsonValue, PushResponse } from "@outfitting/contract";
 import { Console, Effect } from "effect";
 
+import { tryPromise, toError } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise, toError } from "@/lockfiles/effect";
 import {
   inferOutputPath,
   isGitTrackedFile,
   KNOWN_LOCKFILE_KINDS,
   normalizeSha256,
   resolveKindSelection,
-} from "@/lockfiles/files";
-import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { requestEffect } from "@/lockfiles/request";
-import type { LockfileCredentials, PushLockfileOptions } from "@/lockfiles/types";
+} from "@/sync/files";
+import { resolveLockfileMachine } from "@/sync/machine";
+import { requestEffect } from "@/sync/request";
+import type { LockfileCredentials, PushLockfileOptions } from "@/sync/types";
 import { ui } from "@/ui";
 
 const pushOne = ({

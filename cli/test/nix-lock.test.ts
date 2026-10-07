@@ -8,8 +8,8 @@ import { describe, expect, test } from "vitest";
 
 import type { ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
-import type { PullLockfileOptions } from "@/lockfiles";
-import { WorkerResponseError } from "@/lockfiles/request";
+import type { PullLockfileOptions } from "@/sync";
+import { WorkerResponseError } from "@/sync/request";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
 
 const config: ManagerConfig = {

@@ -1,6 +1,6 @@
 import { Console, Effect } from "effect";
 
-import { toError } from "@/lockfiles/effect";
+import { toError } from "@/effect";
 import { ui } from "@/ui";
 import { installReleaseEffect } from "@/upgrade/install";
 import { assetNameFor, executableNameFor, executablePath } from "@/upgrade/platform";

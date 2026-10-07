@@ -178,12 +178,25 @@ describe("macOS CLI command boundaries", () => {
     expect(code).toBe(0);
   });
 
-  test("sync exposes remote transport and lockfiles is rejected", async () => {
+  test("sync exposes the new configuration tree and legacy command paths are rejected", async () => {
     const sync = await runCli(["sync", "--help"]);
+    const configure = await runCli(["sync", "configure", "--help"]);
+    const worker = await runCli(["sync", "configure", "worker", "--help"]);
+    const token = await runCli(["sync", "configure", "token", "--help"]);
+    const oldWorker = await runCli(["sync", "configure-worker"]);
+    const oldToken = await runCli(["sync", "configure-token"]);
     const lockfiles = await runCli(["lockfiles"]);
     expect(sync.code).toBe(0);
+    expect(configure.code).toBe(0);
+    expect(worker.code).toBe(0);
+    expect(token.code).toBe(0);
+    expect(oldWorker.code).not.toBe(0);
+    expect(oldToken.code).not.toBe(0);
     expect(lockfiles.code).not.toBe(0);
+    expect(`${sync.stdout}\n${sync.stderr}`).toMatch(/\bconfigure\b/);
     expect(`${sync.stdout}\n${sync.stderr}`).toMatch(/\bpush\b/);
+    expect(`${configure.stdout}\n${configure.stderr}`).toMatch(/\bworker\b/);
+    expect(`${configure.stdout}\n${configure.stderr}`).toMatch(/\btoken\b/);
     expect(`${lockfiles.stdout}\n${lockfiles.stderr}`).not.toMatch(/^\s+lockfiles\s/m);
   });
 

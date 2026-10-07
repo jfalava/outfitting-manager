@@ -6,15 +6,15 @@ import { Console, Effect } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
 import { physicalPath, resolveOutfittingRepo, type OutfittingRepo } from "@/config/repo";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
-import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/lockfiles";
-import { tryPromise } from "@/lockfiles/effect";
-import { isGitTrackedFile } from "@/lockfiles/files";
 import { which } from "@/process";
 import { resolveSetupSource } from "@/setup/run";
 import { syncByorSparseSource } from "@/setup/source";
 import { validateLinuxByorSource, validateMacosByorSource } from "@/source/contract";
+import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/sync";
+import { isGitTrackedFile } from "@/sync/files";
 import { ui } from "@/ui";
 import { isLinuxProfile, prepareLinuxSource } from "@/update/linux-source";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";

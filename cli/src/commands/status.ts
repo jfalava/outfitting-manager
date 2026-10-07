@@ -10,7 +10,7 @@ import {
   sparseSourceRoot,
   type ManagerConfig,
 } from "@/config";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import { type HostPlatform } from "@/platform";
 import { runCommand } from "@/process";
 import { envValue } from "@/secrets";

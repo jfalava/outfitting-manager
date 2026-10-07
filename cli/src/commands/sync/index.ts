@@ -1,14 +1,13 @@
 import { Command } from "effect/cli";
 
-import { configureTokenCommand, configureWorkerCommand } from "@/commands/lockfiles/configure";
-import { historyCommand } from "@/commands/lockfiles/history";
-import { listCommand } from "@/commands/lockfiles/list";
-import { pullCommand } from "@/commands/lockfiles/pull";
-import { pushCommand } from "@/commands/lockfiles/push";
+import { configureCommand } from "@/commands/sync/configure";
+import { historyCommand } from "@/commands/sync/history";
+import { listCommand } from "@/commands/sync/list";
+import { pullCommand } from "@/commands/sync/pull";
+import { pushCommand } from "@/commands/sync/push";
 
 export const syncSubcommands = [
-  configureWorkerCommand,
-  configureTokenCommand,
+  configureCommand,
   pushCommand,
   pullCommand,
   listCommand,

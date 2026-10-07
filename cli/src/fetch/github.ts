@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 
+import { toError } from "@/effect";
 import { CliFailure } from "@/errors";
-import { toError } from "@/lockfiles/effect";
 import { runCommand } from "@/process";
 import { relativeSourcePath } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";

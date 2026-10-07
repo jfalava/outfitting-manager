@@ -2,8 +2,8 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig, sparseSourceRoot } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
 import {

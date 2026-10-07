@@ -4,7 +4,7 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig } from "@/config";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import { runSetup } from "@/setup/run";
 import { selectMacosByorProfile } from "@/source/contract";
 import { ui } from "@/ui";

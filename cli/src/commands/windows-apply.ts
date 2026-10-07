@@ -5,8 +5,8 @@ import { Console, Effect, Option, Predicate, Schema } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
 import { runCommand, which } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";

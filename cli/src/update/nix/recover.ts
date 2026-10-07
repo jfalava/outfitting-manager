@@ -4,9 +4,9 @@ import { isAbsolute } from "node:path";
 import { Console, Effect } from "effect";
 
 import { loadConfig, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { pushLockfile } from "@/lockfiles";
-import { tryPromise } from "@/lockfiles/effect";
+import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import {

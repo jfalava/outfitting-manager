@@ -16,7 +16,7 @@ import {
   mergeByorContractDefaults,
   requiredProfileNames,
 } from "@/config/wizard";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import type { HostPlatform } from "@/platform";
 import {
   BYOR_CONTRACT_PATH,

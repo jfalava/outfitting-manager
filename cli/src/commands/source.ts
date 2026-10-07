@@ -2,7 +2,7 @@ import { Console, Effect } from "effect";
 import { Command } from "effect/cli";
 
 import { loadConfig, resolveOutfittingRepo } from "@/config";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import type { HostPlatform } from "@/platform";
 
 function currentPlatform(): HostPlatform {

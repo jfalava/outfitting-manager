@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { r2Credentials } from "@/fonts/keychain";
-import { apiToken, baseUrl } from "@/lockfiles/keychain";
 import { envValue, inAmpOrb } from "@/secrets";
+import { apiToken, baseUrl, storeApiToken, storeWorkerUrl } from "@/sync/keychain";
 
 const ENV_KEYS = [
   "AMP_ORB",
-  "OUTFITTING_LOCKFILES_TOKEN",
-  "OUTFITTING_LOCKFILES_URL",
+  "OUTFITTING_SYNC_TOKEN",
+  "OUTFITTING_SYNC_URL",
   "OUTFITTING_S3_ENDPOINT",
   "OUTFITTING_S3_ACCESS_KEY",
   "OUTFITTING_S3_SECRET_KEY",
@@ -54,8 +54,8 @@ describe("orb environment credentials", () => {
   test("reads lockfiles credentials from env in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
-      OUTFITTING_LOCKFILES_TOKEN: "  orb-token  ",
-      OUTFITTING_LOCKFILES_URL: "https://example.workers.dev/api/",
+      OUTFITTING_SYNC_TOKEN: "  orb-token  ",
+      OUTFITTING_SYNC_URL: "https://example.workers.dev/api/",
     });
     expect(await apiToken()).toBe("orb-token");
     expect(await baseUrl()).toBe("https://example.workers.dev/api");
@@ -64,8 +64,8 @@ describe("orb environment credentials", () => {
   test("reads lockfiles credentials from env without requiring an Amp orb", async () => {
     setEnv({
       AMP_ORB: undefined,
-      OUTFITTING_LOCKFILES_TOKEN: "  host-token  ",
-      OUTFITTING_LOCKFILES_URL: "https://example.workers.dev/api/",
+      OUTFITTING_SYNC_TOKEN: "  host-token  ",
+      OUTFITTING_SYNC_URL: "https://example.workers.dev/api/",
     });
     expect(await apiToken()).toBe("host-token");
     expect(await baseUrl()).toBe("https://example.workers.dev/api");
@@ -74,31 +74,58 @@ describe("orb environment credentials", () => {
   test("requires the lockfiles Worker URL in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
-      OUTFITTING_LOCKFILES_URL: undefined,
+      OUTFITTING_SYNC_URL: undefined,
     });
-    await expect(baseUrl()).rejects.toThrow("OUTFITTING_LOCKFILES_URL is required in a headless environment.");
+    await expect(baseUrl()).rejects.toThrow(
+      "OUTFITTING_SYNC_URL is required in a headless environment.",
+    );
   });
 
-  test("requires an unconfigured Worker URL to be saved with configure-worker", async () => {
+  test("requires an unconfigured Worker URL to be saved with sync configure worker", async () => {
     setEnv({
       AMP_ORB: undefined,
-      OUTFITTING_LOCKFILES_URL: undefined,
+      OUTFITTING_SYNC_URL: undefined,
     });
     vi.stubGlobal("Bun", {
       secrets: { get: vi.fn().mockResolvedValue(null) },
     });
     await expect(baseUrl()).rejects.toThrow(
-      "Lockfiles Worker URL is not configured. Run 'outfitting-manager sync configure-worker' first.",
+      "Sync Worker URL is not configured. Run 'outfitting-manager sync configure worker' first.",
     );
   });
 
-  test("requires OUTFITTING_LOCKFILES_TOKEN in a headless environment", async () => {
+  test("stores sync credentials under the new keychain service and names", async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("Bun", { secrets: { get: vi.fn(), set } });
+
+    await storeWorkerUrl("https://example.workers.dev/api/");
+    await storeApiToken("  sync-token-value  ");
+
+    expect(set.mock.calls).toEqual([
+      [
+        {
+          service: "outfitting-sync",
+          name: "sync-url",
+          value: "https://example.workers.dev/api",
+        },
+      ],
+      [
+        {
+          service: "outfitting-sync",
+          name: "sync-token",
+          value: "sync-token-value",
+        },
+      ],
+    ]);
+  });
+
+  test("requires OUTFITTING_SYNC_TOKEN in a headless environment", async () => {
     setEnv({
       AMP_ORB: "1",
-      OUTFITTING_LOCKFILES_TOKEN: undefined,
+      OUTFITTING_SYNC_TOKEN: undefined,
     });
     await expect(apiToken()).rejects.toThrow(
-      "OUTFITTING_LOCKFILES_TOKEN is required in a headless environment.",
+      "OUTFITTING_SYNC_TOKEN is required in a headless environment.",
     );
   });
 

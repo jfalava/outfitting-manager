@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { pushLockfile } from "@/lockfiles";
 import type { RunCommandOptions, RunCommandResult } from "@/process";
+import { pushLockfile } from "@/sync";
 import { applyBrew, parseBrewfileTaps, updateBrew } from "@/update/brew";
 import { captureHomebrewInventory, pushHomebrewInventory } from "@/update/snapshot";
 
 const temps: string[] = [];
-vi.mock("@/lockfiles", () => ({ pushLockfile: vi.fn() }));
+vi.mock("@/sync", () => ({ pushLockfile: vi.fn() }));
 
 afterEach(async () => {
   vi.restoreAllMocks();

@@ -8,8 +8,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { loadConfig } from "@/config";
 import { CliFailure } from "@/errors";
-import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/lockfiles";
 import { runSetup } from "@/setup/run";
+import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/sync";
 import { activateHomeManager } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
 import { updateNix } from "@/update/nix/run";
@@ -27,7 +27,7 @@ vi.mock("@/update/nix/build", () => ({
 vi.mock("@/update/nix/activate", () => ({
   activateHomeManager: vi.fn(async () => undefined),
 }));
-vi.mock("@/lockfiles", () => ({
+vi.mock("@/sync", () => ({
   pullLockfile: vi.fn(() => Effect.fail(new CliFailure({ message: "service unavailable" }))),
   pushLockfile: vi.fn(() => Effect.void.pipe(Effect.as(undefined))),
   resolveLockfileCredentials: vi.fn(async () => ({

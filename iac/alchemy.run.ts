@@ -18,7 +18,7 @@ import { defineManagedSecrets } from "./src/secrets";
 /** Existing account Secrets Store (provider always adopts; never deleted). */
 export const SharedSecretsStore = Cloudflare.SecretsStore.Store("OutfittingManagerSecretsStore");
 
-const API_SECRET_NAMES = ["OUTFITTING_LOCKFILES_TOKEN"] as const;
+const API_SECRET_NAMES = ["OUTFITTING_SYNC_TOKEN"] as const;
 
 const debugObservability = {
   enabled: true,

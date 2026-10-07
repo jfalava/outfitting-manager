@@ -1,14 +1,13 @@
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
-import { promptAndStoreApiToken, storeWorkerUrl } from "@/lockfiles/keychain";
+import { promptAndStoreApiToken, storeWorkerUrl } from "@/sync/keychain";
 import { ui } from "@/ui";
 
 export const configureWorker = (requestedUrl?: string) =>
   Effect.gen(function* () {
-    const value =
-      requestedUrl ?? prompt("Lockfiles Worker URL (stored in your OS keychain):")?.trim();
+    const value = requestedUrl ?? prompt("Sync Worker URL (stored in your OS keychain):")?.trim();
     if (!value) {
       return yield* new CliFailure({ message: "A Worker URL is required." });
     }

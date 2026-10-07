@@ -15,11 +15,11 @@ import {
   pullLockfile,
   pushLockfile,
   resolveKindSelection,
-} from "@/lockfiles";
+} from "@/sync";
 
 const execFileAsync = promisify(execFile);
 
-describe("lockfiles command helpers", () => {
+describe("sync command helpers", () => {
   test("infers common lockfile names", () => {
     expect(inferOutputPath("nix")).toBe("flake.lock");
     expect(inferOutputPath("bun")).toBe("bun.lock");
@@ -130,7 +130,7 @@ describe("lockfiles command helpers", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     try {
-      const { request } = await import("@/lockfiles/request");
+      const { request } = await import("@/sync/request");
       await expect(
         request(
           ["lockfiles", "machine", "nix"],

@@ -7,29 +7,44 @@ sidebar:
 
 Use `sync` to save and retrieve machine state. It does not install, upgrade, or remove packages. It uses this machine's configured or derived ID; `OUTFITTING_MACHINE_ID` overrides it. Default file paths are relative to the current directory.
 
-## `configure-worker`
+## `configure`
 
-**Syntax:** `outfitting-manager sync configure-worker [<url>]`
+Configure the sync Worker URL or API token. The URL and token are stored in the OS keychain when configured interactively.
 
-Set the service URL before using other `sync` commands. Omit `<url>` to enter it at the prompt. Sync commands require a configured URL and do not choose a default. Set `OUTFITTING_LOCKFILES_URL` to override the saved URL.
+### `configure worker`
+
+**Syntax:** `outfitting-manager sync configure worker [<url>]`
+
+Set the service URL before using other `sync` commands. Omit `<url>` to enter it at the prompt. Sync commands require a configured URL and do not choose a default. Set `OUTFITTING_SYNC_URL` to override the saved URL.
 
 `provision` saves the URL it creates automatically. Pass `--skip-configure` to skip that step.
 
 ```sh
-outfitting-manager sync configure-worker https://example.com/api
+outfitting-manager sync configure worker https://example.com/api
 ```
 
-In Amp orbs (`AMP_ORB=1`), the CLI skips the OS keychain and requires both `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN`. For other noninteractive environments, set both variables to avoid keychain access or token prompts; running without a terminal does not itself disable the keychain.
+In Amp orbs (`AMP_ORB=1`), the CLI skips the OS keychain and requires both `OUTFITTING_SYNC_URL` and `OUTFITTING_SYNC_TOKEN`. For other noninteractive environments, set both variables to avoid keychain access or token prompts; running without a terminal does not itself disable the keychain.
 
-## `configure-token`
+### `configure token`
 
-**Syntax:** `outfitting-manager sync configure-token`
+**Syntax:** `outfitting-manager sync configure token`
 
-Prompt for and save the service token for later sync commands. You can also set `OUTFITTING_LOCKFILES_TOKEN`; it takes precedence over the saved token.
+Prompt for and save the service token for later sync commands. You can also set `OUTFITTING_SYNC_TOKEN`; it takes precedence over the saved token.
 
 ```sh
-outfitting-manager sync configure-token
+outfitting-manager sync configure token
 ```
+
+## Credential migration
+
+This version uses the `outfitting-sync` OS keychain service with `sync-url` and `sync-token` entries. It does not read the previous lockfiles credentials or environment variables. After deploying the API with its new `OUTFITTING_SYNC_TOKEN` secret, configure each existing machine again:
+
+```sh
+outfitting-manager sync configure worker https://example.com/api
+outfitting-manager sync configure token
+```
+
+For headless machines and CI, replace `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN` with `OUTFITTING_SYNC_URL` and `OUTFITTING_SYNC_TOKEN`. Verify one push or pull before removing the old API secret.
 
 ## `push`
 

@@ -8,8 +8,8 @@ import {
   type OutfittingRepo,
 } from "@/config";
 import { type ManagerConfig } from "@/config/types";
+import { tryPromise } from "@/effect";
 import type { ManifestFetcher } from "@/fetch/github";
-import { tryPromise } from "@/lockfiles/effect";
 import type { HostPlatform } from "@/platform";
 import type { runCommand } from "@/process";
 import { envValue } from "@/secrets";

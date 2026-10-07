@@ -15,10 +15,10 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { pullLockfile } from "@/lockfiles/pull";
-import { requestEffect } from "@/lockfiles/request";
+import { pullLockfile } from "@/sync/pull";
+import { requestEffect } from "@/sync/request";
 
-vi.mock("@/lockfiles/request", () => ({ requestEffect: vi.fn() }));
+vi.mock("@/sync/request", () => ({ requestEffect: vi.fn() }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
   return { ...fs, writeFile: vi.fn(fs.writeFile) };

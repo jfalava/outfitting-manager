@@ -17,6 +17,6 @@ The CLI stores several kinds of machine state, including Nix, Bun/npm, Homebrew,
 
 ## Access
 
-The API requires a bearer token and an explicitly configured base URL; the CLI does not choose a default. For an existing deployment, set them with `outfitting-manager sync configure-worker <url>` and `outfitting-manager sync configure-token`. The `provision` command saves the URL and token for the deployment it creates, unless you pass `--skip-configure`.
+The API requires a bearer token and an explicitly configured base URL; the CLI does not choose a default. For an existing deployment, set them with `outfitting-manager sync configure worker <url>` and `outfitting-manager sync configure token`. The `provision` command saves the URL and token for the deployment it creates, unless you pass `--skip-configure`.
 
-In a headless environment, provide `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN` as environment variables. Elsewhere, they can also configure the URL and token, and take precedence over saved values. See the [CLI sync guide](/docs/cli/sync/) for examples.
+In a headless environment, provide `OUTFITTING_SYNC_URL` and `OUTFITTING_SYNC_TOKEN` as environment variables. Elsewhere, they can also configure the URL and token, and take precedence over saved values. See the [CLI sync guide](/docs/cli/sync/) for examples.

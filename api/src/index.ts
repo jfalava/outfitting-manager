@@ -21,7 +21,7 @@ function tokensMatch(authorization: string | undefined, token: string): boolean 
 }
 
 app.use("*", async (c, next) => {
-  const token = await c.env.OUTFITTING_LOCKFILES_TOKEN.get();
+  const token = await c.env.OUTFITTING_SYNC_TOKEN.get();
   const authorization = c.req.header("Authorization");
 
   if (!token || !tokensMatch(authorization, token)) {

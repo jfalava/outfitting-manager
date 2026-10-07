@@ -2,5 +2,5 @@
 interface Env {
   LOCKFILES: KVNamespace;
   DB: D1Database;
-  OUTFITTING_LOCKFILES_TOKEN: SecretsStoreSecret;
+  OUTFITTING_SYNC_TOKEN: SecretsStoreSecret;
 }

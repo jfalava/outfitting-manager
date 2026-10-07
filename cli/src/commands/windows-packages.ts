@@ -2,10 +2,10 @@ import { Console, Effect } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { loadConfig, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { pushLockfile } from "@/lockfiles";
-import { tryPromise } from "@/lockfiles/effect";
 import { runCommand, which } from "@/process";
+import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 import { runScoopCommand } from "@/update/scoop-command";
 import {

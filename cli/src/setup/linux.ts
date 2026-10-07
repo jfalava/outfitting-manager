@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import { resolveSetupSource, runSetup, type SetupOptions } from "@/setup/run";
 import type { LinuxProfile } from "@/source/linux-profile";
 

@@ -1,8 +1,8 @@
 import { Option } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
-import { kindArgument } from "@/commands/lockfiles/arguments";
-import { pushLockfile } from "@/lockfiles";
+import { kindArgument } from "@/commands/sync/arguments";
+import { pushLockfile } from "@/sync";
 
 export const pushCommand = Command.make(
   "push",

@@ -1,10 +1,10 @@
-import { maskedPrompt } from "@/lockfiles/masked-prompt";
-import type { LockfileCredentials } from "@/lockfiles/types";
+import { maskedPrompt } from "@/masked-prompt";
 import { envValue, inAmpOrb, storedSecret } from "@/secrets";
+import type { LockfileCredentials } from "@/sync/types";
 
-const SECRET_SERVICE = "outfitting-lockfiles";
-const TOKEN_SECRET_NAME = "api-token";
-const URL_SECRET_NAME = "worker-url";
+const SECRET_SERVICE = "outfitting-sync";
+const TOKEN_SECRET_NAME = "sync-token";
+const URL_SECRET_NAME = "sync-url";
 
 export function normalizeWorkerUrl(value: string): string {
   let parsed: URL;
@@ -35,13 +35,13 @@ export async function storeWorkerUrl(value: string): Promise<string> {
 }
 
 export async function baseUrl(): Promise<string> {
-  const fromEnv = envValue("OUTFITTING_LOCKFILES_URL");
+  const fromEnv = envValue("OUTFITTING_SYNC_URL");
   if (fromEnv) {
     return normalizeWorkerUrl(fromEnv);
   }
 
   if (inAmpOrb()) {
-    throw new Error("OUTFITTING_LOCKFILES_URL is required in a headless environment.");
+    throw new Error("OUTFITTING_SYNC_URL is required in a headless environment.");
   }
 
   const stored = await storedSecret(SECRET_SERVICE, URL_SECRET_NAME);
@@ -51,33 +51,42 @@ export async function baseUrl(): Promise<string> {
   }
 
   throw new Error(
-    "Lockfiles Worker URL is not configured. Run 'outfitting-manager sync configure-worker' first.",
+    "Sync Worker URL is not configured. Run 'outfitting-manager sync configure worker' first.",
   );
 }
 
-export async function promptAndStoreApiToken(): Promise<string> {
-  const token =
-    (await maskedPrompt("Lockfiles API token (stored in your OS keychain): "))?.trim() ?? null;
-  if (!token) {
+export async function storeApiToken(token: string): Promise<string> {
+  const value = token.trim();
+  if (!value) {
     throw new Error("An API token is required.");
   }
 
   await Bun.secrets.set({
     service: SECRET_SERVICE,
     name: TOKEN_SECRET_NAME,
-    value: token,
+    value,
   });
-  return token;
+  return value;
+}
+
+export async function promptAndStoreApiToken(): Promise<string> {
+  const token =
+    (await maskedPrompt("Sync API token (stored in your OS keychain): "))?.trim() ?? null;
+  if (!token) {
+    throw new Error("An API token is required.");
+  }
+
+  return storeApiToken(token);
 }
 
 export async function apiToken(): Promise<string> {
-  const fromEnv = envValue("OUTFITTING_LOCKFILES_TOKEN");
+  const fromEnv = envValue("OUTFITTING_SYNC_TOKEN");
   if (fromEnv) {
     return fromEnv;
   }
 
   if (inAmpOrb()) {
-    throw new Error("OUTFITTING_LOCKFILES_TOKEN is required in a headless environment.");
+    throw new Error("OUTFITTING_SYNC_TOKEN is required in a headless environment.");
   }
 
   // Bun.secrets is experimental and does not isolate credentials between scripts running as the same OS user. That is acceptable for this personal tool, but the keychain entry is not a hard security boundary.

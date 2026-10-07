@@ -1,11 +1,11 @@
 import { decodeResponse, isJsonValue, KindsResponse } from "@outfitting/contract";
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
-import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { requestEffect } from "@/lockfiles/request";
-import type { ListLockfileOptions } from "@/lockfiles/types";
+import { resolveLockfileMachine } from "@/sync/machine";
+import { requestEffect } from "@/sync/request";
+import type { ListLockfileOptions } from "@/sync/types";
 import { ui } from "@/ui";
 
 /** Fetch tracked kinds for a machine without printing. */

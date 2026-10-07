@@ -1,4 +1,4 @@
-import { maskedPrompt } from "@/lockfiles/masked-prompt";
+import { maskedPrompt } from "@/masked-prompt";
 import { envValue, inAmpOrb, storedSecret } from "@/secrets";
 
 const SECRET_SERVICE = "outfitting-fonts";

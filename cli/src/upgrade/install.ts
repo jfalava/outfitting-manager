@@ -3,7 +3,7 @@ import { chmod, rename, writeFile } from "node:fs/promises";
 
 import { Effect, Result, Schema } from "effect";
 
-import { toError } from "@/lockfiles/effect";
+import { toError } from "@/effect";
 import { ui } from "@/ui";
 import { extractZipBinary } from "@/upgrade/archive";
 import type { CliRelease } from "@/upgrade/release";

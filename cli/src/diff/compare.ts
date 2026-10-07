@@ -19,11 +19,11 @@ import {
 } from "@/config";
 import type { DiffManager, DiffPlatform, DiffSection, PlatformDiff } from "@/diff/types";
 import type { ManifestFetcher } from "@/fetch/github";
-import { pullLockfile } from "@/lockfiles";
 import type { LinuxPackageManager } from "@/platform/linux";
 import { runCommand, which } from "@/process";
 import { envValue } from "@/secrets";
 import { selectByorProfile, selectMacosByorProfile } from "@/source/contract";
+import { pullLockfile } from "@/sync";
 import { parseBrewfileManifest } from "@/update/brew";
 import {
   isLinuxProfile,

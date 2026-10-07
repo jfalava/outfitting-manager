@@ -1,8 +1,8 @@
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { promptAndStoreR2Credentials, storeR2Endpoint } from "@/fonts/keychain";
-import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
 
 export const configureEndpoint = (requestedEndpoint?: string) =>

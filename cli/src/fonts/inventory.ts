@@ -8,7 +8,7 @@ import {
   INVENTORY_MACHINE,
 } from "@/fonts/constants";
 import type { FontFace } from "@/fonts/names";
-import { request } from "@/lockfiles/request";
+import { request } from "@/sync/request";
 
 const InventoryFaceSchema = Schema.Struct({
   family: Schema.String,

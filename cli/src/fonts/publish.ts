@@ -1,5 +1,6 @@
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { checksumSidecar, packFontArchive, parseChecksumSidecar, sha256Hex } from "@/fonts/archive";
 import { confirmPlan, printFaceTable } from "@/fonts/display";
 import {
@@ -10,7 +11,6 @@ import {
 } from "@/fonts/inventory";
 import type { FontPlan } from "@/fonts/plan";
 import type { FontObjectStore, RemoteArchiveState } from "@/fonts/r2";
-import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
 
 async function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {

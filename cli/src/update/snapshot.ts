@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { Console, Data, Effect } from "effect";
 
 import { loadConfig, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { pushLockfile } from "@/lockfiles";
-import { tryPromise } from "@/lockfiles/effect";
-import { isGitTrackedFile } from "@/lockfiles/files";
 import { runCommand } from "@/process";
+import { pushLockfile } from "@/sync";
+import { isGitTrackedFile } from "@/sync/files";
 import { ui } from "@/ui";
 
 export const HOMEBREW_INVENTORY_KIND = "homebrew-inventory";

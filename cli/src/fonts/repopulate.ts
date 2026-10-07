@@ -1,5 +1,6 @@
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { sha256Hex } from "@/fonts/archive";
 import { printInventoryFaces } from "@/fonts/display";
 import {
@@ -11,7 +12,6 @@ import {
   type PrivateFontsInventory,
 } from "@/fonts/inventory";
 import { createR2ObjectStore, loadRemoteArchiveState, type RemoteArchiveState } from "@/fonts/r2";
-import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
 
 export interface RepopulateResult {

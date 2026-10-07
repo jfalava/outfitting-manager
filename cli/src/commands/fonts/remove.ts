@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
+import { tryPromise } from "@/effect";
 import { planRemove } from "@/fonts/plan";
 import { applyFontPlan } from "@/fonts/publish";
 import { createR2ObjectStore, loadRemoteArchiveState } from "@/fonts/r2";
-import { tryPromise } from "@/lockfiles/effect";
 
 export const removeCommand = Command.make(
   "remove",

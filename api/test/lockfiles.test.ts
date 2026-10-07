@@ -37,10 +37,10 @@ describe("lockfile helpers", () => {
 
 describe("authentication", () => {
   const partialEnv = {
-    OUTFITTING_LOCKFILES_TOKEN: {
+    OUTFITTING_SYNC_TOKEN: {
       get: async () => "correct-token",
     },
-  } satisfies Pick<Env, "OUTFITTING_LOCKFILES_TOKEN">;
+  } satisfies Pick<Env, "OUTFITTING_SYNC_TOKEN">;
   const env = partialEnv as Env;
 
   test("rejects a missing bearer token", async () => {

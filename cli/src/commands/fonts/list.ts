@@ -1,10 +1,10 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/cli";
 
+import { tryPromise } from "@/effect";
 import { printInventoryFaces } from "@/fonts/display";
 import { pullInventory } from "@/fonts/inventory";
 import { repopulateInventory } from "@/fonts/repopulate";
-import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
 
 export const listCommand = Command.make(

@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect";
 
-import { toError } from "@/lockfiles/effect";
+import { toError } from "@/effect";
 import { isNewerVersion } from "@/upgrade/version";
 
 const RELEASES_URL = "https://api.github.com/repos/jfalava/outfitting-manager/releases?per_page=30";

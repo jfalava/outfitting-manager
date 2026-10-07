@@ -6,9 +6,9 @@ import { Console, Effect, Schema } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
 import { validateOutfittingRepo } from "@/config/repo";
+import { tryPromise } from "@/effect";
 import { CliFailure, toCliFailure } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
-import { tryPromise } from "@/lockfiles/effect";
 import {
   detectLinuxPackageManager,
   type DetectLinuxPackageManagerOptions,

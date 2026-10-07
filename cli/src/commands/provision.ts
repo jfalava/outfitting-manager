@@ -7,7 +7,7 @@ import { Command, Flag } from "effect/cli";
 import pc from "picocolors";
 
 import { toCliFailure } from "@/errors";
-import { storeWorkerUrl } from "@/lockfiles/keychain";
+import { storeApiToken, storeWorkerUrl } from "@/sync/keychain";
 import { ui } from "@/ui";
 
 import {
@@ -63,7 +63,7 @@ async function runAlchemyDeploy(options: {
     env: {
       ...environment,
       ...deployConfigToEnv(options.deployConfig),
-      OUTFITTING_LOCKFILES_TOKEN: options.workerToken,
+      OUTFITTING_SYNC_TOKEN: options.workerToken,
     },
     stdin: "inherit",
     stdout: "pipe",
@@ -91,7 +91,7 @@ async function runAlchemyDeploy(options: {
 
   if (!url) {
     throw new Error(
-      "Alchemy deploy completed but did not report the Worker URL. Configure it with outfitting-manager sync configure-worker.",
+      "Alchemy deploy completed but did not report the Worker URL. Configure it with outfitting-manager sync configure worker.",
     );
   }
   return { url };
@@ -158,7 +158,7 @@ export const provisionCommand = Command.make(
     token: Flag.String("token").pipe(
       Flag.optional,
       Flag.withDescription(
-        "OUTFITTING_LOCKFILES_TOKEN value. Defaults to env, else generates and stores one.",
+        "OUTFITTING_SYNC_TOKEN value. Defaults to env, else generates and stores one.",
       ),
     ),
     skipConfigure: Flag.Boolean("skip-configure").pipe(
@@ -194,7 +194,7 @@ export const provisionCommand = Command.make(
 
       const workerToken =
         optionalFlag(flags.token)?.trim() ||
-        process.env["OUTFITTING_LOCKFILES_TOKEN"]?.trim() ||
+        process.env["OUTFITTING_SYNC_TOKEN"]?.trim() ||
         randomBytes(32).toString("hex");
 
       const deployment = yield* Effect.tryPromise({
@@ -213,18 +213,14 @@ export const provisionCommand = Command.make(
         yield* Effect.tryPromise({
           try: async () => {
             await storeWorkerUrl(apiBaseUrl);
-            await Bun.secrets.set({
-              service: "outfitting-lockfiles",
-              name: "api-token",
-              value: workerToken,
-            });
+            await storeApiToken(workerToken);
           },
           catch: (cause) =>
             toCliFailure(
               cause,
               `Stack deployed, but credentials could not be stored in the OS keychain: ${
                 cause instanceof Error ? cause.message : String(cause)
-              }. Set them with sync configure-worker / configure-token.`,
+              }. Set them with sync configure worker / configure token.`,
             ),
         });
       }

@@ -8,8 +8,8 @@ import { Effect, Schema } from "effect";
 import type { ManagerConfig } from "@/config";
 import { physicalPath } from "@/config/repo";
 import { CliFailure } from "@/errors";
-import { pullLockfile } from "@/lockfiles";
-import { WorkerResponseError } from "@/lockfiles/request";
+import { pullLockfile } from "@/sync";
+import { WorkerResponseError } from "@/sync/request";
 import { NIX_LOCK_KIND } from "@/update/nix/types";
 
 export interface OpenNixLockResult {

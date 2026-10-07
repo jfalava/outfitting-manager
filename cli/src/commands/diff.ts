@@ -9,8 +9,8 @@ import {
   type DiffProgress,
   type DiffSection,
 } from "@/diff";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
 import { ui } from "@/ui";
 
 const managerFlag = Flag.String("manager").pipe(

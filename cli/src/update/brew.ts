@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { Console, Effect } from "effect";
 
 import { configuredProfile, loadConfig, resolveOutfittingRepo, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
 import { runCommand, which } from "@/process";
 import { selectMacosByorProfile } from "@/source/contract";
 import { ui } from "@/ui";

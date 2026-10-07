@@ -3,13 +3,13 @@ import { dirname, join } from "node:path";
 
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
-import { inferOutputPath, isGitTrackedFile, resolveKindSelection } from "@/lockfiles/files";
-import { fetchLockfileKinds } from "@/lockfiles/list";
-import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { requestEffect } from "@/lockfiles/request";
-import type { PullLockfileOptions } from "@/lockfiles/types";
+import { inferOutputPath, isGitTrackedFile, resolveKindSelection } from "@/sync/files";
+import { fetchLockfileKinds } from "@/sync/list";
+import { resolveLockfileMachine } from "@/sync/machine";
+import { requestEffect } from "@/sync/request";
+import type { PullLockfileOptions } from "@/sync/types";
 import { ui } from "@/ui";
 
 const pullOne = (machine: string, kind: string, outPath: string) =>

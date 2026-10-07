@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig } from "@/config";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 import { resolveSetupSource, runSetup, type SetupOptions } from "@/setup/run";
 
 export interface WindowsInitOptions extends SetupOptions {

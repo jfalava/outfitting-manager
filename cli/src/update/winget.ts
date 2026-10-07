@@ -1,10 +1,10 @@
 import { Console, Effect } from "effect";
 
 import { loadConfig, type ManagerConfig } from "@/config";
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { pushLockfile } from "@/lockfiles";
-import { tryPromise } from "@/lockfiles/effect";
 import { runCommand, which, type RunCommandResult } from "@/process";
+import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 import {
   recordWindowsOperation,

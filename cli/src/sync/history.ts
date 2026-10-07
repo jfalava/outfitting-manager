@@ -1,13 +1,13 @@
 import { decodeResponse, HistoryResponse, isJsonValue } from "@outfitting/contract";
 import { Console, Effect } from "effect";
 
+import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { tryPromise } from "@/lockfiles/effect";
-import { resolveKindSelection } from "@/lockfiles/files";
-import { fetchLockfileKinds } from "@/lockfiles/list";
-import { resolveLockfileMachine } from "@/lockfiles/machine";
-import { requestEffect } from "@/lockfiles/request";
-import type { HistoryLockfileOptions } from "@/lockfiles/types";
+import { resolveKindSelection } from "@/sync/files";
+import { fetchLockfileKinds } from "@/sync/list";
+import { resolveLockfileMachine } from "@/sync/machine";
+import { requestEffect } from "@/sync/request";
+import type { HistoryLockfileOptions } from "@/sync/types";
 import { ui } from "@/ui";
 
 const historyForKind = (machine: string, kind: string) =>

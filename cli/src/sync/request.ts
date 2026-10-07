@@ -2,9 +2,9 @@ import { decodeResponse, ErrorBody, isJsonValue } from "@outfitting/contract";
 import { Effect, Schema } from "effect";
 import { FetchHttpClient, HttpBody, HttpClient } from "effect/http";
 
-import { toError } from "@/lockfiles/effect";
-import { normalizeWorkerUrl, resolveLockfileCredentials } from "@/lockfiles/keychain";
-import type { CliRequestInit, LockfileCredentials } from "@/lockfiles/types";
+import { toError } from "@/effect";
+import { normalizeWorkerUrl, resolveLockfileCredentials } from "@/sync/keychain";
+import type { CliRequestInit, LockfileCredentials } from "@/sync/types";
 
 export class WorkerResponseError extends Schema.TaggedError<WorkerResponseError>()(
   "WorkerResponseError",

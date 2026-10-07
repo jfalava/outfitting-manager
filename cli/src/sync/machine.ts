@@ -1,5 +1,5 @@
 import { loadConfig } from "@/config";
-import { tryPromise } from "@/lockfiles/effect";
+import { tryPromise } from "@/effect";
 
 /**
  * Resolve the machine id for lockfile commands.
