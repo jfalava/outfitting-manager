@@ -162,9 +162,7 @@ export function validateComposedBackup(
   }
   const profile = Schema.decodeUnknownSync(Profile, { onExcessProperty: "error" })(managed);
   if (profile.repository.options !== undefined) {
-    Schema.decodeUnknownSync(RepositoryOptions, { onExcessProperty: "error" })(
-      profile.repository.options,
-    );
+    Schema.decodeSync(RepositoryOptions, { onExcessProperty: "error" })(profile.repository.options);
   }
   validateJobInventory(profile, policies);
   for (const snapshot of profile.backup.snapshots) {

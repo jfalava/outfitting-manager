@@ -17,6 +17,12 @@
       {
         "name": "@effect/language-service",
         "ignoreEffectWarningsInTscExitCode": true,
+        "allowedUnstableApis": [
+          "effect/cli",
+          "effect/http",
+          "effect/process/ChildProcess#make",
+          "effect/process/ChildProcessSpawner#ChildProcessSpawner"
+        ],
         "diagnosticSeverity": {
           "abortControllerInEffect": "error",
           "asyncFunction": "off",

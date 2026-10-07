@@ -54,6 +54,11 @@ export const isCheckDue = (
   );
 };
 
+const canonicalPath = (path: string) =>
+  process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
+
+const localFailure = (message: string) => new BackupError({ message });
+
 function acceptedHistory(
   state: JobState | undefined,
 ): Pick<JobState, "acceptedAt" | "current" | "previous"> {
@@ -98,11 +103,8 @@ export class Backup extends Context.Service<
       const client = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
       const jobs = config.jobs;
       const paths = (job: Job) => config.sources[job] ?? [];
-      const canonicalPath = (path: string) =>
-        process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
       const directory = join(config.stateDirectory, config.repository);
       const statePath = (job: Job) => join(directory, `${job}.json`);
-      const localFailure = (message: string) => new BackupError({ message });
       const requireJob = (job: Job) =>
         Schema.is(Job)(job) && jobs.includes(job)
           ? Effect.void
@@ -115,10 +117,8 @@ export class Backup extends Context.Service<
       const readState = Effect.fn("MacBackup.readState")(
         function* (job: Job) {
           const raw = yield* fs.readFileString(statePath(job)).pipe(
-            Effect.map(Option.some),
-            Effect.catch((error) =>
-              error.reason._tag === "NotFound" ? Effect.succeed(Option.none()) : Effect.fail(error),
-            ),
+            Effect.asSome,
+            Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
           );
           if (Option.isNone(raw)) {
             return undefined;
@@ -210,7 +210,7 @@ export class Backup extends Context.Service<
             },
           };
           yield* fs.makeDirectory(dirname(config.logFile), { recursive: true, mode: 0o700 });
-          const toml = yield* Schema.decodeUnknownEffect(Schema.String)(stringify(profile));
+          const toml = yield* Schema.decodeEffect(Schema.String)(stringify(profile));
           yield* fs.writeFileString(profilePath, toml, { mode: 0o600 });
           const output = yield* processes.run(
             config.rustic,
@@ -280,7 +280,7 @@ export class Backup extends Context.Service<
         snapshot: SnapshotMetadata,
         job: Job,
       ) {
-        const sources = paths(job).map(canonicalPath).sort();
+        const sources = paths(job).map(canonicalPath).toSorted();
         if (
           snapshot.hostname !== config.hostname ||
           !snapshot.tags.includes(job) ||
@@ -289,7 +289,7 @@ export class Backup extends Context.Service<
           snapshot.paths.some((path) => path.length === 0) ||
           snapshot.paths
             .map(canonicalPath)
-            .sort()
+            .toSorted()
             .some((path, index) => path !== sources[index])
         ) {
           return yield* localFailure(`Snapshot identity or sources do not match ${job}.`);

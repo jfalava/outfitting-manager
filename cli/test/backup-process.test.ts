@@ -1,5 +1,5 @@
 import { BunServices } from "@effect/platform-bun";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { expect, test } from "vitest";
 
 import { Processes, successful } from "@/backups/process";
@@ -13,7 +13,7 @@ test("process capture drains stdout and stderr concurrently and never interprets
         "process.stdout.write('a'.repeat(180000)); process.stderr.write('b'.repeat(210000)); process.stdout.write(process.argv[1]); process.exitCode=7",
         literal,
       ]);
-    }).pipe(Effect.provide(Processes.layer), Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(Processes.layer.pipe(Layer.provide(BunServices.layer)))),
   );
   expect(output.exitCode).toBe(7);
   expect(output.stdout).toBe("a".repeat(180_000) + literal);
@@ -32,7 +32,7 @@ test("oversized output fails instead of silently accepting a truncated JSON capt
         "-e",
         "process.stdout.write('x'.repeat(9*1024*1024))",
       ]);
-    }).pipe(Effect.provide(Processes.layer), Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(Processes.layer.pipe(Layer.provide(BunServices.layer)))),
   ).then(
     () => undefined,
     (error: unknown) => error,
