@@ -2,6 +2,7 @@ import * as cliProgress from "cli-progress";
 import { Effect } from "effect";
 
 import type { RunCommandResult } from "@/process";
+import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 const STEP_ICON = "󰄭";
@@ -119,7 +120,14 @@ export function createProgress(
 
   return {
     track: (label, effect) =>
-      Effect.sync(() => start(label)).pipe(
+      Effect.flatMap(TerminalSession, (session) =>
+        Effect.sync(() => {
+          start(label);
+          if (!disabled && !finished) {
+            session.phase(label);
+          }
+        }),
+      ).pipe(
         Effect.flatMap(() => effect),
         Effect.ensuring(
           Effect.sync(() => {

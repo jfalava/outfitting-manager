@@ -5,6 +5,8 @@ export interface ActivateNixSystemOptions {
   systemConfig: string;
   run?: typeof runCommand;
   alert?: (alert: TerminalAlert) => void;
+  /** Resume the active phase after the first privileged command accepts authentication. */
+  resume?: () => void;
   user?: string;
 }
 
@@ -54,6 +56,9 @@ export async function activateNixSystem(options: ActivateNixSystemOptions): Prom
   );
   if (setProfile.code !== 0) {
     throw new Error(`nix-env --set failed (exit ${setProfile.code}).`);
+  }
+  if (sudoCheck.code !== 0) {
+    options.resume?.();
   }
 
   const activateArgs = ["-H", "env", "HOME=/var/root", "NIX_PATH="];

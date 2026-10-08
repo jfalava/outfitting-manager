@@ -7,6 +7,7 @@ import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { pushLockfile } from "@/sync";
+import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import {
@@ -59,6 +60,7 @@ function activatePreparedNix(
       });
     }
     const activate = options.activate ?? activateNixSystem;
+    yield* setTerminalPhase("Activating recovered profile");
     if (state.platform === "linux") {
       const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
       const env: NodeJS.ProcessEnv = {
@@ -70,8 +72,15 @@ function activatePreparedNix(
         activateHomeManagerFn({ activationPackage: state.systemConfig!, env }),
       );
     } else {
+      const session = yield* TerminalSession;
       yield* Console.log(ui.heading("Activating the recovered nix-darwin system…"));
-      yield* tryPromise(() => activate({ systemConfig: state.systemConfig! }));
+      yield* tryPromise(() =>
+        activate({
+          systemConfig: state.systemConfig!,
+          alert: session.alert,
+          resume: session.resume,
+        }),
+      );
     }
     yield* tryPromise(() => setNixRecoveryPhase("activated", recoveryDir));
   });
@@ -106,6 +115,7 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
       yield* activatePreparedNix(options, state, recoveryDir);
     }
 
+    yield* setTerminalPhase("Publishing recovered Nix lock");
     yield* Console.log(ui.heading("Publishing the recovered Nix lock…"));
     yield* push({
       machine: config.machineId,

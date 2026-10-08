@@ -1,43 +1,13 @@
 #!/usr/bin/env bun
 
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Effect } from "effect";
-import { CliError, Command } from "effect/cli";
+import { BunRuntime } from "@effect/platform-bun";
 
-import { normalizeCommandAlias } from "@/arguments";
 import { makeMacosRootCommand } from "@/cli";
-import { makeCommandHelpLayer } from "@/cli/help";
-import { emitTerminalAlert } from "@/terminal-alert";
-import { ui } from "@/ui";
+import { runCli } from "@/cli/run";
 
 import packageJson from "./package.json" with { type: "json" };
 
 const root = makeMacosRootCommand(packageJson.version);
-const program = Effect.sync(() => normalizeCommandAlias(Bun.argv.slice(2))).pipe(
-  Effect.flatMap((args) =>
-    Command.runWith(root, {
-      version: packageJson.version,
-    })(args.length === 0 ? ["--help"] : args),
-  ),
-  Effect.provide([makeCommandHelpLayer(root), BunServices.layer]),
-  Effect.catch((error) =>
-    Effect.sync(() => {
-      process.exitCode = 1;
-      if (!CliError.isCliError(error)) {
-        emitTerminalAlert("error");
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(ui.error(message));
-      }
-    }),
-  ),
-  Effect.catchDefect((defect) =>
-    Effect.sync(() => {
-      process.exitCode = 1;
-      emitTerminalAlert("error");
-      const message = defect instanceof Error ? defect.message : String(defect);
-      console.error(ui.error(message));
-    }),
-  ),
-);
+const program = runCli(root, packageJson.version, Bun.argv.slice(2));
 
 BunRuntime.runMain(program, { disableErrorReporting: true });

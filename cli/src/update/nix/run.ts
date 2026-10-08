@@ -15,6 +15,7 @@ import { syncByorSparseSource } from "@/setup/source";
 import { validateLinuxByorSource, validateMacosByorSource } from "@/source/contract";
 import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/sync";
 import { isGitTrackedFile } from "@/sync/files";
+import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { isLinuxProfile, prepareLinuxSource } from "@/update/linux-source";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
@@ -70,6 +71,7 @@ function resolveMacosRepo(options: UpdateNixOptions, config: ManagerConfig) {
       return repo;
     }
 
+    yield* setTerminalPhase("Refreshing source");
     yield* Console.log(ui.heading("Refreshing remote source…"));
     const source = yield* tryPromise(() =>
       syncByorSparseSource({
@@ -225,33 +227,38 @@ function runNixAction(
   return Effect.gen(function* () {
     switch (action) {
       case "build": {
+        yield* setTerminalPhase("Building");
         yield* Console.log(ui.heading(`Building ${label}…`));
         const path = yield* tryPromise(() => buildNixSystem({ repo, lockPath, mode: "build" }));
         yield* Console.log(ui.success(`Built ${path}`));
         return;
       }
       case "test": {
+        yield* setTerminalPhase("Testing build");
         yield* Console.log(ui.heading(`Testing ${label} build…`));
         yield* tryPromise(() => buildNixSystem({ repo, lockPath, mode: "test" }));
         yield* Console.log(ui.success("Build successful — ready to switch."));
         return;
       }
       case "dry-run": {
+        yield* setTerminalPhase("Dry-run build");
         yield* Console.log(ui.heading(`Dry-run ${label} build…`));
         yield* tryPromise(() => buildNixSystem({ repo, lockPath, mode: "dry" }));
         yield* Console.log(ui.success("Dry-run complete."));
         return;
       }
       case "switch": {
+        yield* setTerminalPhase("Building");
         yield* Console.log(ui.heading(`Building ${label}…`));
         const systemConfig = yield* tryPromise(() =>
           buildNixSystem({ repo, lockPath, mode: "build" }),
         );
         const isHomeManager = repo.flakeKind === "home-manager";
+        yield* setTerminalPhase("Activating");
         yield* Console.log(
           ui.heading(isHomeManager ? "Activating Home Manager…" : "Activating nix-darwin system…"),
         );
-        yield* tryPromise(() => activateNixProfile(repo, systemConfig));
+        yield* activateNixProfile(repo, systemConfig);
         yield* Console.log(
           ui.success(
             isHomeManager ? "Home Manager switch complete." : "nix-darwin switch complete.",
@@ -273,9 +280,13 @@ function activateNixProfile(repo: OutfittingRepo, systemConfig: string) {
       ...process.env,
       OUTFITTING_REPO: repo.root,
     };
-    return activateHomeManager({ activationPackage: systemConfig, env });
+    return tryPromise(() => activateHomeManager({ activationPackage: systemConfig, env }));
   }
-  return activateNixSystem({ systemConfig });
+  return Effect.flatMap(TerminalSession, (session) =>
+    tryPromise(() =>
+      activateNixSystem({ systemConfig, alert: session.alert, resume: session.resume }),
+    ),
+  );
 }
 
 function runNixUpdate(
@@ -301,6 +312,7 @@ function runNixUpdate(
     const buildLockPath = join(paths.physicalDir, "build-flake.lock");
 
     try {
+      yield* setTerminalPhase("Updating flake inputs");
       yield* Console.log(ui.heading(`Updating flake inputs for ${nixTargetLabel(repo)}…`));
       yield* tryPromise(() =>
         updateNixLock({
@@ -310,6 +322,7 @@ function runNixUpdate(
         }),
       );
 
+      yield* setTerminalPhase("Building updated profile");
       yield* Console.log(ui.heading(`Building updated ${nixTargetLabel(repo)}…`));
       const systemConfig = yield* tryPromise(() =>
         buildNixSystem({
@@ -334,6 +347,7 @@ function runNixUpdate(
         }),
       );
 
+      yield* setTerminalPhase("Activating");
       yield* Console.log(
         ui.heading(
           repo.flakeKind === "home-manager"
@@ -341,9 +355,10 @@ function runNixUpdate(
             : "Activating nix-darwin system…",
         ),
       );
-      yield* tryPromise(() => activateNixProfile(repo, systemConfig));
+      yield* activateNixProfile(repo, systemConfig);
       yield* tryPromise(() => setNixRecoveryPhase("activated", checkpoint.dir));
 
+      yield* setTerminalPhase("Publishing Nix lock");
       yield* Console.log(ui.heading(`Publishing ${config.machineId}/${NIX_LOCK_KIND}…`));
       yield* pushLockfile({
         machine: config.machineId,
@@ -429,6 +444,7 @@ export const updateNix = (options: UpdateNixOptions) =>
       });
     }
 
+    yield* setTerminalPhase("Preparing source");
     const repo = yield* resolveActiveRepo(options, config);
     if (repo.flakeKind === "none" || repo.flakePath.length === 0) {
       return yield* new CliFailure({
@@ -446,6 +462,7 @@ function runNixActionWithPublish(
   repo: OutfittingRepo,
 ) {
   return Effect.gen(function* () {
+    yield* setTerminalPhase("Loading Nix lock");
     const lock = yield* openActionLock(repo, config, options.action === "update");
     const { lockPath, lockDir, warning } = lock;
     let stagedLockDir: string | undefined;
@@ -472,6 +489,7 @@ function runNixActionWithPublish(
       }
       const stagedLock = yield* tryPromise(() => stageNixLockForPush(publishPath));
       stagedLockDir = stagedLock.directory;
+      yield* setTerminalPhase("Publishing Nix lock");
       yield* Console.log(ui.heading(`Publishing ${config.machineId}/${NIX_LOCK_KIND}…`));
       yield* pushLockfile({
         machine: config.machineId,
