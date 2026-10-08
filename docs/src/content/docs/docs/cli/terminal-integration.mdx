@@ -1,0 +1,22 @@
+---
+title: Terminal integration
+description: Configure terminal notifications and window titles for Outfitting.
+sidebar:
+  order: 5
+---
+
+Outfitting sends status updates while commands run. Compatible terminals can present those updates as sounds, notifications, or status indicators, so you know when a command needs attention or encounters an error.
+
+The terminal decides how to present each update. Support depends on the terminal application and the terminal path it runs through, such as a multiplexer or remote connection.
+
+## Window titles
+
+To show the current command and phase in the terminal title, set:
+
+```bash
+export OUTFITTING_TITLE_PROTOCOL=xterm-window-stack
+```
+
+Titles can show entries such as `Outfitting · nix switch · Building` and `Outfitting · nix switch · Password required`. Outfitting restores the previous title when the command finishes or is cancelled.
+
+Your terminal must support title updates and title save/restore for this setting to work. Leave it unset if it does not.
