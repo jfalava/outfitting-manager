@@ -17,6 +17,7 @@ import {
   type ManagerConfig,
   type ManagerConfigFile,
   type MacosConfig,
+  type BackupsConfig,
   type WindowsConfig,
 } from "@/config/types";
 import { envValue } from "@/secrets";
@@ -46,6 +47,7 @@ const WindowsFileSchema = Schema.Struct({
 const BackupsFileSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
+  alertUrl: Schema.optionalKey(Schema.NonEmptyString),
 });
 
 const SourceFileSchema = Schema.Struct({
@@ -88,6 +90,36 @@ export function resolveLinuxConfig(file: ManagerConfigFile["linux"] = {}): Linux
 type DecodedConfig = Schema.Schema.Type<typeof ConfigFileSchema>;
 type MutableJson = Schema.Schema.Type<typeof Schema.MutableJson>;
 type JsonTable = Record<string, MutableJson>;
+
+function normalizeAlertUrl(value: string): string {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.pathname !== "/v1/alerts" ||
+    url.hostname === "backup-alert.jfalava.workers.dev" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error(
+      "backups.alertUrl must be a standalone HTTPS /v1/alerts URL, not the legacy backup Worker, without credentials, query, or fragment.",
+    );
+  }
+  return url.href;
+}
+
+function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>): BackupsConfig {
+  const validated = normalizeBackups({
+    defaultProfile: backups.profile,
+    profiles: backups.profiles,
+  })!;
+  const config: BackupsConfig = { profile: validated.defaultProfile, profiles: validated.profiles };
+  if (backups.alertUrl !== undefined) {
+    config.alertUrl = normalizeAlertUrl(backups.alertUrl);
+  }
+  return config;
+}
 
 function assertTableKeys(
   value: TomlValueWithoutBigInt,
@@ -255,11 +287,7 @@ function configFileFromDecoded(decoded: DecodedConfig, configPath: string): Mana
     file.windows = { profiles: [...new Set(profiles)] };
   }
   if (decoded.backups !== undefined) {
-    const validated = normalizeBackups({
-      defaultProfile: decoded.backups.profile,
-      profiles: decoded.backups.profiles,
-    })!;
-    file.backups = { profile: validated.defaultProfile, profiles: validated.profiles };
+    file.backups = normalizeBackupsConfig(decoded.backups);
   }
   const declarations = normalizeDeclarations(decoded);
   if (declarations !== undefined) {

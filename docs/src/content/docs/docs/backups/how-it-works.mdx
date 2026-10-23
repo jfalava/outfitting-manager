@@ -37,7 +37,7 @@ The CLI rejects a backup that processes zero files. It marks a candidate `review
 
 On Windows, a job with `skipIfProcessesRunning` checks its configured process names before backing up. If any match, it skips only that job without changing its receipt or recovery anchors, leaving it due for the next run. The guard also applies to manual runs. A failed, malformed, or timed-out process check fails closed. Jobs without this policy have no process guard. This is a preflight check, not a guarantee that an application cannot start during the backup.
 
-Failed backups and candidates that need review trigger a webhook alert.
+Failed backups, candidates that need review, and failed repository checks attempt a webhook alert. The [setup guide](/docs/backups/setup/#select-the-standalone-alert-service) describes opting in to the standalone service; unchanged configurations keep the legacy endpoint and payload. A v1 success confirms provider acceptance, not inbox delivery. A rejected request, timeout, or missing token logs a warning without changing the original backup result or advancing recovery anchors.
 
 A local lock prevents backup operations against the same repository from running at the same time.
 

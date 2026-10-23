@@ -243,23 +243,51 @@ export class Backup extends Context.Service<
       const notify = Effect.fn("MacBackup.notify")(
         function* (operation: string, message: string) {
           const token = yield* secrets.get("alert-token");
-          yield* client.execute(
-            HttpClientRequest.post(config.alertUrl).pipe(
+          const timestamp = DateTime.formatIso(yield* DateTime.now);
+          const payload =
+            config.alert.protocol === "v1"
+              ? {
+                  title: `Backup alert on ${config.hostname}: ${operation}`
+                    // eslint-disable-next-line no-control-regex -- Email subjects cannot contain controls.
+                    .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+                    .slice(0, 200)
+                    .trim(),
+                  message: message.replaceAll("\0", "").slice(0, 4_000),
+                  severity: "error",
+                  timestamp,
+                  // No numeric exit code survives all backup validation failures.
+                  metadata: { hostname: config.hostname, operation },
+                }
+              : {
+                  hostname: config.hostname,
+                  operation,
+                  exit_code: "unknown",
+                  timestamp,
+                  message: message.slice(0, 4_000),
+                };
+          const body = JSON.stringify(payload);
+          if (config.alert.protocol === "v1" && Buffer.byteLength(body, "utf8") > 32_768) {
+            return yield* localFailure("Alert payload exceeds the service's 32 KiB limit.");
+          }
+          const response = yield* client.execute(
+            HttpClientRequest.post(config.alert.url).pipe(
               HttpClientRequest.setHeader("Authorization", `Bearer ${Redacted.value(token)}`),
-              HttpClientRequest.bodyJsonUnsafe({
-                hostname: config.hostname,
-                operation,
-                exit_code: "unknown",
-                timestamp: DateTime.formatIso(yield* DateTime.now),
-                message: message.slice(0, 4_000),
-              }),
+              HttpClientRequest.bodyText(body, "application/json"),
             ),
           );
+          if (config.alert.protocol === "v1") {
+            if (response.status !== 202) {
+              return yield* localFailure("Alert service did not confirm provider acceptance.");
+            }
+            yield* Schema.decodeUnknownEffect(
+              Schema.Struct({ sent: Schema.Literal(true), message_id: Schema.NonEmptyString }),
+            )(yield* response.json);
+          }
         },
         Effect.timeout("20 seconds"),
         Effect.catch(() =>
           Effect.logWarning(
-            "Failure notification could not be delivered; original backup outcome is unchanged.",
+            "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
           ),
         ),
       );

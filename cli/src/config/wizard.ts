@@ -719,7 +719,7 @@ function importedBackups(
   }
   const preferred = declaration?.defaultProfile ?? "";
   const profile = Object.hasOwn(profiles, preferred) ? preferred : Object.keys(profiles)[0];
-  return profile === undefined ? undefined : { profile, profiles };
+  return profile === undefined ? undefined : { ...existing, profile, profiles };
 }
 
 function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatform, root?: string) {
@@ -764,7 +764,7 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
       }
     }
     document.schema = 2;
-    document.backups = { profile: name, profiles: validated.profiles };
+    document.backups = { ...current, profile: name, profiles: validated.profiles };
   });
 }
 

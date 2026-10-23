@@ -194,6 +194,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
       existing: {
         backups: {
           profile: "old",
+          alertUrl: "https://alerts.invalid/v1/alerts",
           profiles: {
             old: { platform: "windows", files: ["stale.toml"] },
             mac: { platform: "macos", files: ["mac.toml"] },
@@ -204,6 +205,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
   );
   expect(document.backups).toEqual({
     profile: "gaming",
+    alertUrl: "https://alerts.invalid/v1/alerts",
     profiles: {
       mac: { platform: "macos", files: ["mac.toml"] },
       gaming: { platform: "windows", files: ["common.toml", "gaming.toml"] },
@@ -226,7 +228,11 @@ test("manifest re-import replaces current-platform backups, preserves other plat
       { path: root },
       { platform: "windows", profiles: ["desk"], manifest: withoutBackups, existing: document },
     ).backups,
-  ).toEqual({ profile: "mac", profiles: { mac: { platform: "macos", files: ["mac.toml"] } } });
+  ).toEqual({
+    profile: "mac",
+    alertUrl: "https://alerts.invalid/v1/alerts",
+    profiles: { mac: { platform: "macos", files: ["mac.toml"] } },
+  });
   await expect(loadBackupSettings(config, "gaming", "darwin")).rejects.toThrow("not this host");
   await expect(loadBackupSettings(config, "missing", "win32")).rejects.toThrow("Select a declared");
   await expect(loadBackupSettings(config, "mac", "linux")).rejects.toThrow(
@@ -235,6 +241,31 @@ test("manifest re-import replaces current-platform backups, preserves other plat
   await writeFile(
     join(root, "config.toml"),
     stringify({ ...document, backups: { ...document.backups, typo: true } }),
+  );
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+});
+
+test.each([
+  "https://backup-alert.jfalava.workers.dev/",
+  "https://backup-alert.jfalava.workers.dev/v1/alerts",
+  "http://alerts.invalid/v1/alerts",
+  "https://token@alerts.invalid/v1/alerts",
+  "https://alerts.invalid/v1/alerts?token=secret",
+  "https://alerts.invalid/v1/alerts#fragment",
+  "https://alerts.invalid/v1/alerts/",
+  "not a URL",
+])("rejects an unsafe or non-v1 backups.alertUrl: %s", async (alertUrl) => {
+  const root = await tempRoot();
+  await writeFile(
+    join(root, "config.toml"),
+    stringify({
+      schema: 2,
+      backups: {
+        profile: "mac",
+        alertUrl,
+        profiles: { mac: { platform: "macos", files: ["mac.toml"] } },
+      },
+    }),
   );
   await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
 });
@@ -351,15 +382,27 @@ test.each(["macos", "windows"] as const)(
     expect(first.jobs).toEqual(["photos", "constructor", "project-data"]);
     expect(first.jobPolicies).toEqual(policies);
     expect(first.sources.photos).toEqual([join(root, "photos")]);
+    expect(first.alert).toEqual({
+      protocol: "legacy-backup",
+      url: "https://backup-alert.jfalava.workers.dev/",
+    });
     const hash = first.repository;
     config.backups!.profiles.personal!.jobs = { photos: { retention: { "keep-monthly": 9 } } };
+    await writeFile(
+      join(root, "config.toml"),
+      stringify({
+        ...local,
+        backups: { ...config.backups, alertUrl: "https://alerts.invalid/v1/alerts" },
+      }),
+    );
     const second = await loadBackupSettings(
-      config,
+      await loadConfig({ stateRoot: root }),
       undefined,
       platform === "windows" ? "win32" : "darwin",
     );
     expect(second.repository).toBe(hash);
     expect(second.jobPolicies.photos?.retention).toEqual({ "keep-monthly": 9 });
+    expect(second.alert).toEqual({ protocol: "v1", url: "https://alerts.invalid/v1/alerts" });
     await writeFile(
       join(root, "jobs.toml"),
       stringify({ ...base, backup: { snapshots: [snapshots[1]!] } }),

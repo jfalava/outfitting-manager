@@ -25,7 +25,7 @@ export interface SettingsData {
   readonly rustic: string;
   readonly stateDirectory: string;
   readonly logFile: string;
-  readonly alertUrl: string;
+  readonly alert: { readonly protocol: "legacy-backup" | "v1"; readonly url: string };
   readonly repository: string;
   readonly profile: Profile;
   readonly jobs: ReadonlyArray<Job>;
@@ -147,7 +147,11 @@ export async function loadBackupSettings(
     repoRoot: resolve(repoRoot),
     configPath: manager.configPath,
     backupProfile: name,
-    alertUrl: "https://backup-alert.jfalava.workers.dev/",
+    // Remove legacy mode after every scheduled host has a verified v1 endpoint/token cutover.
+    alert:
+      manager.backups?.alertUrl === undefined
+        ? { protocol: "legacy-backup", url: "https://backup-alert.jfalava.workers.dev/" }
+        : { protocol: "v1", url: manager.backups.alertUrl },
     repository: createHash("sha256").update(JSON.stringify(profile.repository)).digest("hex"),
     profile: effective,
     jobs: effective.backup.snapshots.map((snapshot) => snapshot.name),

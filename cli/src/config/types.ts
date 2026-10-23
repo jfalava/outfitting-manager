@@ -16,6 +16,8 @@ export interface WindowsConfig {
 export interface BackupsConfig {
   profile: string;
   profiles: ByorBackupsDeclaration["profiles"];
+  /** Full standalone POST /v1/alerts endpoint; omission keeps legacy backup alerts. */
+  alertUrl?: string;
 }
 
 export type ConfiguredSource =

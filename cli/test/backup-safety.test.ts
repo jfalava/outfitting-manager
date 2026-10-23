@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { BunServices } from "@effect/platform-bun";
-import { DateTime, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/http";
+import { DateTime, Effect, Layer, Logger, ManagedRuntime, Redacted, Schema } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { afterEach, expect, test } from "vitest";
 
 import { Backup as MacBackup, isCheckDue, isDue } from "@/backups/backup";
@@ -83,7 +83,7 @@ const fixture = async (
     rustic: rustic ?? join(root, "rustic"),
     stateDirectory: join(root, "state"),
     logFile: join(root, "logs/rustic.log"),
-    alertUrl: "https://example.invalid/alert",
+    alert: { protocol: "legacy-backup", url: "https://example.invalid/alert" },
     repository: "fixture-repository",
     jobs: activeJobs,
     dailyHour: windows ? 9 : 10,
@@ -124,7 +124,10 @@ const fixture = async (
     env: Record<string, string | undefined> | undefined;
     profile: string;
   }> = [];
-  const alerts: Array<string> = [];
+  const alerts: Array<Request> = [];
+  const logs: Array<string> = [];
+  let alertStatus = 200;
+  let alertBody = "{}";
   let gameStatus = ok("stopped");
   let backupTime: string | undefined;
   let next = 1;
@@ -202,6 +205,7 @@ const fixture = async (
   ).pipe(Layer.provide(Processes.layer), Layer.provide(BunServices.layer));
   const dependencies = Layer.mergeAll(
     BunServices.layer,
+    Logger.layer([Logger.make((options) => logs.push(String(options.message)))]),
     Layer.succeed(Settings, settings),
     real ? actual : fake,
     Layer.succeed(
@@ -216,12 +220,15 @@ const fixture = async (
     ),
     Layer.succeed(
       HttpClient.HttpClient,
-      HttpClient.make((request) => {
-        alerts.push(request.url);
-        return Effect.succeed(
-          HttpClientResponse.fromWeb(request, new Response("{}", { status: 200 })),
-        );
-      }),
+      HttpClient.make((request) =>
+        Effect.gen(function* () {
+          alerts.push(yield* HttpClientRequest.toWeb(request).pipe(Effect.orDie));
+          return HttpClientResponse.fromWeb(
+            request,
+            new Response(alertBody, { status: alertStatus }),
+          );
+        }),
+      ),
     ),
   );
   const runtime = ManagedRuntime.make(MacBackup.layer.pipe(Layer.provideMerge(dependencies)));
@@ -275,10 +282,15 @@ const fixture = async (
     inventory,
     calls,
     alerts,
+    logs,
     snapshot,
     backup,
     run,
     seed,
+    setAlertResponse: (status: number, body = '{"sent":true,"message_id":"fixture-message"}') => {
+      alertStatus = status;
+      alertBody = body;
+    },
     setTime: (time: string) => {
       backupTime = time;
     },
@@ -293,6 +305,125 @@ const fixture = async (
     },
   };
 };
+
+test.each(["legacy-backup", "v1"] as const)(
+  "%s alerts use the selected wire contract without changing failed backup receipts",
+  async (protocol) => {
+    const f = await fixture();
+    Object.assign(f.settings, {
+      alert: {
+        protocol,
+        url: protocol === "v1" ? "https://alerts.invalid/v1/alerts" : f.settings.alert.url,
+      },
+    });
+    f.setAlertResponse(protocol === "v1" ? 202 : 200);
+    f.setBackup(() => ({ stdout: "", stderr: "disk unavailable", exitCode: 17 }));
+    const [state] = await f.backup(["images"]);
+    expect(state?.outcome).toBe("failed");
+    expect(state?.error).toBe("rustic backup exited 17: disk unavailable");
+    expect(state?.acceptedAt).toBeUndefined();
+    expect(await f.run(Effect.flatMap(MacBackup, (service) => service.status))).toEqual([state]);
+    expect(f.alerts).toHaveLength(1);
+    const request = f.alerts[0]!;
+    expect(request.url).toBe(f.settings.alert.url);
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("authorization")).toBe("Bearer fixture-alert-token");
+    expect(request.headers.get("content-type")).toBe("application/json");
+    const body = await request.json();
+    expect(body).toEqual(
+      protocol === "v1"
+        ? {
+            title: "Backup alert on fixture-host: rustic backup (images)",
+            message: state!.error,
+            severity: "error",
+            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+            metadata: { hostname: "fixture-host", operation: "rustic backup (images)" },
+          }
+        : {
+            hostname: "fixture-host",
+            operation: "rustic backup (images)",
+            exit_code: "unknown",
+            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+            message: state!.error,
+          },
+    );
+    expect(f.logs).toEqual([]);
+  },
+);
+
+test("v1 bounds Unicode payloads and strips mail controls without changing a rejected backup result", async () => {
+  const f = await fixture();
+  Object.assign(f.settings, {
+    hostname: "h".repeat(230) + "\ncontrol",
+    alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
+  });
+  f.setAlertResponse(502);
+  f.setBackup(() => ({
+    stdout: "",
+    stderr: "漢".repeat(1990) + "\0" + "漢".repeat(1990),
+    exitCode: 17,
+  }));
+  const [state] = await f.backup(["documents"]);
+  expect(state?.outcome).toBe("failed");
+  expect(state?.error).toContain("\0");
+  expect(state?.current).toBeUndefined();
+  expect(f.alerts).toHaveLength(1);
+  const raw = await f.alerts[0]!.text();
+  const body = JSON.parse(raw);
+  expect(body.title).toBe("Backup alert on " + "h".repeat(184));
+  expect(body.message).toBe("rustic backup exited 17: " + "漢".repeat(3975));
+  expect(new TextEncoder().encode(raw).length).toBeLessThanOrEqual(32_768);
+  expect(f.logs).toEqual([
+    "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+  ]);
+});
+
+test("v1 refuses oversized UTF-8 metadata locally and leaves the failed receipt intact", async () => {
+  const f = await fixture();
+  Object.assign(f.settings, {
+    hostname: "漢".repeat(11_000),
+    alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
+  });
+  f.setBackup(() => ({ stdout: "", stderr: "disk offline", exitCode: 17 }));
+  const [state] = await f.backup(["images"]);
+  expect(state?.outcome).toBe("failed");
+  expect(state?.error).toBe("rustic backup exited 17: disk offline");
+  expect(f.alerts).toEqual([]);
+  expect(f.logs).toEqual([
+    "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+  ]);
+});
+
+test.each([
+  [400, "{}"],
+  [401, "{}"],
+  [502, "{}"],
+  [200, '{"sent":true,"message_id":"not-v1"}'],
+  [202, '{"sent":false,"message_id":"rejected"}'],
+  [202, '{"sent":true}'],
+  [202, "not JSON"],
+])(
+  "v1 response %s %s warns and preserves the original repository check failure",
+  async (status, body) => {
+    const f = await fixture();
+    Object.assign(f.settings, {
+      alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
+    });
+    f.setAlertResponse(status, body);
+    // The check fails locally before Rustic: notification rejection must not replace this error.
+    await mkdir(join(f.settings.stateDirectory, f.settings.repository), { recursive: true });
+    await writeFile(join(f.settings.stateDirectory, f.settings.repository, "check.json"), "broken");
+    await fails(
+      f.run(Effect.flatMap(MacBackup, (service) => service.check(false, true))),
+      "Invalid repository-check receipt.",
+    );
+    expect(f.alerts).toHaveLength(1);
+    expect(f.logs).toEqual([
+      "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+    ]);
+    expect(f.calls).toEqual([]);
+  },
+);
 
 test("scheduling prints a quoted manager invocation without running processes or installing tasks", async () => {
   const f = await fixture(false, true);

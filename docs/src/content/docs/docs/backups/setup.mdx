@@ -98,6 +98,31 @@ files = ["backups/common.toml", "backups/personal.toml"]
 keep-monthly = 3
 ```
 
+### Select the standalone alert service
+
+Existing configurations keep posting the legacy backup payload to `https://backup-alert.jfalava.workers.dev/`. To opt in to the standalone service, add `alertUrl` under the local `[backups]` table, alongside `profile`:
+
+```toml
+[backups]
+profile = "personal"
+alertUrl = "https://<approved-deployment-host>/v1/alerts"
+```
+
+Use the full HTTPS endpoint from the approved `alert-worker` deployment output; the example is not a provisioned URL. The path must be exactly `/v1/alerts`, with no URL credentials, query, or fragment. This is local manager configuration, not an `outfitting.json` or Rustic setting. Wizard edits and manifest re-import preserve it. Scheduled invocations read the same config file, so no extra scheduler environment variable is needed.
+
+With `alertUrl` set, the CLI sends `POST /v1/alerts` with `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains `title`, `message`, `severity: "error"`, an ISO timestamp with `Z`, and `metadata: { hostname, operation }`. Source identity comes only from the token; the request has no top-level source, sender, recipient, or backup-specific fields. An exit code is omitted because local validation failures do not always have one. The CLI strips NUL from messages, keeps its existing 4,000-character message cap, and bounds control-free titles to 200 UTF-16 units. The service rejects bodies over 32,768 UTF-8 bytes. Only HTTP 202 with `{ "sent": true, "message_id": "..." }` confirms provider acceptance, not inbox delivery.
+
+Cut over each host separately, with explicit approval for deployment, server secrets, and host changes:
+
+1. Deploy the standalone service and obtain its endpoint. Provision a source-specific token in its `ALERT_SOURCES` mapping independently of the old Worker's secrets. The existing native `alert-token` identity remains `rustic-backup-alert-token` on both platforms; do not rename or overwrite it as part of installing this CLI.
+2. Send a controlled request with the provisioned source token and verify both HTTP 202 and receipt of the email. A successful health check or partial validation does not verify delivery. Do not deliberately fail a real backup for this test.
+3. Pause scheduled invocations briefly. Set the approved endpoint in local `config.toml`; if the new service uses a different token, explicitly update `alert-token` through the native prompt, retaining the old value securely for rollback. Verify the selected endpoint/token pair before resuming the schedule. Repository credentials and backup receipts do not change.
+4. On rollback, pause scheduling, remove `backups.alertUrl`, restore the old token if it changed, then resume. There is no automatic fallback from v1 to legacy after a rejection or timeout.
+
+Requests have a 20-second timeout, no automatic retry, and no idempotency guarantee. A timeout can occur after provider acceptance; retrying manually or on a later failed backup may duplicate email. Alert errors only log a warning and never replace the backup result.
+
+The legacy default exists only for staged cutover. Remove the legacy endpoint and payload branch once **every scheduled host** has a verified v1 endpoint/token pair and the rollback window is closed. Retiring the old Worker, its infrastructure state, or its secrets is a separate approved operation. Installing this CLI alone does not deploy the service, change any host configuration or credentials, or retire the old Worker.
+
 ### Configure the Rustic TOML files
 
 The declared TOML files specify the repository, retention policy, and source folders.
