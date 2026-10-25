@@ -167,9 +167,10 @@ function requiredContract(config: ManagerConfig): ByorContract {
 }
 
 function declarationHash(options: ByorSparseSourceOptions, contract: ByorContract): string {
+  const { logDirectory: _logDirectory, ...backups } = options.config.backups ?? {};
   const hashInput = JSON.stringify({
     contract: selectedContract(contract, options),
-    backups: options.config.backups,
+    backups: options.config.backups === undefined ? undefined : backups,
     platform: options.platform,
     profile: configuredProfile(options.config, options.platform, options.profile),
   });

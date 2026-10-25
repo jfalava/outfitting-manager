@@ -44,9 +44,6 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
     <key>HOME</key><string>${xml(config.home)}</string>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>BACKUP_RUSTIC</key><string>${xml(config.rustic)}</string>
-    ${Object.entries(config.substitutions)
-      .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
-      .join("\n    ")}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>3600</integer>
@@ -55,7 +52,7 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
     <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>${xml(join(config.home, "Library/Logs/rustic-wrapper.log"))}</string>
-  <key>StandardErrorPath</key><string>${xml(join(config.home, "Library/Logs/rustic-wrapper.error.log"))}</string>
+  <key>StandardOutPath</key><string>${xml(join(config.logDirectory, "rustic-wrapper.log"))}</string>
+  <key>StandardErrorPath</key><string>${xml(join(config.logDirectory, "rustic-wrapper.error.log"))}</string>
 </dict></plist>`;
 });

@@ -15,7 +15,7 @@ Job arguments use the `name` from a configured Rustic `[[backup.snapshots]]` ent
 
 **Syntax:** `outfitting-manager backups doctor`
 
-Show resolved configuration, hostname, repository configuration, ordered job names, job policies, retention defaults, sources, and state directory without accessing the repository or native credentials.
+Show resolved configuration, hostname, repository configuration, ordered job names, job policies, retention defaults, sources, state directory, and log directory/file without accessing the repository or native credentials. Source bindings come from the selected profile's `paths` table; see [path configuration](/docs/backups/setup/#bind-source-paths-explicitly).
 
 ```sh
 outfitting-manager backups doctor
@@ -201,6 +201,8 @@ outfitting-manager backups secrets import-secretstore --vault CustomVault
 **Syntax:** `outfitting-manager backups schedule --binary <path>`
 
 Print a LaunchAgent property list (macOS) or Task Scheduler XML (Windows) configured to invoke `outfitting-manager backups run-due` using the specified executable path. The command is print-only and does not install schedules.
+
+Both use the selected config file and profile to resolve source paths at run time. Newly generated macOS LaunchAgents put stdout/stderr in `backups.logDirectory`, or `~/Library/Logs` by default. Create that directory before loading the LaunchAgent. Existing installed schedules retain their captured output paths until explicitly replaced.
 
 ```sh
 # Generate macOS LaunchAgent XML

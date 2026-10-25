@@ -6,7 +6,7 @@ See the [CLI command reference](https://outfitting.jfa.dev/docs/cli/) for all co
 
 ## Rustic backups (macOS and Windows)
 
-Backup profiles are independent of package/system profiles. Import a schema-2 repo manifest explicitly:
+Backup profiles are independent of package/system profiles. Import a schema-3 repo manifest explicitly:
 
 ```sh
 outfitting-manager config wizard --manifest system/macos/outfitting.json
@@ -14,18 +14,30 @@ outfitting-manager init
 outfitting-manager backups doctor
 ```
 
-Use `system/windows/outfitting.json` on Windows. Editing the manifest alone does not change local configuration. Re-import replaces the current platform's backup declarations and preserves other platforms. Runtime configuration keeps schema 1:
+Use `system/windows/outfitting.json` on Windows. Editing the manifest alone does not change local configuration. Re-import replaces the current platform's backup declarations and preserves other platforms. Runtime configuration uses schema 2:
 
 ```toml
-[backups]
-profile = "ultramar"
+schema = 2
 
-[backups.profiles.ultramar]
+[backups]
+profile = "personal"
+# Optional machine-local override; defaults to the platform's normal log location.
+logDirectory = "${HOME}/Backup Logs"
+
+[backups.profiles.personal]
 platform = "macos"
-files = ["backups/common/common.toml", "backups/macos/ultramar.toml"]
+files = ["backups/common.toml", "backups/personal.toml"]
+
+[backups.profiles.personal.paths]
+DOCUMENTS = "${HOME}/Documents"
+PHOTOS = "/Volumes/Archive/Photos"
 ```
 
 Files are ordered, repository-relative TOML fragments. Tables merge recursively, later scalars override, snapshots append (duplicate names fail), and other arrays replace. `init` includes the platform's backup fragments in its validated sparse source; changing their order invalidates the offline declaration hash. Commands read the local configured source or validated offline sparse source, never the donor checkout. `--profile NAME` selects one backup profile; commands never run all declared profiles.
+
+Rustic sources and globs can reference `${DOCUMENTS}` and `${PHOTOS}` from the selected profile's `paths`. `${HOME}` is built in; Windows also provides `${APPDATA}`, `${USERPROFILE}`, and `${LOCALAPPDATA}`. Custom values may reference builtins only; names cannot override builtins. Unknown, empty, malformed, or non-absolute source bindings fail before Rustic. No Proton paths or localized folder names are inferred. Existing Proton placeholders require explicit bindings preserving their exact previous paths. Binding changes invalidate the remote source cache, but never change receipt/lock locations or the repository identity hash.
+
+Rustic writes `rustic.log` in the configured log directory. Newly generated macOS schedules use that directory for wrapper stdout/stderr too; create it before loading the LaunchAgent. Schedule generation is print-only and does not change installed schedules. Log-only changes do not invalidate the source cache.
 
 The initial port supports the donor jobs: macOS `documents`/`images`, and Windows `ffxiv-mods`/`ffxiv-configs`/`mmo-screenshots`. Each platform profile must declare its jobs once with their existing tags. Unknown configuration keys and substitutions fail closed. Supported repository options are `bucket`, `endpoint`, `region`, and `root`; credentials belong only in the native secret store. Legacy global logging and failure-hook declarations are accepted for migration but replaced by manager-owned logging and alerts; arbitrary hooks are never executed.
 

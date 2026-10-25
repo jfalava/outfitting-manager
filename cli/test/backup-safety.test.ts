@@ -90,6 +90,7 @@ const fixture = async (
     rustic: rustic ?? join(root, "rustic"),
     stateDirectory: join(root, "state"),
     logFile: join(root, "logs/rustic.log"),
+    logDirectory: join(root, "logs"),
     alert: { protocol: "legacy-backup", url: "https://example.invalid/alert" },
     repository: "fixture-repository",
     jobs: activeJobs,
@@ -104,7 +105,6 @@ const fixture = async (
             },
           }
         : {}),
-    substitutions: { PROTON_DRIVE_PATH: root, PROTON_IMAGES_DIR: join(root, "Resolved Photos") },
     sources,
     environment: { PATH: process.env.PATH, HOME: root, SystemRoot: process.env.SystemRoot },
     profile: {
@@ -956,6 +956,14 @@ test("managed profiles disable hooks and first-run skipping, and secrets stay ou
     expect(lint.status).toBe(0);
   }
   expect(plist).toContain("Backup &amp; Tools");
+  expect(plist).toContain(
+    `<string>${join(f.settings.logDirectory, "rustic-wrapper.log")}</string>`,
+  );
+  expect(plist).toContain(
+    `<string>${join(f.settings.logDirectory, "rustic-wrapper.error.log")}</string>`,
+  );
+  expect(plist).toContain(`<string>${f.settings.configPath}</string>`);
+  expect(plist).not.toContain("PROTON_");
   expect(plist).not.toContain("fixture-password");
 });
 
@@ -1115,9 +1123,8 @@ test("arbitrary configured IDs run in order, persist receipts, list, accept and 
   );
   expect(f.calls.at(-1)?.args).toContain("restore");
   const plist = await f.run(launchAgent(join(f.root, "manager")));
-  expect(plist).toContain(
-    `<key>PROTON_IMAGES_DIR</key><string>${join(f.root, "Resolved Photos")}</string>`,
-  );
+  expect(plist).toContain(`<string>${f.settings.configPath}</string>`);
+  expect(plist).not.toContain("PROTON_IMAGES_DIR");
   expect(plist).not.toContain(f.settings.sources.images[0]);
 });
 

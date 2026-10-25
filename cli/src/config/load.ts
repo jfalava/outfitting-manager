@@ -47,6 +47,7 @@ const WindowsFileSchema = Schema.Struct({
 const BackupsFileSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
+  logDirectory: Schema.optionalKey(Schema.NonEmptyString),
   alertUrl: Schema.optionalKey(Schema.NonEmptyString),
   alertSender: Schema.optionalKey(Schema.String),
   alertRecipient: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -145,6 +146,9 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
     profiles: backups.profiles,
   })!;
   const config: BackupsConfig = { profile: validated.defaultProfile, profiles: validated.profiles };
+  if (backups.logDirectory !== undefined) {
+    config.logDirectory = backups.logDirectory;
+  }
   if (
     backups.alertUrl === undefined &&
     backups.alertSender === undefined &&

@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { Schema } from "effect";
 import { parse, stringify } from "smol-toml";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import { composeBackupProfile, composeTomlDocuments } from "@/backups";
 import { Job } from "@/backups/model";
@@ -16,24 +17,31 @@ import { buildWizardConfigDocument } from "@/config/wizard";
 import { syncByorSparseSource } from "@/setup/source";
 import { normalizeBackups, parseByorContract } from "@/source/contract";
 
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof os>();
+  return { ...actual, homedir: vi.fn(actual.homedir) };
+});
+
 const roots: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
+  vi.mocked(os.homedir).mockReset();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 async function tempRoot() {
-  const root = await mkdtemp(join(tmpdir(), "outfitting-backups-"));
+  const root = await mkdtemp(join(os.tmpdir(), "outfitting-backups-"));
   roots.push(root);
   return root;
 }
 const documents = {
   name: "documents",
-  sources: ["${PROTON_DRIVE_PATH}/Documentos"],
+  sources: ["${HOME}/Documents"],
   tags: ["documents"],
   "skip-if-unchanged": true,
 };
 const images = {
   name: "images",
-  sources: ["${PROTON_IMAGES_DIR}"],
+  sources: ["${HOME}/Pictures"],
   tags: ["images"],
   "skip-if-unchanged": true,
 };
@@ -47,6 +55,152 @@ const alertConfig = {
   alertSender: "jfa-mac-mini@alerts.jfa.dev",
   alertRecipient: ["backup-alerts@jfa.dev"],
 };
+
+test.each(["macos", "windows"] as const)(
+  "%s resolves explicit paths without changing spelling or repository identity",
+  async (platform) => {
+    const root = await tempRoot();
+    const home = platform === "windows" ? "C:/Users/fixture" : "/Users/fixture";
+    vi.mocked(os.homedir).mockReturnValue(home);
+    vi.stubEnv("LOCALAPPDATA", "C:/Users/fixture/AppData/Local");
+    vi.stubEnv("APPDATA", "C:/Users/fixture/AppData/Roaming");
+    vi.stubEnv("USERPROFILE", "C:/Users/fixture");
+    vi.stubEnv("PROTON_DRIVE_PATH", "ignored ambient value");
+    const photos =
+      platform === "windows" ? "\\\\server\\share\\Photos Space" : "/Volumes/Photos Space";
+    const paths = {
+      PHOTOS: photos,
+      DOCUMENTS: "${HOME}/Images/../Imágenes",
+      DECOMPOSED: "${HOME}/Imágenes",
+    };
+    const sources = ["${PHOTOS}", "${DOCUMENTS}", "${DECOMPOSED}", "${HOME}/Documents"];
+    if (platform === "windows") {
+      sources.push("${APPDATA}/Editor", "${USERPROFILE}/Desktop", "${LOCALAPPDATA}/App");
+    }
+    await writeFile(
+      join(root, "jobs.toml"),
+      stringify({
+        ...base,
+        backup: { snapshots: [{ ...documents, sources, globs: ["!*.tmp", "${PHOTOS}/**"] }] },
+      }),
+    );
+    const local = {
+      schema: 2,
+      source: { path: root },
+      backups: {
+        profile: "personal",
+        logDirectory:
+          platform === "windows" ? "${LOCALAPPDATA}/Backup Logs" : "${HOME}/Backup Logs",
+        profiles: { personal: { platform, files: ["jobs.toml"], paths } },
+      },
+    };
+    await writeFile(join(root, "config.toml"), stringify(local));
+    const config = await loadConfig({ stateRoot: root });
+    const settings = await loadBackupSettings(
+      config,
+      undefined,
+      platform === "windows" ? "win32" : "darwin",
+    );
+    expect(settings.sources.documents).toEqual([
+      photos,
+      `${home}/Images/../Imágenes`,
+      `${home}/Imágenes`,
+      `${home}/Documents`,
+      ...(platform === "windows"
+        ? [
+            "C:/Users/fixture/AppData/Roaming/Editor",
+            "C:/Users/fixture/Desktop",
+            "C:/Users/fixture/AppData/Local/App",
+          ]
+        : []),
+    ]);
+    expect(settings.profile.backup.snapshots[0]?.globs).toEqual(["!*.tmp", `${photos}/**`]);
+    expect(settings.logFile).toBe(
+      platform === "windows"
+        ? "C:\\Users\\fixture\\AppData\\Local\\Backup Logs\\rustic.log"
+        : "/Users/fixture/Backup Logs/rustic.log",
+    );
+    expect(settings.repository).toBe(
+      createHash("sha256").update('{"repository":"opendal:s3"}').digest("hex"),
+    );
+    expect(settings.stateDirectory).toBe(
+      platform === "windows"
+        ? join("C:/Users/fixture/AppData/Local", "rustic-backup")
+        : join(home, "Library/Application Support/rustic-backup"),
+    );
+    const composed = await composeBackupProfile({
+      root,
+      profile: "personal",
+      declaration: config.backups!.profiles.personal!,
+    });
+    config.backups!.profiles.personal!.paths = { ...paths, PHOTOS: `${home}/Different Photos` };
+    const changed = await loadBackupSettings(
+      config,
+      undefined,
+      platform === "windows" ? "win32" : "darwin",
+    );
+    expect(changed.repository).toBe(settings.repository);
+    expect(changed.stateDirectory).toBe(settings.stateDirectory);
+    expect(
+      (
+        await composeBackupProfile({
+          root,
+          profile: "personal",
+          declaration: config.backups!.profiles.personal!,
+        })
+      ).hash,
+    ).not.toBe(composed.hash);
+  },
+);
+
+test.each<Readonly<Record<string, string>>>([
+  { HOME: "/override" },
+  { APPDATA: "/override" },
+  { photos: "/photos" },
+  { PHOTOS: "" },
+  { PHOTOS: "   " },
+  { PHOTOS: "/photos\0" },
+  { PHOTOS: "${PHOTOS}" },
+  { PHOTOS: "${OTHER}", OTHER: "/photos" },
+  { PHOTOS: "${APPDATA}/photos" },
+  { PHOTOS: "${HOME:-/tmp}/photos" },
+  { PHOTOS: "${HOME/photos" },
+])("rejects invalid or recursive path bindings %j", (paths) => {
+  expect(() =>
+    normalizeBackups({
+      defaultProfile: "mac",
+      profiles: {
+        mac: { platform: "macos", files: ["jobs.toml"], paths },
+      },
+    }),
+  ).toThrow();
+});
+
+test.each([
+  ["macos", "${PROTON_DRIVE_PATH}/photos"],
+  ["macos", "${}"],
+  ["macos", "${HOME"],
+  ["macos", "relative/photos"],
+  ["windows", "C:photos"],
+  ["windows", "C:"],
+  ["windows", "\\photos"],
+  ["windows", "/photos"],
+  ["windows", "\\\\server"],
+  ["windows", "\\\\?\\C:\\photos"],
+] as const)("%s rejects unresolved or non-qualified sources %s", async (platform, source) => {
+  const root = await tempRoot();
+  vi.stubEnv("PROTON_DRIVE_PATH", "/must-not-be-used");
+  await writeFile(
+    join(root, "jobs.toml"),
+    stringify({ ...base, backup: { snapshots: [{ ...documents, sources: [source] }] } }),
+  );
+  const config = await loadConfig({ stateRoot: root });
+  config.source = { kind: "local", path: root };
+  config.backups = { profile: "one", profiles: { one: { platform, files: ["jobs.toml"] } } };
+  await expect(
+    loadBackupSettings(config, undefined, platform === "windows" ? "win32" : "darwin"),
+  ).rejects.toThrow(/backup (substitution|path)/i);
+});
 
 test("composes tables recursively, overrides scalars, replaces arrays, and appends snapshots", () => {
   const result = composeTomlDocuments([
@@ -426,6 +580,15 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
     "does not match",
   );
   config.backups.profiles.mac!.files.reverse();
+  config.backups.logDirectory = "/different/logs";
+  await expect(syncByorSparseSource({ ...options, offline: true })).resolves.toMatchObject({
+    root: sourceRoot,
+  });
+  config.backups.profiles.mac!.paths = { PHOTOS: "${HOME}/Pictures" };
+  await expect(syncByorSparseSource({ ...options, offline: true })).rejects.toThrow(
+    "does not match",
+  );
+  delete config.backups.profiles.mac!.paths;
   config.backups.profiles.mac!.jobs = { documents: { retention: { "keep-monthly": 2 } } };
   await expect(syncByorSparseSource({ ...options, offline: true })).rejects.toThrow(
     "does not match",
@@ -455,10 +618,14 @@ test.each(["macos", "windows"] as const)(
   "%s jobs come only from ordered Rustic snapshots, with local policies",
   async (platform) => {
     const root = await tempRoot();
+    vi.stubEnv("LOCALAPPDATA", "C:\\Users\\fixture\\AppData\\Local");
+    vi.mocked(os.homedir).mockReturnValue(
+      platform === "windows" ? "C:\\Users\\fixture" : "/Users/fixture",
+    );
     const snapshots = ["photos", "constructor", "project-data"].map((name) => ({
       ...documents,
       name,
-      sources: [join(root, name)],
+      sources: [platform === "windows" ? `D:/Backup Sources/${name}` : `/Volumes/Data/${name}`],
       tags: [name, "personal"],
     }));
     await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots } }));
@@ -482,7 +649,9 @@ test.each(["macos", "windows"] as const)(
     );
     expect(first.jobs).toEqual(["photos", "constructor", "project-data"]);
     expect(first.jobPolicies).toEqual(policies);
-    expect(first.sources.photos).toEqual([join(root, "photos")]);
+    expect(first.sources.photos).toEqual([
+      platform === "windows" ? "D:/Backup Sources/photos" : "/Volumes/Data/photos",
+    ]);
     expect(first.alert).toEqual({
       protocol: "legacy-backup",
       url: "https://backup-alert.jfalava.workers.dev/",
@@ -557,8 +726,9 @@ test.each([
   expect(Schema.is(Job)(name)).toBe(false);
 });
 
-test("policies round-trip through import and local config; re-import replaces stale policies", async () => {
+test("paths and policies round-trip through import and local config; re-import replaces stale declarations", async () => {
   const root = await tempRoot();
+  const paths = { PHOTOS: "${USERPROFILE}/Pictures" };
   const jobs = {
     photos: { retention: { "keep-daily": 0, "keep-monthly": -1 } },
     "project-data": { skipIfProcessesRunning: ["Editor", "Editor_Helper"] },
@@ -568,7 +738,7 @@ test("policies round-trip through import and local config; re-import replaces st
     profiles: { desk: { windows: { winget: { manifest: "packages.txt" } } } },
     backups: {
       defaultProfile: "desk",
-      profiles: { desk: { platform: "windows", files: ["jobs.toml"], jobs } },
+      profiles: { desk: { platform: "windows", files: ["jobs.toml"], paths, jobs } },
     },
   });
   const document = buildWizardConfigDocument(
@@ -581,10 +751,12 @@ test("policies round-trip through import and local config; re-import replaces st
       existing: {
         backups: {
           profile: "desk",
+          logDirectory: "${LOCALAPPDATA}/Backup Logs",
           profiles: {
             desk: {
               platform: "windows",
               files: ["old.toml"],
+              paths: { OBSOLETE: "C:/old" },
               jobs: { obsolete: { retention: { "keep-monthly": 1 } } },
             },
           },
@@ -594,14 +766,18 @@ test("policies round-trip through import and local config; re-import replaces st
   );
   expect(document.schema).toBe(2);
   expect(document.backups?.profiles.desk?.jobs).toEqual(jobs);
+  expect(document.backups?.profiles.desk?.paths).toEqual(paths);
+  expect(document.backups?.logDirectory).toBe("${LOCALAPPDATA}/Backup Logs");
   await writeFile(join(root, "config.toml"), stringify(document));
-  expect((await loadConfig({ stateRoot: root })).backups?.profiles.desk?.jobs).toEqual(jobs);
+  expect((await loadConfig({ stateRoot: root })).backups).toEqual(document.backups);
   const edited = buildWizardConfigDocument(
     contract,
     { path: root },
     { platform: "windows", profiles: ["desk"], existing: document },
   );
   expect(edited.backups?.profiles.desk?.jobs).toEqual(jobs);
+  expect(edited.backups?.profiles.desk?.paths).toEqual(paths);
+  expect(edited.backups?.logDirectory).toBe(document.backups?.logDirectory);
   await writeFile(join(root, "config.toml"), stringify({ ...document, schema: 1 }));
   await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
     "Migrate retention overrides and process guards",

@@ -4,6 +4,7 @@ import { isAbsolute, join, relative } from "node:path";
 import { Result, Schema } from "effect";
 
 import { Job, JobPolicy } from "@/backups/model";
+import { validateBackupBindings } from "@/backups/paths";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 import { isReservedSourcePath } from "@/source/reserved";
@@ -88,6 +89,7 @@ export type BackupPlatform = "macos" | "windows";
 export interface BackupProfileDeclaration {
   platform: BackupPlatform;
   files: string[];
+  paths?: Readonly<Record<string, string>>;
   jobs?: Readonly<Record<string, JobPolicy>>;
 }
 
@@ -223,6 +225,7 @@ const ByorWindowsSharedSchema = Schema.Struct({
 export const BackupProfileSchema = Schema.Struct({
   platform: Schema.Union([Schema.Literal("macos"), Schema.Literal("windows")]),
   files: Schema.Array(Schema.String),
+  paths: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   jobs: Schema.optionalKey(Schema.Record(Job, JobPolicy)),
 });
 
@@ -345,6 +348,10 @@ export function normalizeBackups(
       throw new Error(`Backup profile ${name} contains duplicate files.`);
     }
     profiles[name] = { platform: profile.platform, files };
+    if (profile.paths !== undefined) {
+      validateBackupBindings(profile.paths, profile.platform);
+      profiles[name].paths = profile.paths;
+    }
     if (profile.jobs !== undefined) {
       profiles[name].jobs = normalizeBackupPolicies(profile.jobs, profile.platform);
     }

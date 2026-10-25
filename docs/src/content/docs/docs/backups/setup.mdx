@@ -65,6 +65,10 @@ Backup profiles are separate from package profiles. Declare a profile in your `o
       "personal": {
         "platform": "macos",
         "files": ["backups/common.toml", "backups/personal.toml"],
+        "paths": {
+          "PROJECTS": "${HOME}/Projects",
+          "PHOTOS": "/Volumes/Archive/Photos"
+        },
         "jobs": {
           "photos": { "retention": { "keep-monthly": 3 } }
         }
@@ -94,9 +98,37 @@ profile = "personal"
 platform = "macos"
 files = ["backups/common.toml", "backups/personal.toml"]
 
+[backups.profiles.personal.paths]
+PROJECTS = "${HOME}/Projects"
+PHOTOS = "/Volumes/Archive/Photos"
+
 [backups.profiles.personal.jobs.photos.retention]
 keep-monthly = 3
 ```
+
+### Bind source paths explicitly
+
+Use `${PROJECTS}` and `${PHOTOS}` in Rustic snapshot `sources` or `globs` to reference the profile's `paths` table. Choose any uppercase names matching `[A-Z][A-Z0-9_]*`. Source resolution has no cloud-provider, account-name, or localized-folder defaults.
+
+`${HOME}` is built in on both platforms. Windows also provides `${APPDATA}`, `${USERPROFILE}`, and `${LOCALAPPDATA}` from the scheduled user's environment, with standard user-directory fallbacks. These names are reserved and cannot be overridden. Custom binding values may reference builtins, but not other custom bindings. Arbitrary environment variables, shell expansion, and recursive substitution are not supported.
+
+Resolved bindings and source paths must be absolute. Windows requires a drive-qualified path such as `D:/Photos` or a complete UNC path such as `\\server\share\Photos`; drive-relative paths, root-relative paths, and device namespaces are rejected. Globs may remain relative or negated. Missing or malformed bindings fail before Rustic runs. Composition validates declarations without requiring source folders to exist; `doctor` does not verify read access.
+
+Path spelling, separators, and Unicode are preserved during substitution. Both interactive and scheduled commands read bindings from the selected profile in the same local config. Editing a manifest alone has no effect. Re-import replaces the current platform's profile declarations, including `paths`; ordinary wizard edits preserve them. After changing bindings for a remote source, refresh its validated cache before offline runs.
+
+### Choose log locations
+
+Rustic writes `rustic.log` under `~/Library/Logs` on macOS or `%LOCALAPPDATA%/rustic` on Windows. To override the directory, add `logDirectory` to the local `[backups]` table, alongside `profile`:
+
+```toml
+[backups]
+profile = "personal"
+logDirectory = "${HOME}/Backup Logs"
+```
+
+The override accepts an absolute path and platform builtin substitutions, not profile-specific bindings. `doctor` shows the resolved log directory and file. Log-only changes do not invalidate the remote source cache or move backup receipts and locks.
+
+Newly generated macOS LaunchAgents use the same directory for `rustic-wrapper.log` and `rustic-wrapper.error.log`. Create that directory before loading the LaunchAgent: launchd opens these files before starting the CLI. Generation remains print-only. Existing installed schedules are not updated, and their captured stdout/stderr paths do not change until explicitly regenerated and installed.
 
 ### Select the standalone alert service
 
@@ -162,18 +194,18 @@ keep-monthly = 12
 
 [[backup.snapshots]]
 name = "project-data"
-sources = ["/Users/your-user/Projects"]
+sources = ["${PROJECTS}"]
 tags = ["project-data"]
 skip-if-unchanged = true
 
 [[backup.snapshots]]
 name = "photos"
-sources = ["/Users/your-user/Pictures"]
+sources = ["${PHOTOS}"]
 tags = ["photos"]
 skip-if-unchanged = true
 ```
 
-Replace the source paths with your actual absolute folders.
+Set the profile's path bindings to your actual absolute folders. Literal absolute source paths are also supported.
 
 Every `[[backup.snapshots]]` entry creates a job, in composition order. There is no built-in job list on either platform. Declare at least one snapshot with a unique name. Names use 1–64 lowercase ASCII letters, digits, `_`, or `-`, starting with a letter or digit. `check` and Windows device names such as `con` are reserved.
 
@@ -208,6 +240,8 @@ keep-monthly = 3
 ```
 
 These are historical job names, not required names for new profiles. Keep the names already associated with your snapshots and receipts when migrating.
+
+Older macOS profiles using `${PROTON_DRIVE_PATH}` or `${PROTON_IMAGES_DIR}` must declare those names explicitly in the profile's `paths` table. There is no inferred Proton directory or environment-variable fallback. Keep the exact previous effective paths, including Unicode spelling, and compare the resolved `doctor` output before cutover. Do not change the repository configuration, hostname, job identities, receipt roots, or locks as part of this path migration. Source changes can invalidate accepted recovery anchors.
 
 Use your actual backup profile name instead of `gaming-pc`; declare the equivalent `jobs` map in the manifest if you import it. Then set manifest `schema` to 3 and local `schema` to 2. Re-importing replaces current-platform policies, while ordinary wizard edits preserve them. Refresh any remote source cache using the configuration wizard before offline scheduled runs. Run `backups doctor`, verify a backup without retention, and resume the schedule only after checking the results. Do not initialize the existing repository or discard its receipts.
 

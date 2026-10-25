@@ -10,6 +10,7 @@ import {
 } from "smol-toml";
 
 import { Profile, type JobPolicy } from "@/backups/model";
+import { builtinPathNames, substituteBackupPaths } from "@/backups/paths";
 import {
   normalizeBackupPath,
   normalizeBackups,
@@ -132,12 +133,13 @@ export async function composeBackupProfile(options: {
   }
   const document = composeTomlDocuments(documents);
   const jobs = declaration.jobs ?? {};
-  validateComposedBackup(document, declaration.platform, jobs);
+  validateComposedBackup(document, declaration.platform, jobs, declaration.paths);
   const canonical = JSON.stringify({
     platform: declaration.platform,
     files: declaration.files,
     document,
     jobs,
+    paths: declaration.paths,
   });
   return {
     profile: options.profile,
@@ -154,6 +156,7 @@ export function validateComposedBackup(
   document: TomlTable,
   platform: BackupProfileDeclaration["platform"],
   policies: Readonly<Record<string, JobPolicy>> = {},
+  paths: Readonly<Record<string, string>> = {},
 ): void {
   // Legacy global logging/hooks are deliberately replaced by manager-owned logging and alerts.
   const { global, ...managed } = document;
@@ -165,8 +168,13 @@ export function validateComposedBackup(
     Schema.decodeSync(RepositoryOptions, { onExcessProperty: "error" })(profile.repository.options);
   }
   validateJobInventory(profile, policies);
+  const bindings = Object.fromEntries(
+    [...builtinPathNames(platform), ...Object.keys(paths)].map((name) => [name, ""]),
+  );
   for (const snapshot of profile.backup.snapshots) {
-    validateSubstitutions([...snapshot.sources, ...(snapshot.globs ?? [])], platform);
+    for (const value of [...snapshot.sources, ...(snapshot.globs ?? [])]) {
+      substituteBackupPaths(value, bindings);
+    }
   }
 }
 
@@ -204,23 +212,6 @@ function validateJobInventory(profile: Profile, policies: Readonly<Record<string
     };
     if (!Object.values(retention).some((count) => count !== undefined && count !== 0)) {
       throw new Error(`Job ${snapshot.name} needs at least one enabled retention counter.`);
-    }
-  }
-}
-
-function validateSubstitutions(
-  values: ReadonlyArray<string>,
-  platform: BackupProfileDeclaration["platform"],
-): void {
-  const allowed =
-    platform === "macos"
-      ? ["PROTON_DRIVE_PATH", "PROTON_IMAGES_DIR"]
-      : ["APPDATA", "USERPROFILE", "LOCALAPPDATA"];
-  for (const value of values) {
-    for (const match of value.matchAll(/\$\{([^}]+)\}/g)) {
-      if (!allowed.includes(match[1]!)) {
-        throw new Error(`Unsupported backup substitution: ${match[1]}.`);
-      }
     }
   }
 }

@@ -313,6 +313,8 @@ const doctor = Command.make(
               retentionDefaults: settings.profile.forget,
               sources: settings.sources,
               stateDirectory: settings.stateDirectory,
+              logDirectory: settings.logDirectory,
+              logFile: settings.logFile,
               checkedAt: DateTime.formatIso(yield* DateTime.now),
               accessVerified: false,
               note: "Only Rustic traverses sources. Verify native credentials and source access through the real scheduled executable before cutover.",

@@ -16,6 +16,8 @@ export interface WindowsConfig {
 export type BackupsConfig = {
   profile: string;
   profiles: ByorBackupsDeclaration["profiles"];
+  /** Machine-local log directory; supports platform builtin path bindings. */
+  logDirectory?: string;
 } & (
   | { alertUrl?: never; alertSender?: never; alertRecipient?: never }
   | {
