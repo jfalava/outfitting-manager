@@ -11,6 +11,7 @@ import { afterEach, expect, test } from "vitest";
 import { Backup as MacBackup, isCheckDue, isDue } from "@/backups/backup";
 import { launchAgent } from "@/backups/launchd";
 import {
+  BackupError,
   JobState,
   type Job,
   type JobPolicy,
@@ -18,7 +19,7 @@ import {
   type SnapshotMetadata,
 } from "@/backups/model";
 import { Processes, type ProcessOutput } from "@/backups/process";
-import { Secrets } from "@/backups/secrets";
+import { Secrets, type SecretName } from "@/backups/secrets";
 import { Settings, type SettingsData } from "@/backups/settings";
 import { scheduledTask } from "@/backups/windows";
 
@@ -26,6 +27,12 @@ import { scheduledTask } from "@/backups/windows";
 const rustic = process.env.OUTFITTING_TEST_RUSTIC;
 const jobs = ["documents", "images"] as const;
 const windowsJobs = ["ffxiv-mods", "ffxiv-configs", "mmo-screenshots"] as const;
+const v1Alert = {
+  protocol: "v1" as const,
+  url: "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini",
+  sender: "jfa-mac-mini@alerts.jfa.dev",
+  recipient: ["backup-alerts@jfa.dev"],
+};
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -126,6 +133,9 @@ const fixture = async (
   }> = [];
   const alerts: Array<Request> = [];
   const logs: Array<string> = [];
+  const secretReads: Array<SecretName> = [];
+  let missingToken: SecretName | undefined;
+  let alertToken = "fixture-alert-token";
   let alertStatus = 200;
   let alertBody = "{}";
   let gameStatus = ok("stopped");
@@ -212,9 +222,20 @@ const fixture = async (
       Secrets,
       Secrets.of({
         get: (name) =>
-          Effect.succeed(
-            Redacted.make(name === "repository-password" ? "fixture-password" : `fixture-${name}`),
-          ),
+          Effect.suspend(() => {
+            secretReads.push(name);
+            return name === missingToken
+              ? Effect.fail(new BackupError({ message: "Missing fixture token" }))
+              : Effect.succeed(
+                  Redacted.make(
+                    name === "repository-password"
+                      ? "fixture-password"
+                      : name === "alert-token"
+                        ? alertToken
+                        : `fixture-${name}`,
+                  ),
+                );
+          }),
         set: () => Effect.void,
       }),
     ),
@@ -282,6 +303,13 @@ const fixture = async (
     inventory,
     calls,
     alerts,
+    secretReads,
+    setMissingToken: (name: SecretName) => {
+      missingToken = name;
+    },
+    setAlertToken: (value: string) => {
+      alertToken = value;
+    },
     logs,
     snapshot,
     backup,
@@ -311,10 +339,7 @@ test.each(["legacy-backup", "v1"] as const)(
   async (protocol) => {
     const f = await fixture();
     Object.assign(f.settings, {
-      alert: {
-        protocol,
-        url: protocol === "v1" ? "https://alerts.invalid/v1/alerts" : f.settings.alert.url,
-      },
+      alert: protocol === "v1" ? v1Alert : f.settings.alert,
     });
     f.setAlertResponse(protocol === "v1" ? 202 : 200);
     f.setBackup(() => ({ stdout: "", stderr: "disk unavailable", exitCode: 17 }));
@@ -329,15 +354,22 @@ test.each(["legacy-backup", "v1"] as const)(
     expect(request.method).toBe("POST");
     expect(request.headers.get("authorization")).toBe("Bearer fixture-alert-token");
     expect(request.headers.get("content-type")).toBe("application/json");
+    expect([...request.headers.keys()].filter((key) => key.startsWith("x-alert"))).toEqual([]);
     const body = await request.json();
     expect(body).toEqual(
       protocol === "v1"
         ? {
-            title: "Backup alert on fixture-host: rustic backup (images)",
+            sender: "jfa-mac-mini@alerts.jfa.dev",
+            recipient: ["backup-alerts@jfa.dev"],
+            title: "Backup alert: rustic backup (images) on fixture-host",
             message: state!.error,
             severity: "error",
             timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
-            metadata: { hostname: "fixture-host", operation: "rustic backup (images)" },
+            metadata: {
+              hostname: "fixture-host",
+              operation: "rustic backup (images)",
+              job: "images",
+            },
           }
         : {
             hostname: "fixture-host",
@@ -355,7 +387,7 @@ test("v1 bounds Unicode payloads and strips mail controls without changing a rej
   const f = await fixture();
   Object.assign(f.settings, {
     hostname: "h".repeat(230) + "\ncontrol",
-    alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
+    alert: v1Alert,
   });
   f.setAlertResponse(502);
   f.setBackup(() => ({
@@ -370,7 +402,7 @@ test("v1 bounds Unicode payloads and strips mail controls without changing a rej
   expect(f.alerts).toHaveLength(1);
   const raw = await f.alerts[0]!.text();
   const body = JSON.parse(raw);
-  expect(body.title).toBe("Backup alert on " + "h".repeat(184));
+  expect(body.title).toBe("Backup alert: rustic backup (documents) on " + "h".repeat(157));
   expect(body.message).toBe("rustic backup exited 17: " + "漢".repeat(3975));
   expect(new TextEncoder().encode(raw).length).toBeLessThanOrEqual(32_768);
   expect(f.logs).toEqual([
@@ -378,50 +410,189 @@ test("v1 bounds Unicode payloads and strips mail controls without changing a rej
   ]);
 });
 
-test("v1 refuses oversized UTF-8 metadata locally and leaves the failed receipt intact", async () => {
+test.each([32_768, 32_769])(
+  "v1 counts addressing in the actual %i-byte UTF-8 body limit",
+  async (size) => {
+    const f = await fixture();
+    const recipient = Array.from(
+      { length: 50 },
+      (_, i) => `r${i}+${"x".repeat(60)}@${"d".repeat(63)}.${"e".repeat(63)}.example.net`,
+    );
+    // Independently account for the full wire body, including all 50 recipient addresses.
+    const expected = {
+      sender: "jfa-mac-mini@alerts.jfa.dev",
+      recipient,
+      title: "Backup alert: rustic backup (images) on " + "h".repeat(160),
+      message: "rustic backup exited 17: 漢disk offline",
+      severity: "error",
+      timestamp: "2026-10-22T18:30:00.000Z",
+      metadata: { hostname: "", operation: "rustic backup (images)", job: "images" },
+    };
+    const hostname = "h".repeat(size - new TextEncoder().encode(JSON.stringify(expected)).length);
+    Object.assign(f.settings, { hostname, alert: { ...v1Alert, recipient } });
+    f.setAlertResponse(202);
+    f.setBackup(() => ({ stdout: "", stderr: "漢disk offline", exitCode: 17 }));
+    const [state] = await f.backup(["images"]);
+    expect(state?.outcome).toBe("failed");
+    expect(state?.error).toBe("rustic backup exited 17: 漢disk offline");
+    if (size === 32_768) {
+      expect(f.alerts).toHaveLength(1);
+      const raw = await f.alerts[0]!.text();
+      expect(new TextEncoder().encode(raw).length).toBe(32_768);
+      expect(JSON.parse(raw)).toEqual({
+        ...expected,
+        timestamp: expect.stringMatching(/Z$/),
+        metadata: { ...expected.metadata, hostname },
+      });
+      expect(f.logs).toEqual([]);
+    } else {
+      expect(f.alerts).toEqual([]);
+      expect(f.logs).toEqual([
+        "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+      ]);
+    }
+  },
+);
+
+test.each([
+  [400, "{}"],
+  [401, "{}"],
+  [403, '{"error":"address not allowed"}'],
+  [404, "{}"],
+  [413, "{}"],
+  [415, "{}"],
+  [502, "{}"],
+  [503, '{"error":"configuration unavailable"}'],
+  [200, '{"sent":true,"message_id":"not-v1"}'],
+  [202, '{"sent":false,"message_id":"rejected"}'],
+  [202, '{"sent":true}'],
+  [202, '{"sent":true,"message_id":""}'],
+  [202, "not JSON"],
+])("v1 response %s %s warns and preserves the original job failure", async (status, body) => {
   const f = await fixture();
   Object.assign(f.settings, {
-    hostname: "漢".repeat(11_000),
-    alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
+    alert: v1Alert,
   });
+  f.setAlertResponse(status, body);
   f.setBackup(() => ({ stdout: "", stderr: "disk offline", exitCode: 17 }));
   const [state] = await f.backup(["images"]);
   expect(state?.outcome).toBe("failed");
   expect(state?.error).toBe("rustic backup exited 17: disk offline");
-  expect(f.alerts).toEqual([]);
+  expect(state?.acceptedAt).toBeUndefined();
+  expect(await f.run(Effect.flatMap(MacBackup, (service) => service.status))).toEqual([state]);
+  expect(f.alerts).toHaveLength(1);
   expect(f.logs).toEqual([
     "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
   ]);
 });
 
-test.each([
-  [400, "{}"],
-  [401, "{}"],
-  [502, "{}"],
-  [200, '{"sent":true,"message_id":"not-v1"}'],
-  [202, '{"sent":false,"message_id":"rejected"}'],
-  [202, '{"sent":true}'],
-  [202, "not JSON"],
-])(
-  "v1 response %s %s warns and preserves the original repository check failure",
-  async (status, body) => {
+test.each(["legacy-backup", "v1"] as const)(
+  "%s repository checks use the machine identity without a job label",
+  async (protocol) => {
     const f = await fixture();
-    Object.assign(f.settings, {
-      alert: { protocol: "v1", url: "https://alerts.invalid/v1/alerts" },
-    });
-    f.setAlertResponse(status, body);
-    // The check fails locally before Rustic: notification rejection must not replace this error.
+    Object.assign(f.settings, { alert: protocol === "v1" ? v1Alert : f.settings.alert });
+    f.setAlertResponse(protocol === "v1" ? 202 : 200);
     await mkdir(join(f.settings.stateDirectory, f.settings.repository), { recursive: true });
     await writeFile(join(f.settings.stateDirectory, f.settings.repository, "check.json"), "broken");
     await fails(
       f.run(Effect.flatMap(MacBackup, (service) => service.check(false, true))),
       "Invalid repository-check receipt.",
     );
-    expect(f.alerts).toHaveLength(1);
-    expect(f.logs).toEqual([
-      "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
-    ]);
     expect(f.calls).toEqual([]);
+    expect(f.alerts).toHaveLength(1);
+    expect(f.alerts[0]!.url).toBe(f.settings.alert.url);
+    expect(f.alerts[0]!.headers.get("authorization")).toBe("Bearer fixture-alert-token");
+    const body = await f.alerts[0]!.json();
+    expect(body).toEqual(
+      protocol === "v1"
+        ? {
+            sender: "jfa-mac-mini@alerts.jfa.dev",
+            recipient: ["backup-alerts@jfa.dev"],
+            title: "Backup alert: rustic repository check on fixture-host",
+            message: "Invalid repository-check receipt.",
+            severity: "error",
+            timestamp: expect.stringMatching(/Z$/),
+            metadata: { hostname: "fixture-host", operation: "rustic repository check" },
+          }
+        : {
+            hostname: "fixture-host",
+            operation: "rustic repository check",
+            exit_code: "unknown",
+            message: "Invalid repository-check receipt.",
+            timestamp: expect.stringMatching(/Z$/),
+          },
+    );
+    expect(f.secretReads).toEqual(["alert-token"]);
+    expect(f.logs).toEqual([]);
+  },
+);
+
+test("missing machine token warns without changing job failures or sending unauthenticated alerts", async () => {
+  const f = await fixture();
+  Object.assign(f.settings, { alert: v1Alert });
+  f.setMissingToken("alert-token");
+  f.setAlertResponse(202);
+  f.setBackup(() => ({ stdout: "", stderr: "disk offline", exitCode: 17 }));
+  const states = await f.backup();
+  expect(states.map((state) => state.outcome)).toEqual(["failed", "failed"]);
+  expect(states.map((state) => state.error)).toEqual([
+    "rustic backup exited 17: disk offline",
+    "rustic backup exited 17: disk offline",
+  ]);
+  expect(f.alerts).toEqual([]);
+  expect(f.secretReads.filter((name) => name === "alert-token")).toHaveLength(2);
+  expect(f.logs).toEqual(
+    Array(2).fill(
+      "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+    ),
+  );
+});
+
+test.each([false, true])(
+  "all jobs and checks share one machine route/token (Windows=%s)",
+  async (windows) => {
+    const f = await fixture(false, windows);
+    const sender = windows ? "jfa-windows@alerts.jfa.dev" : "jfa-mac-mini@alerts.jfa.dev";
+    const url = windows ? "https://alerts.invalid/v1/alerts/backups-jfa-windows" : v1Alert.url;
+    const token = windows ? "independent-windows-credential" : "independent-mac-credential";
+    Object.assign(f.settings, { alert: { ...v1Alert, url, sender } });
+    f.setAlertToken(token);
+    f.setAlertResponse(202);
+    f.setBackup(() => ({ stdout: "", stderr: "disk offline", exitCode: 17 }));
+    const states = await f.backup();
+    expect(states.every((state) => state.outcome === "failed")).toBe(true);
+    await mkdir(join(f.settings.stateDirectory, f.settings.repository), { recursive: true });
+    await writeFile(join(f.settings.stateDirectory, f.settings.repository, "check.json"), "broken");
+    await fails(
+      f.run(Effect.flatMap(MacBackup, (service) => service.check(false, true))),
+      "Invalid repository-check receipt.",
+    );
+    expect(f.alerts).toHaveLength(windows ? 4 : 3);
+    for (const [index, job] of f.settings.jobs.entries()) {
+      const request = f.alerts[index]!;
+      expect(request.url).toBe(url);
+      expect(request.headers.get("authorization")).toBe(`Bearer ${token}`);
+      const body = await request.json();
+      expect(body).toMatchObject({
+        title: `Backup alert: rustic backup (${job}) on fixture-host`,
+        sender,
+        recipient: ["backup-alerts@jfa.dev"],
+        metadata: { operation: `rustic backup (${job})`, job },
+      });
+    }
+    const check = f.alerts.at(-1)!;
+    expect(check.url).toBe(url);
+    expect(check.headers.get("authorization")).toBe(`Bearer ${token}`);
+    const body = await check.json();
+    expect(body).toMatchObject({
+      title: "Backup alert: rustic repository check on fixture-host",
+      sender,
+      recipient: ["backup-alerts@jfa.dev"],
+      metadata: { operation: "rustic repository check" },
+    });
+    expect(body).not.toHaveProperty("metadata.job");
+    expect(f.secretReads.filter((name) => name === "alert-token")).toHaveLength(windows ? 4 : 3);
+    expect(f.logs).toEqual([]);
   },
 );
 

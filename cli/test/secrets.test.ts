@@ -1,5 +1,7 @@
+import { Effect, Redacted } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { Secrets as BackupSecrets } from "@/backups/secrets";
 import { r2Credentials } from "@/fonts/keychain";
 import { envValue, inAmpOrb } from "@/secrets";
 import { apiToken, baseUrl, storeApiToken, storeWorkerUrl } from "@/sync/keychain";
@@ -41,6 +43,38 @@ afterEach(() => {
   vi.restoreAllMocks();
   setEnv({});
 });
+
+test.each(["darwin", "win32"] as const)(
+  "%s backup alerts retain the existing native machine credential identity",
+  async (platform) => {
+    // Each native device store contains its own independently provisioned value.
+    const stored = new Map([
+      ["rustic-backup-alert-token/scheduled-user", `${platform}-independent-token`],
+    ]);
+    vi.stubGlobal("Bun", {
+      secrets: {
+        get: async ({ service, name }: { service: string; name: string }) =>
+          stored.get(`${service}/${name}`) ?? null,
+        set: async ({ service, name, value }: { service: string; name: string; value: string }) => {
+          stored.set(`${service}/${name}`, value);
+        },
+      },
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const secrets = yield* BackupSecrets;
+        expect(Redacted.value(yield* secrets.get("alert-token"))).toBe(
+          `${platform}-independent-token`,
+        );
+        yield* secrets.set("alert-token", Redacted.make(`${platform}-rotated-token`));
+        expect(Redacted.value(yield* secrets.get("alert-token"))).toBe(`${platform}-rotated-token`);
+      }).pipe(Effect.provide(BackupSecrets.layer("scheduled-user", platform))),
+    );
+    expect([...stored]).toEqual([
+      ["rustic-backup-alert-token/scheduled-user", `${platform}-rotated-token`],
+    ]);
+  },
+);
 
 describe("orb environment credentials", () => {
   test("treats AMP_ORB=1 as an Amp orb", () => {

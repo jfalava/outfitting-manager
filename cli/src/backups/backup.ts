@@ -241,13 +241,15 @@ export class Backup extends Context.Service<
       );
 
       const notify = Effect.fn("MacBackup.notify")(
-        function* (operation: string, message: string) {
+        function* (operation: string, message: string, job?: Job) {
           const token = yield* secrets.get("alert-token");
           const timestamp = DateTime.formatIso(yield* DateTime.now);
           const payload =
             config.alert.protocol === "v1"
               ? {
-                  title: `Backup alert on ${config.hostname}: ${operation}`
+                  sender: config.alert.sender,
+                  recipient: config.alert.recipient,
+                  title: `Backup alert: ${operation} on ${config.hostname}`
                     // eslint-disable-next-line no-control-regex -- Email subjects cannot contain controls.
                     .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
                     .slice(0, 200)
@@ -256,7 +258,11 @@ export class Backup extends Context.Service<
                   severity: "error",
                   timestamp,
                   // No numeric exit code survives all backup validation failures.
-                  metadata: { hostname: config.hostname, operation },
+                  metadata: {
+                    hostname: config.hostname,
+                    operation,
+                    job,
+                  },
                 }
               : {
                   hostname: config.hostname,
@@ -461,7 +467,7 @@ export class Backup extends Context.Service<
         receipt = { ...receipt, finishedAt: yield* DateTime.now };
         yield* writeState(receipt);
         if (receipt.outcome === "failed" || receipt.outcome === "review-required") {
-          yield* notify(`rustic backup (${job})`, receipt.error ?? receipt.outcome);
+          yield* notify(`rustic backup (${job})`, receipt.error ?? receipt.outcome, job);
         }
         return receipt;
       });

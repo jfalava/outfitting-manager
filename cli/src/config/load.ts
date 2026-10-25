@@ -48,6 +48,34 @@ const BackupsFileSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
   alertUrl: Schema.optionalKey(Schema.NonEmptyString),
+  alertSender: Schema.optionalKey(Schema.String),
+  alertRecipient: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+// Match alert-worker's bare-mailbox rules; authorization remains server-side.
+const AlertMailbox = Schema.String.check(
+  Schema.isMaxLength(254),
+  Schema.isPattern(
+    /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$(?![\s\S])/,
+  ),
+  Schema.makeFilter((value) => value.slice(0, value.indexOf("@")).length <= 64),
+);
+const BackupAlertConfig = Schema.Struct({
+  alertUrl: Schema.NonEmptyString,
+  alertSender: AlertMailbox,
+  alertRecipient: Schema.Array(AlertMailbox).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(50),
+    Schema.makeFilter(
+      (values) =>
+        new Set(
+          values.map((value) => {
+            const at = value.lastIndexOf("@");
+            return value.slice(0, at) + value.slice(at).toLowerCase();
+          }),
+        ).size === values.length,
+    ),
+  ),
 });
 
 const SourceFileSchema = Schema.Struct({
@@ -95,15 +123,17 @@ function normalizeAlertUrl(value: string): string {
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
-    url.pathname !== "/v1/alerts" ||
+    (url.pathname !== "/v1/alerts/backups-jfa-mac-mini" &&
+      url.pathname !== "/v1/alerts/backups-jfa-windows") ||
     url.hostname === "backup-alert.jfalava.workers.dev" ||
     url.username !== "" ||
     url.password !== "" ||
     url.search !== "" ||
-    url.hash !== ""
+    url.hash !== "" ||
+    value !== url.origin + url.pathname
   ) {
     throw new Error(
-      "backups.alertUrl must be a standalone HTTPS /v1/alerts URL, not the legacy backup Worker, without credentials, query, or fragment.",
+      "backups.alertUrl must be a canonical standalone HTTPS /v1/alerts/backups-jfa-mac-mini or /v1/alerts/backups-jfa-windows endpoint, not the legacy backup Worker, without credentials, query, or fragment.",
     );
   }
   return url.href;
@@ -115,10 +145,16 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
     profiles: backups.profiles,
   })!;
   const config: BackupsConfig = { profile: validated.defaultProfile, profiles: validated.profiles };
-  if (backups.alertUrl !== undefined) {
-    config.alertUrl = normalizeAlertUrl(backups.alertUrl);
+  if (
+    backups.alertUrl === undefined &&
+    backups.alertSender === undefined &&
+    backups.alertRecipient === undefined
+  ) {
+    return config;
   }
-  return config;
+  const alerts = Schema.decodeUnknownSync(BackupAlertConfig)(backups);
+  const alertUrl = normalizeAlertUrl(alerts.alertUrl);
+  return { ...config, ...alerts, alertUrl };
 }
 
 function assertTableKeys(

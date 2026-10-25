@@ -25,7 +25,14 @@ export interface SettingsData {
   readonly rustic: string;
   readonly stateDirectory: string;
   readonly logFile: string;
-  readonly alert: { readonly protocol: "legacy-backup" | "v1"; readonly url: string };
+  readonly alert:
+    | { readonly protocol: "legacy-backup"; readonly url: string }
+    | {
+        readonly protocol: "v1";
+        readonly url: string;
+        readonly sender: string;
+        readonly recipient: ReadonlyArray<string>;
+      };
   readonly repository: string;
   readonly profile: Profile;
   readonly jobs: ReadonlyArray<Job>;
@@ -142,16 +149,30 @@ export async function loadBackupSettings(
   const host = hostSettings(platform === "win32");
   const substitutions = substitutionsFor(platform === "win32", host.home);
   const effective = resolveSources(profile, substitutions);
+  if (manager.backups?.alertUrl !== undefined) {
+    const expected =
+      platform === "win32" ? "/v1/alerts/backups-jfa-windows" : "/v1/alerts/backups-jfa-mac-mini";
+    if (new URL(manager.backups.alertUrl).pathname !== expected) {
+      throw new Error(
+        `The selected ${declaration.platform} backup profile requires the machine alert route ${expected}.`,
+      );
+    }
+  }
   return {
     ...host,
     repoRoot: resolve(repoRoot),
     configPath: manager.configPath,
     backupProfile: name,
-    // Remove legacy mode after every scheduled host has a verified v1 endpoint/token cutover.
+    // Remove legacy mode after every scheduled host migrates and the rollback window closes.
     alert:
       manager.backups?.alertUrl === undefined
         ? { protocol: "legacy-backup", url: "https://backup-alert.jfalava.workers.dev/" }
-        : { protocol: "v1", url: manager.backups.alertUrl },
+        : {
+            protocol: "v1",
+            url: manager.backups.alertUrl,
+            sender: manager.backups.alertSender,
+            recipient: manager.backups.alertRecipient,
+          },
     repository: createHash("sha256").update(JSON.stringify(profile.repository)).digest("hex"),
     profile: effective,
     jobs: effective.backup.snapshots.map((snapshot) => snapshot.name),

@@ -13,12 +13,18 @@ export interface WindowsConfig {
   profiles: string[];
 }
 
-export interface BackupsConfig {
+export type BackupsConfig = {
   profile: string;
   profiles: ByorBackupsDeclaration["profiles"];
-  /** Full standalone POST /v1/alerts endpoint; omission keeps legacy backup alerts. */
-  alertUrl?: string;
-}
+} & (
+  | { alertUrl?: never; alertSender?: never; alertRecipient?: never }
+  | {
+      /** Full machine-specific POST /v1/alerts/<slug> endpoint. Omit all alert fields for legacy. */
+      alertUrl: string;
+      alertSender: string;
+      alertRecipient: ReadonlyArray<string>;
+    }
+);
 
 export type ConfiguredSource =
   | { kind: "local"; path: string }
