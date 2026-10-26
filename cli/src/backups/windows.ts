@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
 
 import { BackupError } from "./model.ts";
-import { Settings } from "./settings.ts";
+import { Settings, type SettingsData } from "./settings.ts";
 
 const xml = (value: string) =>
   value
@@ -23,12 +23,23 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
         "Use absolute paths for --binary and BACKUP_RUSTIC when generating a scheduled task.",
     });
   }
-  const user = `${config.environment.USERDOMAIN ?? config.hostname}\\${config.account}`;
   if (config.configPath === undefined || config.backupProfile === undefined) {
     return yield* new BackupError({
       message: "Scheduling requires a config.toml path and backup profile.",
     });
   }
+  return formatScheduledTask(binary, {
+    ...config,
+    configPath: config.configPath,
+    backupProfile: config.backupProfile,
+  });
+});
+
+export function formatScheduledTask(
+  binary: string,
+  config: SettingsData & { configPath: string; backupProfile: string },
+): string {
+  const user = `${config.environment.USERDOMAIN ?? config.hostname}\\${config.account}`;
   const script = `$ErrorActionPreference = 'Stop'; $env:BACKUP_RUSTIC = ${quote(config.rustic)}; & ${quote(binary)} --config ${quote(config.configPath)} backups --profile ${quote(config.backupProfile)} run-due; exit $LASTEXITCODE`;
   const args = [
     "-NoProfile",
@@ -48,4 +59,4 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
   <Actions Context="BackupUser"><Exec><Command>${xml(join(config.environment.SystemRoot ?? "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe"))}</Command><Arguments>${xml(args.map((arg) => `"${arg}"`).join(" "))}</Arguments><WorkingDirectory>${xml(config.repoRoot)}</WorkingDirectory></Exec></Actions>
 </Task>`;
-});
+}

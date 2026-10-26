@@ -2,6 +2,7 @@ import { Command } from "effect/cli";
 
 import { makeBackupsCommand } from "@/commands/backups";
 import { configCommand } from "@/commands/config";
+import { makeDebugCommand } from "@/commands/debug";
 import { makeWindowsDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
 import { provisionCommand } from "@/commands/provision";
@@ -36,5 +37,6 @@ export const makeWindowsRootCommand = (currentVersion: string) =>
       fontsCommand,
       provisionCommand,
       makeSelfUpdateCommand(currentVersion),
+      makeDebugCommand("windows"),
     ]),
   );

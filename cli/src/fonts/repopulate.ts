@@ -59,7 +59,7 @@ async function writeRepopulatedInventory(
   return { inventory, wrote: true };
 }
 
-function printRepopulateResult(result: RepopulateResult, dryRun: boolean) {
+export function printRepopulateResult(result: RepopulateResult, dryRun: boolean) {
   return Effect.gen(function* () {
     yield* Console.log(
       ui.muted(

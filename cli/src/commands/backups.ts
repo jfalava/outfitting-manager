@@ -59,7 +59,7 @@ const configured = Effect.fn("configured")(function* <A, E>(
   return yield* program.pipe(Effect.provide(live));
 });
 
-const json = <S extends Schema.Constraint>(schema: S, value: S["Type"]) =>
+export const printBackupJson = <S extends Schema.Constraint>(schema: S, value: S["Type"]) =>
   Schema.encodeEffect(Schema.fromJsonString(schema, { space: 2 }))(value).pipe(
     Effect.flatMap(Console.log),
   );
@@ -72,7 +72,7 @@ const selection = Flag.String("job").pipe(
 );
 
 const report = Effect.fn("report")(function* (states: ReadonlyArray<JobState>) {
-  yield* json(Schema.Array(JobState), states);
+  yield* printBackupJson(Schema.Array(JobState), states);
   if (states.some((state) => state.outcome === "failed" || state.outcome === "review-required")) {
     return yield* new BackupError({
       message:
@@ -123,7 +123,7 @@ const status = Command.make(
   Effect.fn("cli.status")(function* () {
     yield* configured(
       Effect.gen(function* () {
-        yield* json(Schema.Array(JobState), yield* (yield* Backup).status);
+        yield* printBackupJson(Schema.Array(JobState), yield* (yield* Backup).status);
       }),
     );
   }),
@@ -135,7 +135,7 @@ const snapshots = Command.make(
   Effect.fn("cli.snapshots")(function* ({ job }) {
     yield* configured(
       Effect.gen(function* () {
-        yield* json(SnapshotGroups, [
+        yield* printBackupJson(SnapshotGroups, [
           { snapshots: yield* (yield* Backup).snapshots(Option.getOrUndefined(job)) },
         ]);
       }),
@@ -199,7 +199,7 @@ const accept = Command.make(
   Effect.fn("cli.accept")(function* ({ job, id }) {
     yield* configured(
       Effect.gen(function* () {
-        yield* json(JobState, yield* (yield* Backup).accept(job, id));
+        yield* printBackupJson(JobState, yield* (yield* Backup).accept(job, id));
       }),
     );
   }),

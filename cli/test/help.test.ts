@@ -41,6 +41,8 @@ const commonPaths = [
   "provision",
   "self-update",
   "upgrade",
+  "debug",
+  "debug output",
 ];
 const nixPaths = [
   "nix",

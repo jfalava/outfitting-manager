@@ -98,7 +98,7 @@ async function runAlchemyDeploy(options: {
   return { url };
 }
 
-function printProvisioned(apiBaseUrl: string, resolved: DeployConfig): void {
+export function printProvisioned(apiBaseUrl: string, resolved: DeployConfig): void {
   console.info();
   console.info(pc.green(pc.bold("✓ Outfitting Manager API stack provisioned")));
   console.info(`${pc.dim("API")}       ${pc.cyan(apiBaseUrl)}`);

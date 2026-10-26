@@ -3,6 +3,7 @@ import { Command } from "effect/cli";
 import { macosApplyCommand } from "@/commands/apply/macos";
 import { makeBackupsCommand } from "@/commands/backups";
 import { configCommand } from "@/commands/config";
+import { makeDebugCommand } from "@/commands/debug";
 import { makeMacosDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
 import { homebrewCommand } from "@/commands/homebrew";
@@ -43,6 +44,7 @@ export const makeMacosRootCommand = (currentVersion: string) =>
       fontsCommand,
       provisionCommand,
       makeSelfUpdateCommand(currentVersion),
+      makeDebugCommand("macos"),
     ]),
   );
 

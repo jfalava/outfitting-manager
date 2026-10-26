@@ -134,7 +134,7 @@ function printSection(section: DiffSection): Effect.Effect<void> {
   });
 }
 
-function printText(result: Awaited<ReturnType<typeof collectDiff>>): Effect.Effect<void> {
+export function printDiff(result: Awaited<ReturnType<typeof collectDiff>>): Effect.Effect<void> {
   return Effect.gen(function* () {
     yield* Console.log(
       ui.heading(`Comparing ${platformLabel(result.platform)} to ${result.source}`),
@@ -174,7 +174,7 @@ function runDiff(options: RunDiffOptions) {
     if (options.json) {
       yield* Console.log(JSON.stringify(result, null, 2));
     } else {
-      yield* printText(result);
+      yield* printDiff(result);
     }
 
     if (hasDifferences(result)) {

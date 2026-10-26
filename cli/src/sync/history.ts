@@ -3,12 +3,12 @@ import { Console, Effect } from "effect";
 
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
+import { printLockfileHistory, printLockfileKinds } from "@/sync/display";
 import { resolveKindSelection } from "@/sync/files";
 import { fetchLockfileKinds } from "@/sync/list";
 import { resolveLockfileMachine } from "@/sync/machine";
 import { requestEffect } from "@/sync/request";
 import type { HistoryLockfileOptions } from "@/sync/types";
-import { ui } from "@/ui";
 
 const historyForKind = (machine: string, kind: string) =>
   Effect.gen(function* () {
@@ -25,16 +25,7 @@ const historyForKind = (machine: string, kind: string) =>
       return decoded;
     });
 
-    if (entries.length === 0) {
-      yield* Console.log(ui.muted(`No history for ${machine}/${kind}.`));
-      return;
-    }
-
-    yield* Console.log(ui.heading(`${machine}/${kind}`));
-    yield* Console.log(ui.heading("CREATED_AT\tSIZE\tHASH"));
-    for (const entry of entries) {
-      yield* Console.log(`${entry.created_at}\t${entry.size}\t${ui.hash(entry.hash)}`);
-    }
+    yield* printLockfileHistory(machine, kind, entries);
   });
 
 export const historyLockfiles = (options: HistoryLockfileOptions = {}) =>
@@ -49,7 +40,7 @@ export const historyLockfiles = (options: HistoryLockfileOptions = {}) =>
 
     const kinds = yield* fetchLockfileKinds(machine);
     if (kinds.length === 0) {
-      yield* Console.log(ui.muted(`No lockfiles tracked for ${machine}.`));
+      yield* printLockfileKinds(machine, kinds);
       return;
     }
     for (const [index, kind] of kinds.entries()) {

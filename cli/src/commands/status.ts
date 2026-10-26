@@ -119,13 +119,17 @@ function statusSource(config: ManagerConfig, override: string | undefined): stri
   return undefined;
 }
 
-function configurationLines(platform: HostPlatform, config: ManagerConfig): string[] {
+export function formatStatusConfiguration(
+  platform: HostPlatform,
+  config: ManagerConfig,
+  observed: { architecture: string; profile: string; inferredMachineId: string },
+): string[] {
   const lines = [
-    `Platform: ${platform} (${process.arch})`,
-    `Profile: ${readSelectedProfile(platform, config)}`,
+    `Platform: ${platform} (${observed.architecture})`,
+    `Profile: ${observed.profile}`,
     `Config: ${config.configPath}`,
     `Machine ID: ${config.machineId} (${config.machineIdOverridden ? "configured" : "inferred"})`,
-    `Inferred machine ID: ${autoMachineId()}`,
+    `Inferred machine ID: ${observed.inferredMachineId}`,
   ];
   if (config.source?.kind === "remote") {
     lines.push(
@@ -171,7 +175,11 @@ export async function readStatus(
   const config = options.config ?? (await loadConfig());
   const override = options.envRepo ?? envValue("OUTFITTING_REPO");
   return [
-    ...configurationLines(platform, config),
+    ...formatStatusConfiguration(platform, config, {
+      architecture: process.arch,
+      profile: readSelectedProfile(platform, config),
+      inferredMachineId: autoMachineId(),
+    }),
     ...(await cacheFreshnessLines(config, platform, override)),
     ...(await sourceStatus(
       statusSource(config, override),

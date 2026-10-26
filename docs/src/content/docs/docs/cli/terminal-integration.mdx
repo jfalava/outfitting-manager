@@ -28,3 +28,34 @@ export OUTFITTING_PROGRAM_STATUS=0
 Reports go to stderr only when it is a terminal and `TERM` is not `dumb`. Redirected stderr stays free of terminal controls, and stdout remains available for command output. Help, version, and argument-validation output do not start reporting. Outfitting never reads stdin to detect support.
 
 When reporting is disabled, password and fatal-error alerts retain the terminal bell. Successful commands do not emit a bell.
+
+## Preview command output and status
+
+`outfitting-manager debug output` lists the available previews and their supported states. Every executable command has a representative preview. These use fixed sample data and the CLI's report printers without running the real handlers. They do not install packages, write files, access credentials, contact services, or provision infrastructure.
+
+```bash
+outfitting-manager debug output --list
+outfitting-manager debug output all
+outfitting-manager debug output sync
+outfitting-manager debug output fonts publish
+outfitting-manager debug output apply --platform windows
+```
+
+Choose `macos`, `linux`, or `windows` with `--platform`, regardless of the host. This changes sample data only. The default is the entrypoint's platform. Previews show representative output, not every flag combination or third-party package-manager transcript. Tables, diff reports, backup JSON, schedule XML, and other shared reports use production printers; short transcripts use the shared UI helpers. Preview labels go to stderr so an individual JSON, XML, or path preview keeps its stdout format.
+
+Use `--state success`, `empty`, `error`, `blocked`, or `cancelled`. Success is the default. Only commands with a meaningful no-change or no-data case offer `empty`; the listing identifies them. Families and `all` support success galleries. An empty gallery requires every selected command to support that state. Select a single command for the other states.
+
+```bash
+outfitting-manager debug output sync history --state empty
+outfitting-manager debug output apply --state error
+outfitting-manager debug output apply --state cancelled
+outfitting-manager debug output sync configure token --state blocked
+outfitting-manager debug output config wizard --state blocked
+outfitting-manager debug output fonts publish --state blocked
+```
+
+Blocked previews require an interactive terminal and only appear for commands with input-waiting behavior. They ask for a disposable answer, plan approval, or dummy password. Answers are discarded. Do not enter real credentials. Accepting input completes the preview; declining a plan or pressing Ctrl-C reports cancellation.
+
+Previews emit the same OSC 7501 lifecycle and window-title updates as normal commands, subject to the terminal settings above. Apply previews also demonstrate counted progress. Synthetic errors exit 1; Ctrl-C exits 130. Explicit cancellation and declined sample plans exit successfully while reporting an idle terminal state. An error preview shows a generic simulated diagnostic, not an actual backend failure.
+
+`--delay-ms` controls the pause per sample operation, from 0 to 60000 milliseconds. It defaults to 500. Use `--delay-ms 0` for fast captures or automated checks, or increase it to inspect working states.

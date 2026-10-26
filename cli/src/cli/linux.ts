@@ -2,6 +2,7 @@ import { Command } from "effect/cli";
 
 import { makeLinuxApplyCommand } from "@/commands/apply/linux";
 import { configCommand } from "@/commands/config";
+import { makeDebugCommand } from "@/commands/debug";
 import { makeLinuxDiffCommand } from "@/commands/diff";
 import { fontsCommand } from "@/commands/fonts";
 import { makeNixCommand } from "@/commands/nix";
@@ -36,5 +37,6 @@ export const makeLinuxRootCommand = (currentVersion: string) =>
       fontsCommand,
       provisionCommand,
       makeSelfUpdateCommand(currentVersion),
+      makeDebugCommand("linux"),
     ]),
   );

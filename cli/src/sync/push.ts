@@ -3,6 +3,7 @@ import { Console, Effect } from "effect";
 
 import { tryPromise, toError } from "@/effect";
 import { CliFailure } from "@/errors";
+import { printLockfilePush, printNoLocalLockfiles } from "@/sync/display";
 import {
   inferOutputPath,
   isGitTrackedFile,
@@ -77,11 +78,7 @@ const pushOne = ({
       return decoded;
     });
 
-    yield* Console.log(
-      ui.success(
-        `${ui.key(`${machine}/${kind}`)} ${ui.hash(result.hash)} ${ui.muted(`(${result.size} bytes)`)}`,
-      ),
-    );
+    yield* printLockfilePush(machine, kind, result);
     return undefined;
   });
 
@@ -142,11 +139,7 @@ export const pushLockfile = ({
     }
 
     if (pushed === 0) {
-      yield* Console.log(
-        ui.muted(
-          `No local lockfiles found to push for ${machine}. Expected default paths for: ${KNOWN_LOCKFILE_KINDS.join(", ")}.`,
-        ),
-      );
+      yield* printNoLocalLockfiles(machine, KNOWN_LOCKFILE_KINDS);
     }
     return undefined;
   });

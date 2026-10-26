@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
 
 import { BackupError } from "./model.ts";
-import { Settings } from "./settings.ts";
+import { Settings, type SettingsData } from "./settings.ts";
 
 const xml = (value: string) =>
   value
@@ -25,6 +25,17 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
       message: "Scheduling requires a config.toml path and backup profile.",
     });
   }
+  return formatLaunchAgent(binary, {
+    ...config,
+    configPath: config.configPath,
+    backupProfile: config.backupProfile,
+  });
+});
+
+export function formatLaunchAgent(
+  binary: string,
+  config: SettingsData & { configPath: string; backupProfile: string },
+): string {
   const args = [
     binary,
     "--config",
@@ -55,4 +66,4 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
   <key>StandardOutPath</key><string>${xml(join(config.logDirectory, "rustic-wrapper.log"))}</string>
   <key>StandardErrorPath</key><string>${xml(join(config.logDirectory, "rustic-wrapper.error.log"))}</string>
 </dict></plist>`;
-});
+}

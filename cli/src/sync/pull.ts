@@ -1,16 +1,16 @@
 import { chmod, lstat, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
+import { printLockfileKinds, printLockfilePull } from "@/sync/display";
 import { inferOutputPath, isGitTrackedFile, resolveKindSelection } from "@/sync/files";
 import { fetchLockfileKinds } from "@/sync/list";
 import { resolveLockfileMachine } from "@/sync/machine";
 import { requestEffect } from "@/sync/request";
 import type { PullLockfileOptions } from "@/sync/types";
-import { ui } from "@/ui";
 
 const pullOne = (machine: string, kind: string, outPath: string) =>
   Effect.gen(function* () {
@@ -52,11 +52,7 @@ const pullOne = (machine: string, kind: string, outPath: string) =>
       }
     });
 
-    yield* Console.log(
-      ui.success(
-        `Wrote ${ui.key(`${size} bytes`)} to ${ui.key(outPath)} ${ui.muted(`(${machine}/${kind})`)}`,
-      ),
-    );
+    yield* printLockfilePull(machine, kind, outPath, size);
     return undefined;
   });
 
@@ -88,7 +84,7 @@ export const pullLockfile = ({
 
     const kinds = yield* fetchLockfileKinds(machine);
     if (kinds.length === 0) {
-      yield* Console.log(ui.muted(`No lockfiles tracked for ${machine}.`));
+      yield* printLockfileKinds(machine, kinds);
       return undefined;
     }
 
