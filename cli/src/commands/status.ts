@@ -100,8 +100,9 @@ function readSelectedProfile(platform: HostPlatform, config: ManagerConfig): str
     return config.declarations === undefined
       ? "not selected"
       : selectedProfile(config.declarations, platform, config);
-  } catch {
-    return "not selected";
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    return `invalid (${reason})`;
   }
 }
 

@@ -2,11 +2,17 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { readStatus } from "@/commands/status";
 import { loadConfig, sparseSourceRoot } from "@/config";
 import { readWindowsLock, writeWindowsLock } from "@/update/windows-lock";
+
+beforeEach(() => {
+  for (const name of ["OUTFITTING_PROFILE", "OUTFITTING_REPO", "OUTFITTING_CONFIG"]) {
+    vi.stubEnv(name, "");
+  }
+});
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -20,6 +26,7 @@ test("status reports defaults without creating any state", async () => {
       const output = await readStatus(platform, { config });
       expect(output).toContain(`Platform: ${platform}`);
       expect(output).toContain(`Config: ${join(absent, "config.toml")}`);
+      expect(output).toContain("Profile: not selected");
       expect(output).toContain("Source checkout: not configured");
       expect(output).toContain("Source mode: not configured");
       expect(output).toContain(`Machine ID: ${config.machineId}`);
@@ -43,9 +50,9 @@ test("status preserves saved profiles and distinguishes sparse, missing and dirt
     await writeWindowsLock(lock, { root });
     const before = await readFile(join(root, "windows.lock.json"), "utf8");
     expect(await readStatus("windows", { config, envRepo: root })).toContain("Profile: work,dev");
-    expect(await readStatus("linux", { config, envRepo: root })).toContain(
-      "local source (no Git metadata)",
-    );
+    const linuxStatus = await readStatus("linux", { config, envRepo: root });
+    expect(linuxStatus).toContain("Profile: linux-work");
+    expect(linuxStatus).toContain("local source (no Git metadata)");
     expect(await readStatus("linux", { config, envRepo: join(root, "missing") })).toContain(
       "Source checkout: missing",
     );
@@ -64,6 +71,38 @@ test("status preserves saved profiles and distinguishes sparse, missing and dirt
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.each([
+  ["missing", "Unknown BYOR Linux profile `missing`. Choose: work, server."],
+  [undefined, "The BYOR repository defines multiple profiles. Pass --profile (work, server)."],
+])(
+  "status reports profile selection errors without hiding other details: %s",
+  async (profile, reason) => {
+    const root = await mkdtemp(join(tmpdir(), "outfitting-status-profile-"));
+    try {
+      const configPath = join(root, "config.toml");
+      await writeFile(
+        configPath,
+        [
+          "schema = 1",
+          ...(profile === undefined ? [] : ["[linux]", `profile = ${JSON.stringify(profile)}`]),
+          "[profiles.work.linux.apt]",
+          'manifest = "work.txt"',
+          "[profiles.server.linux.apt]",
+          'manifest = "server.txt"',
+        ].join("\n"),
+      );
+      const config = await loadConfig({ stateRoot: root, configPath });
+      const output = await readStatus("linux", { config });
+      expect(output).toContain(`Profile: invalid (${reason})`);
+      expect(output).toContain(`Config: ${configPath}`);
+      expect(output).toContain("Source checkout: not configured");
+      expect(await readdir(root)).toEqual(["config.toml"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("status labels remote snapshots and local overrides by their actual source", async () => {
   vi.stubEnv("OUTFITTING_REPO", "");

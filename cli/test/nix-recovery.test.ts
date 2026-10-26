@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -83,6 +83,21 @@ describe("nix recovery checkpoint", () => {
     await clearNixRecovery(recoveryDir);
     expect(await hasNixRecovery(recoveryDir)).toBe(false);
     expect(await readNixRecovery(recoveryDir)).toBeUndefined();
+  });
+
+  test("does not treat an unreadable checkpoint marker as absent", async () => {
+    const parent = await tempDir();
+    const recoveryDir = join(parent, "nix-lock-recovery");
+    const lockSource = join(parent, "source.lock");
+    await writeFile(lockSource, '{ "lock": true }\n', "utf8");
+    await mkdir(join(recoveryDir, "phase"), { recursive: true });
+
+    await expect(hasNixRecovery(recoveryDir)).rejects.toMatchObject({ code: "EISDIR" });
+    await expect(
+      prepareNixRecovery({ lockPath: lockSource, baseHash: "abc123", recoveryDir }),
+    ).rejects.toMatchObject({ code: "EISDIR" });
+    expect(await readdir(recoveryDir)).toEqual(["phase"]);
+    expect(await readdir(join(recoveryDir, "phase"))).toEqual([]);
   });
 });
 

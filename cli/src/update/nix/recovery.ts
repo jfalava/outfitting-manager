@@ -64,8 +64,11 @@ export async function hasNixRecovery(dir = defaultNixRecoveryDir()): Promise<boo
   try {
     const phase = await readFile(join(dir, "phase"), "utf8");
     return phase.trim().length > 0;
-  } catch {
-    return false;
+  } catch (cause) {
+    if (isNotFound(cause)) {
+      return false;
+    }
+    throw cause;
   }
 }
 
