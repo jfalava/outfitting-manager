@@ -2,8 +2,10 @@ import { Console, Effect } from "effect";
 import { Prompt } from "effect/cli";
 import pc from "picocolors";
 
+import { tryPromise } from "@/effect";
 import type { FontFace } from "@/fonts/names";
 import type { FaceChange, PlannedFace } from "@/fonts/plan";
+import { baseUrl } from "@/sync/keychain";
 import { ui } from "@/ui";
 
 const CHANGE_LABEL = {
@@ -45,6 +47,13 @@ export function printFaceTable(faces: ReadonlyArray<PlannedFace>): Effect.Effect
 
 export function printInventoryFaces(faces: ReadonlyArray<FontFace>): Effect.Effect<void> {
   return printFaceTable(faces.map((face) => ({ ...face, change: "unchanged" })));
+}
+
+export function printFontTarget(bucket: string) {
+  return Effect.gen(function* () {
+    const workerUrl = yield* tryPromise(baseUrl);
+    yield* Console.log(`Font bucket: ${ui.key(bucket)}\nInventory API: ${ui.key(workerUrl)}`);
+  });
 }
 
 export function confirmPlan(

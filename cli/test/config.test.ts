@@ -75,6 +75,30 @@ describe("loadConfig", () => {
     );
   });
 
+  test.each([1, 2])(
+    "loads the optional font bucket in schema %s without a source",
+    async (schema) => {
+      const root = await tempRoot();
+      await writeFile(
+        join(root, "config.toml"),
+        `schema = ${schema}\n[fonts]\nbucket = " team-font-library "\n`,
+      );
+      const config = await loadConfig({ stateRoot: root });
+      expect(config.fonts).toEqual({ bucket: "team-font-library" });
+      expect(config.source).toBeUndefined();
+    },
+  );
+
+  test.each([
+    'bucket = "   "',
+    "bucket = 12",
+    'bucket = "library"\nendpoint = "https://example.com"',
+  ])("rejects invalid font configuration: %s", async (fonts) => {
+    const root = await tempRoot();
+    await writeFile(join(root, "config.toml"), `schema = 2\n[fonts]\n${fonts}\n`);
+    await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  });
+
   test("reads one TOML document, resolves local source relative to it, and honors overrides", async () => {
     const root = await tempRoot();
     const configPath = join(root, "machine", "config.toml");

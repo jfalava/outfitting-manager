@@ -2,7 +2,7 @@ import { Console, Effect } from "effect";
 
 import { tryPromise } from "@/effect";
 import { sha256Hex } from "@/fonts/archive";
-import { printInventoryFaces } from "@/fonts/display";
+import { printFontTarget, printInventoryFaces } from "@/fonts/display";
 import {
   inventoriesEqual,
   inventoryFromFaces,
@@ -22,6 +22,7 @@ export interface RepopulateResult {
 export function repopulateInventory(dryRun: boolean) {
   return Effect.gen(function* () {
     const store = yield* tryPromise(() => createR2ObjectStore());
+    yield* printFontTarget(store.bucket);
     const remote = yield* tryPromise(() => loadRemoteArchiveState(store));
     return yield* syncInventoryFromRemote(remote, dryRun);
   });

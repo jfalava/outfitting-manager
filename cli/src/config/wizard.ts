@@ -11,7 +11,7 @@ import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { loadConfig } from "@/config/load";
 import { configFilePath, stateRoot } from "@/config/paths";
 import type { OutfittingRepo } from "@/config/repo";
-import type { BackupsConfig } from "@/config/types";
+import type { BackupsConfig, FontsConfig } from "@/config/types";
 import { publishValidatedConfig } from "@/config/write";
 import { tryPromise } from "@/effect";
 import { classifyGitHubRepository, readGitHubFile } from "@/fetch/github";
@@ -51,6 +51,7 @@ type WizardSource = { path: string } | { repository: string; ref: string };
 interface WizardConfigDocument {
   schema: 1 | 2;
   backups?: import("@/config/types").BackupsConfig;
+  fonts?: FontsConfig;
   machine_id?: string;
   source: WizardSource;
   linux?: { profile: string };
@@ -62,6 +63,7 @@ interface WizardConfigDocument {
 interface ExistingWizardConfigDocument {
   schema?: 1 | 2;
   backups?: import("@/config/types").BackupsConfig;
+  fonts?: FontsConfig;
   machine_id?: string;
   source?: WizardSource;
   linux?: { profile?: string };
@@ -630,16 +632,22 @@ function preserveExistingConfig(
   document: WizardConfigDocument,
   existing?: ExistingWizardConfigDocument,
 ): void {
-  if (existing?.machine_id !== undefined) {
+  if (existing === undefined) {
+    return;
+  }
+  if (existing.machine_id !== undefined) {
     document.machine_id = existing.machine_id;
   }
-  if (existing?.linux?.profile !== undefined) {
+  if (existing.fonts !== undefined) {
+    document.fonts = { ...existing.fonts };
+  }
+  if (existing.linux?.profile !== undefined) {
     document.linux = { profile: existing.linux.profile };
   }
-  if (existing?.macos?.profile !== undefined) {
+  if (existing.macos?.profile !== undefined) {
     document.macos = { profile: existing.macos.profile };
   }
-  if (existing?.windows !== undefined) {
+  if (existing.windows !== undefined) {
     preserveExistingWindowsConfig(document, existing.windows);
   }
 }

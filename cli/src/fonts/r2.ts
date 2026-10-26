@@ -1,12 +1,13 @@
 import { GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
+import { loadConfig } from "@/config/load";
 import { emptyFontArchive, sha256Hex, unpackFontArchive, type FontArchive } from "@/fonts/archive";
 import { FONT_ARCHIVE_KEY, FONT_CHECKSUM_KEY } from "@/fonts/constants";
 import { r2Credentials } from "@/fonts/keychain";
-
-import { loadDeployConfig } from "../../../iac/src/deploy-config";
+import { envValue } from "@/secrets";
 
 export interface FontObjectStore {
+  readonly bucket: string;
   getArchive(): Promise<{ bytes: Uint8Array; etag: string } | undefined>;
   getChecksum(): Promise<string | undefined>;
   putArchive(archive: Uint8Array, checksum: string, expectedEtag?: string): Promise<void>;
@@ -22,6 +23,13 @@ async function bodyBytes(
 }
 
 export async function createR2ObjectStore(): Promise<FontObjectStore> {
+  const config = await loadConfig();
+  const bucket = envValue("OUTFITTING_PRIVATE_FONTS_BUCKET") ?? config.fonts?.bucket;
+  if (bucket === undefined) {
+    throw new Error(
+      "Configure [fonts].bucket in config.toml or OUTFITTING_PRIVATE_FONTS_BUCKET before accessing the font archive.",
+    );
+  }
   const credentials = await r2Credentials();
   const client = new S3Client({
     region: "auto",
@@ -31,9 +39,8 @@ export async function createR2ObjectStore(): Promise<FontObjectStore> {
       secretAccessKey: credentials.secretAccessKey,
     },
   });
-  const bucket = loadDeployConfig().privateFontsBucket;
-
   return {
+    bucket,
     async getArchive() {
       try {
         const response = await client.send(

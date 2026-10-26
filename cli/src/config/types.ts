@@ -14,6 +14,10 @@ export interface WindowsConfig {
   profiles: string[];
 }
 
+export interface FontsConfig {
+  bucket: string;
+}
+
 export type BackupsConfig = {
   profile: string;
   profiles: ByorBackupsDeclaration["profiles"];
@@ -46,6 +50,7 @@ export interface ManagerConfigFile {
   linux?: Partial<LinuxConfig>;
   macos?: Partial<MacosConfig>;
   windows?: Partial<WindowsConfig>;
+  fonts?: FontsConfig;
   backups?: BackupsConfig;
   declarations?: ByorContract;
 }
@@ -65,6 +70,7 @@ export interface ManagerConfig {
   linux?: LinuxConfig;
   macos?: MacosConfig;
   windows?: WindowsConfig;
+  fonts?: FontsConfig;
   backups?: BackupsConfig;
   /** Validated profile declarations, absent until configured. */
   declarations?: ByorContract;

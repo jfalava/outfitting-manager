@@ -7,6 +7,31 @@ sidebar:
 
 Use `fonts` to list, publish, and remove OpenType fonts in the private font archive. Configure the archive credentials before using commands that access it.
 
+## Runtime configuration
+
+Archive commands require an explicit bucket in this machine's `config.toml`:
+
+```toml
+[fonts]
+bucket = "my-private-fonts"
+```
+
+This table is supported in config schemas 1 and 2 and is preserved by `config wizard`. `OUTFITTING_PRIVATE_FONTS_BUCKET` overrides the TOML bucket. There is no implicit bucket default. Font commands do not read `outfitting.deploy.json` or `OUTFITTING_DEPLOY_CONFIG`; provisioning settings cannot select a runtime font target. When upgrading, explicitly select the existing bucket rather than creating or renaming one. Plain `fonts list` reads only the sync inventory and does not require a bucket.
+
+Environment variables take precedence over native font credentials on every host:
+
+| Variable                   | Purpose                                     |
+| -------------------------- | ------------------------------------------- |
+| `OUTFITTING_S3_ENDPOINT`   | HTTPS S3 endpoint or Cloudflare account ID. |
+| `OUTFITTING_S3_ACCESS_KEY` | Archive access key ID.                      |
+| `OUTFITTING_S3_SECRET_KEY` | Archive secret access key.                  |
+
+Set both key variables together. An incomplete or blank environment credential pair fails before native credential access; it is never combined with a stored key. Without key overrides, the existing `outfitting-fonts` native credentials remain in use. In Amp orbs (`AMP_ORB=1`), all three variables are required and native storage is not used. Ordinary hosts can still configure native credentials with the commands below.
+
+The inventory API uses the separate sync configuration. Publish, remove, and repopulate print the selected bucket and inventory API, including during dry runs. Verify they belong together before writing. `repopulate` and `list --repopulate` rewrite the inventory without a confirmation prompt; use `repopulate --dry-run` to review first.
+
+The bucket must contain `releases/fonts.tar.gz`, with font files under `fonts/`, and `releases/fonts.tar.gz.sha256`. The sidecar contains the compressed archive's SHA-256 followed by two spaces and `fonts.tar.gz`. The archive object also needs `sha256` custom metadata matching those same compressed bytes. The publisher writes these values; `repopulate` only repairs the sync inventory, not a missing sidecar or metadata.
+
 ## `configure-endpoint`
 
 **Syntax:** `outfitting-manager fonts configure-endpoint [<endpoint>]`

@@ -48,6 +48,7 @@ describe("font archive publication", () => {
     });
     let sidecarWrites = 0;
     const store: FontObjectStore = {
+      bucket: "test-font-library",
       getArchive: async () => ({ bytes, etag }),
       getChecksum: async () => checksum,
       putArchive: async (next, nextChecksum, expected) => {
@@ -116,6 +117,7 @@ describe("font archive publication", () => {
   test("refuses a mismatched baseline before writing the archive", async () => {
     const bytes = await packFontArchive([file]);
     const store: FontObjectStore = {
+      bucket: "test-font-library",
       getArchive: async () => ({ bytes, etag: '"base"' }),
       getChecksum: async () => checksumSidecar(bytes),
       putArchive: vi.fn(),

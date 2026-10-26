@@ -4,6 +4,12 @@ Portable local maintenance CLI for Outfitting.
 
 See the [CLI command reference](https://outfitting.jfa.dev/docs/cli/) for all commands, options, and subcommands.
 
+## Private fonts
+
+Archive operations require `[fonts].bucket` in local `config.toml` or an `OUTFITTING_PRIVATE_FONTS_BUCKET` override. They do not read deployment JSON or use an implicit bucket. Select the existing bucket explicitly when upgrading; the wizard preserves this setting. Plain `fonts list` needs only the sync configuration.
+
+`OUTFITTING_S3_ENDPOINT`, `OUTFITTING_S3_ACCESS_KEY`, and `OUTFITTING_S3_SECRET_KEY` override native font credentials on all hosts. Set both keys together; partial or blank key pairs fail without reading native credentials. Existing `outfitting-fonts` native entries remain unchanged. Amp orbs require all three environment variables. Archive commands display the bucket and inventory API before accessing the archive; review that pair before writes. See the [fonts reference](https://outfitting.jfa.dev/docs/cli/fonts/) for the archive, checksum, metadata, and inventory contract.
+
 ## Rustic backups (macOS and Windows)
 
 Backup profiles are independent of package/system profiles. Import a schema-3 repo manifest explicitly:

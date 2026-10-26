@@ -372,17 +372,79 @@ describe("orb environment credentials", () => {
     );
   });
 
-  test("reads R2 credentials from env in a headless environment", async () => {
+  test.each(["1", undefined])("reads R2 environment credentials with AMP_ORB=%s", async (orb) => {
     setEnv({
-      AMP_ORB: "1",
+      AMP_ORB: orb,
       OUTFITTING_S3_ENDPOINT: "0123456789abcdef0123456789abcdef",
       OUTFITTING_S3_ACCESS_KEY: " access ",
       OUTFITTING_S3_SECRET_KEY: " secret ",
+    });
+    vi.stubGlobal("Bun", {
+      secrets: {
+        get: () => {
+          throw new Error("Native credentials must not be read");
+        },
+      },
     });
     expect(await r2Credentials()).toEqual({
       endpoint: "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
       accessKeyId: "access",
       secretAccessKey: "secret",
+    });
+  });
+
+  test.each([
+    ["access-only", "access", undefined],
+    ["secret-only", undefined, "secret"],
+    ["blank-secret", "access", " "],
+    ["blank-pair", " ", " "],
+  ])(
+    "rejects %s environment credentials instead of mixing with native values",
+    async (_name, access, secret) => {
+      setEnv({
+        AMP_ORB: undefined,
+        OUTFITTING_S3_ENDPOINT: undefined,
+        OUTFITTING_S3_ACCESS_KEY: access,
+        OUTFITTING_S3_SECRET_KEY: secret,
+      });
+      vi.stubGlobal("Bun", {
+        secrets: {
+          get: () => {
+            throw new Error("Native credentials must not be read");
+          },
+        },
+      });
+      await expect(r2Credentials()).rejects.toThrow("must both be non-empty");
+    },
+  );
+
+  test("preserves native font credentials and allows an endpoint environment override", async () => {
+    setEnv({
+      AMP_ORB: undefined,
+      OUTFITTING_S3_ENDPOINT: undefined,
+      OUTFITTING_S3_ACCESS_KEY: undefined,
+      OUTFITTING_S3_SECRET_KEY: undefined,
+    });
+    nativeStore([
+      ["outfitting-fonts/r2-endpoint", "https://native.r2.cloudflarestorage.com"],
+      ["outfitting-fonts/r2-access-key-id", "native-access"],
+      ["outfitting-fonts/r2-secret-access-key", "native-secret"],
+    ]);
+    expect(await r2Credentials()).toEqual({
+      endpoint: "https://native.r2.cloudflarestorage.com",
+      accessKeyId: "native-access",
+      secretAccessKey: "native-secret",
+    });
+    setEnv({
+      AMP_ORB: undefined,
+      OUTFITTING_S3_ENDPOINT: "https://override.r2.cloudflarestorage.com/",
+      OUTFITTING_S3_ACCESS_KEY: undefined,
+      OUTFITTING_S3_SECRET_KEY: undefined,
+    });
+    expect(await r2Credentials()).toEqual({
+      endpoint: "https://override.r2.cloudflarestorage.com",
+      accessKeyId: "native-access",
+      secretAccessKey: "native-secret",
     });
   });
 
@@ -404,7 +466,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_SECRET_KEY: "secret",
     });
     await expect(r2Credentials()).rejects.toThrow(
-      "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in a headless environment.",
+      "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY must both be non-empty when using environment credentials.",
     );
   });
 });

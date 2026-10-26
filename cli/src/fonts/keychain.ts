@@ -45,12 +45,12 @@ export async function storeR2Endpoint(value: string): Promise<string> {
 }
 
 export async function r2Endpoint(): Promise<string> {
-  if (inAmpOrb()) {
-    const fromEnv = envValue("OUTFITTING_S3_ENDPOINT");
-    if (!fromEnv) {
-      throw new Error("OUTFITTING_S3_ENDPOINT is required in a headless environment.");
-    }
+  const fromEnv = envValue("OUTFITTING_S3_ENDPOINT");
+  if (fromEnv) {
     return normalizeR2Endpoint(fromEnv);
+  }
+  if (inAmpOrb()) {
+    throw new Error("OUTFITTING_S3_ENDPOINT is required in a headless environment.");
   }
 
   const stored = await storedSecret(SECRET_SERVICE, ENDPOINT_SECRET_NAME);
@@ -103,23 +103,26 @@ async function storedCredential(name: string): Promise<string | null> {
 }
 
 export async function r2Credentials(): Promise<R2Credentials> {
-  if (inAmpOrb()) {
-    const endpoint = await r2Endpoint();
-    const accessKeyId = envValue("OUTFITTING_S3_ACCESS_KEY");
-    const secretAccessKey = envValue("OUTFITTING_S3_SECRET_KEY");
+  const accessKeyId = envValue("OUTFITTING_S3_ACCESS_KEY");
+  const secretAccessKey = envValue("OUTFITTING_S3_SECRET_KEY");
+  const hasEnvironmentCredentials =
+    process.env["OUTFITTING_S3_ACCESS_KEY"] !== undefined ||
+    process.env["OUTFITTING_S3_SECRET_KEY"] !== undefined;
+  if (hasEnvironmentCredentials || inAmpOrb()) {
     if (!accessKeyId || !secretAccessKey) {
       throw new Error(
-        "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY are required in a headless environment.",
+        "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY must both be non-empty when using environment credentials.",
       );
     }
+    const endpoint = await r2Endpoint();
     return { endpoint, accessKeyId, secretAccessKey };
   }
 
   const endpoint = await r2Endpoint();
-  const accessKeyId = await storedCredential(ACCESS_KEY_SECRET_NAME);
-  const secretAccessKey = await storedCredential(SECRET_KEY_SECRET_NAME);
-  if (accessKeyId && secretAccessKey) {
-    return { endpoint, accessKeyId, secretAccessKey };
+  const storedAccessKeyId = await storedCredential(ACCESS_KEY_SECRET_NAME);
+  const storedSecretAccessKey = await storedCredential(SECRET_KEY_SECRET_NAME);
+  if (storedAccessKeyId && storedSecretAccessKey) {
+    return { endpoint, accessKeyId: storedAccessKeyId, secretAccessKey: storedSecretAccessKey };
   }
   await promptAndStoreR2Credentials();
   const storedId = await storedCredential(ACCESS_KEY_SECRET_NAME);

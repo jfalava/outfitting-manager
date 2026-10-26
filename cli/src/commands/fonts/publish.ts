@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { tryPromise } from "@/effect";
+import { printFontTarget } from "@/fonts/display";
 import { collectIncomingFonts, planPublish } from "@/fonts/plan";
 import { applyFontPlan } from "@/fonts/publish";
 import { createR2ObjectStore, loadRemoteArchiveState } from "@/fonts/r2";
@@ -37,6 +38,7 @@ export const publishCommand = Command.make(
     Effect.gen(function* () {
       const incoming = yield* tryPromise(() => collectIncomingFonts(directory));
       const store = yield* tryPromise(() => createR2ObjectStore());
+      yield* printFontTarget(store.bucket);
       const remote = yield* tryPromise(() => loadRemoteArchiveState(store));
       const plan = planPublish(remote.archive, incoming, { replace, keepNames, allowSystemNames });
       yield* applyFontPlan(plan, dryRun, yes, { store, remote });

@@ -213,6 +213,7 @@ describe("config wizard document", () => {
       schema: 1 as const,
       machine_id: "jfalava:aarch64-linux",
       source: { path: "../outfitting" },
+      fonts: { bucket: "team-font-library" },
       linux: { profile: "base" },
       macos: { profile: "base" },
       windows: {
@@ -252,6 +253,7 @@ describe("config wizard document", () => {
     expect(document).toMatchObject({
       machine_id: existing.machine_id,
       source: existing.source,
+      fonts: existing.fonts,
       linux: existing.linux,
       macos: existing.macos,
       windows: existing.windows,
@@ -268,6 +270,7 @@ describe("config wizard document", () => {
 
     await publishValidatedConfig(root, target, `${stringifyToml(document)}\n`);
     const config = await loadConfig({ stateRoot: root, configPath: target });
+    expect(config.fonts).toEqual(existing.fonts);
     expect(config.macos).toEqual({ profile: "base" });
     expect(config.declarations?.profiles.workstation?.windows?.winget).toEqual({
       manifest: "packages/workstation-winget.txt",

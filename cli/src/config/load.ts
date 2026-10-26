@@ -45,6 +45,10 @@ const WindowsFileSchema = Schema.Struct({
   shared: Schema.optionalKey(Schema.MutableJson),
 });
 
+const FontsFileSchema = Schema.Struct({
+  bucket: Schema.NonEmptyString.check(Schema.isPattern(/\S/)),
+});
+
 const BackupsFileSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
@@ -98,6 +102,7 @@ const ConfigFileSchema = Schema.Struct({
   linux: Schema.optionalKey(LinuxFileSchema),
   macos: Schema.optionalKey(MacosFileSchema),
   windows: Schema.optionalKey(WindowsFileSchema),
+  fonts: Schema.optionalKey(FontsFileSchema),
   backups: Schema.optionalKey(BackupsFileSchema),
   profiles: Schema.optionalKey(Schema.Record(Schema.String, Schema.MutableJson)),
 });
@@ -195,7 +200,7 @@ function assertTableKeys(
 function assertConfigTableKeys(parsed: TomlTableWithoutBigInt, configPath: string): void {
   assertTableKeys(
     parsed,
-    ["schema", "machine_id", "source", "linux", "macos", "windows", "backups", "profiles"],
+    ["schema", "machine_id", "source", "linux", "macos", "windows", "fonts", "backups", "profiles"],
     configPath,
   );
   if (parsed.source !== undefined) {
@@ -209,6 +214,9 @@ function assertConfigTableKeys(parsed: TomlTableWithoutBigInt, configPath: strin
   }
   if (parsed.windows !== undefined) {
     assertTableKeys(parsed.windows, ["profiles", "shared"], `${configPath} [windows]`);
+  }
+  if (parsed.fonts !== undefined) {
+    assertTableKeys(parsed.fonts, ["bucket"], `${configPath} [fonts]`);
   }
   if (parsed.backups !== undefined) {
     Schema.decodeUnknownSync(BackupsFileSchema, { onExcessProperty: "error" })(parsed.backups);
@@ -320,6 +328,7 @@ function normalizeDeclarations(decoded: DecodedConfig): ByorContract | undefined
   }
 }
 
+// oxlint-disable-next-line complexity -- each supported config section is normalized independently
 function configFileFromDecoded(decoded: DecodedConfig, configPath: string): ManagerConfigFile {
   const file: ManagerConfigFile = { schema: decoded.schema };
   if (decoded.machine_id !== undefined) {
@@ -344,6 +353,9 @@ function configFileFromDecoded(decoded: DecodedConfig, configPath: string): Mana
   }
   if (decoded.backups !== undefined) {
     file.backups = normalizeBackupsConfig(decoded.backups);
+  }
+  if (decoded.fonts !== undefined) {
+    file.fonts = { bucket: decoded.fonts.bucket.trim() };
   }
   const declarations = normalizeDeclarations(decoded);
   if (declarations !== undefined) {
@@ -459,6 +471,9 @@ function managerConfigFromFile(
   }
   if (file.backups !== undefined) {
     config.backups = file.backups;
+  }
+  if (file.fonts !== undefined) {
+    config.fonts = file.fonts;
   }
   return config;
 }
