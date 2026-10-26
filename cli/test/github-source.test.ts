@@ -416,15 +416,32 @@ test("github.com non-404 anonymous errors do not trigger authenticated retries",
   expect(run).not.toHaveBeenCalled();
 });
 
-test("BYOR accepts Git repository URLs without converting them into raw-content URLs", () => {
-  expect(normalizeGitRepository("https://github.com/org/machine-config")).toBe(
-    "https://github.com/org/machine-config",
-  );
-  expect(normalizeGitRepository("ssh://git@code.example.com/team/config.git")).toBe(
-    "ssh://git@code.example.com/team/config.git",
-  );
-  expect(normalizeGitRepository("git@code.example.com:team/config.git")).toBe(
-    "git@code.example.com:team/config.git",
+test.each([
+  "https://github.com/org/machine-config",
+  "https://code.example.com/team/config.git/",
+  "http://code.example.com/team/config.git",
+  "ssh://git@code.example.com:2222/team/config.git",
+  "git://code.example.com/team/config.git",
+  "git@code.example.com:team/config.git",
+  "code.example.com:team/config.git",
+])("BYOR preserves the Git remote spelling and trims outer whitespace: %s", (repository) => {
+  expect(normalizeGitRepository(`  ${repository}  `)).toBe(repository);
+});
+
+test.each([
+  "file:///tmp/config.git",
+  "ftp://code.example.com/team/config.git",
+  "https://user:password@code.example.com/team/config.git",
+  "https://code.example.com/team/config.git?ref=main",
+  "https://code.example.com/team/config.git#main",
+  "https://code.example.com",
+  "ssh://git@code.example.com:2222",
+  "git://code.example.com",
+  "ssh://git@code.example.com/",
+  "https://",
+])("BYOR rejects invalid Git URLs instead of treating them as SCP addresses: %s", (repository) => {
+  expect(() => normalizeGitRepository(repository)).toThrow(
+    "Repository must be a Git remote URL or SSH-style Git address.",
   );
 });
 

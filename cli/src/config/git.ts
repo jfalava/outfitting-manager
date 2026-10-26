@@ -6,7 +6,7 @@ export function normalizeGitRepository(value: string): string {
   }
 
   const scpAddress = /^(?:[^@/:]+@)?[^:/]+:.+$/;
-  if (scpAddress.test(repository)) {
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(repository) && scpAddress.test(repository)) {
     return repository;
   }
 
@@ -19,14 +19,12 @@ export function normalizeGitRepository(value: string): string {
   if (
     !["https:", "http:", "ssh:", "git:"].includes(url.protocol) ||
     url.hostname.length === 0 ||
-    url.pathname === "/" ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0
+    ["", "/"].includes(url.pathname) ||
+    [url.password, url.search, url.hash].some(Boolean)
   ) {
     throw new Error("Repository must be a Git remote URL or SSH-style Git address.");
   }
-  return repository.replace(/\/+$/, "");
+  return repository;
 }
 
 export function validateGitRef(value: string): string {

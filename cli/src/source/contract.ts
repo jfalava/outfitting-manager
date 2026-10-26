@@ -262,12 +262,6 @@ const decodeByorContract = Schema.decodeUnknownResult(ByorContractSchema, {
   onExcessProperty: "error",
 });
 
-function isEnoent(cause: unknown): boolean {
-  return (
-    cause instanceof Error && "code" in cause && (cause as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
-
 function requiredString(value: string, label: string): string {
   if (value.trim().length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
@@ -976,36 +970,6 @@ async function validateOptionalSharedFile(options: {
       );
     }
   }
-}
-
-/**
- * Load a BYOR contract when present.
- * - missing `outfitting.json` → `undefined` (legacy layout)
- * - present but invalid → throw (do not fall through to legacy markers)
- */
-export async function tryReadLegacyByorContract(root: string): Promise<ByorContract | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(join(root, BYOR_CONTRACT_PATH), "utf8");
-  } catch (cause) {
-    if (isEnoent(cause)) {
-      return undefined;
-    }
-    throw cause;
-  }
-
-  let parsed: JsonValue;
-  try {
-    parsed = JSON.parse(raw) as JsonValue;
-  } catch (cause) {
-    throw new Error(`${BYOR_CONTRACT_PATH} is not valid JSON.`, { cause });
-  }
-  return parseByorContract(parsed);
-}
-
-/** True when a legacy repository contains a parseable contract. */
-export async function hasLegacyByorContract(root: string): Promise<boolean> {
-  return (await tryReadLegacyByorContract(root)) !== undefined;
 }
 
 async function resolveByorRoot(candidate: string): Promise<string> {

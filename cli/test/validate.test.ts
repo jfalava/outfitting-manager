@@ -6,14 +6,13 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { validateOutfittingRepo } from "@/config/repo";
 import {
-  hasLegacyByorContract,
   linuxPathsFromProfile,
   macosPathsFromProfile,
   parseByorContract,
+  readByorContractFile as contractAt,
   selectByorProfile,
   selectMacosByorProfile,
   selectWindowsByorProfiles,
-  tryReadLegacyByorContract,
   validateLinuxByorSource,
   validateMacosByorSource,
   validateWindowsByorSource,
@@ -36,10 +35,6 @@ async function repository(): Promise<string> {
 
 async function writeContract(root: string, value: unknown): Promise<void> {
   await writeFile(join(root, "outfitting.json"), `${JSON.stringify(value)}\n`, "utf8");
-}
-
-async function contractAt(root: string) {
-  return (await tryReadLegacyByorContract(root))!;
 }
 
 describe("BYOR contract", () => {
@@ -201,13 +196,11 @@ describe("BYOR contract", () => {
 
   test("rejects a missing or invalid local source contract", async () => {
     const missing = await repository();
-    await expect(tryReadLegacyByorContract(missing)).resolves.toBeUndefined();
-    await expect(hasLegacyByorContract(missing)).resolves.toBe(false);
+    await expect(contractAt(missing)).rejects.toThrow(/is missing from/);
 
     const invalid = await repository();
     await writeFile(join(invalid, "outfitting.json"), "{ not-a-contract: true }\n", "utf8");
-    await expect(tryReadLegacyByorContract(invalid)).rejects.toThrow(/not valid JSON/);
-    await expect(hasLegacyByorContract(invalid)).rejects.toThrow(/not valid JSON/);
+    await expect(contractAt(invalid)).rejects.toThrow(/not valid JSON/);
     await expect(
       validateOutfittingRepo(invalid, {
         contract: parseByorContract({
@@ -219,9 +212,7 @@ describe("BYOR contract", () => {
 
     const wrongSchema = await repository();
     await writeContract(wrongSchema, { schema: 99, profiles: {} });
-    await expect(tryReadLegacyByorContract(wrongSchema)).rejects.toThrow(
-      /outfitting\.json is invalid/,
-    );
+    await expect(contractAt(wrongSchema)).rejects.toThrow(/invalid BYOR manifest/);
   });
 
   test("schema failures name the offending path", () => {
