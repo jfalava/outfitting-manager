@@ -71,16 +71,15 @@ export const requestEffect = Effect.fn("lockfiles.request")(function* (
     headers,
     body,
   });
-  const httpResponse = yield* Effect.provide(
-    httpRequest.pipe(Effect.timeout(15_000), Effect.mapError(toError)),
-    FetchHttpClient.layer,
-  );
-  const responseBytes = yield* httpResponse.arrayBuffer.pipe(Effect.mapError(toError));
-  const response = yield* Effect.try({
-    try: () =>
-      new Response(responseBytes, { status: httpResponse.status, headers: httpResponse.headers }),
-    catch: toError,
-  });
+  const response = yield* Effect.gen(function* () {
+    const httpResponse = yield* httpRequest;
+    const responseBytes = yield* httpResponse.arrayBuffer;
+    return yield* Effect.try({
+      try: () =>
+        new Response(responseBytes, { status: httpResponse.status, headers: httpResponse.headers }),
+      catch: toError,
+    });
+  }).pipe(Effect.timeout(15_000), Effect.mapError(toError), Effect.provide(FetchHttpClient.layer));
   if (response.ok) {
     return response;
   }

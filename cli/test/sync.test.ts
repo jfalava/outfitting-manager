@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { Effect } from "effect";
+import { Clock, Effect, Fiber, Result } from "effect";
+import { FetchHttpClient } from "effect/http";
+import { TestClock } from "effect/testing";
 import { describe, expect, test, vi } from "vitest";
 
+import { CliFailure } from "@/errors";
 import {
   inferOutputPath,
   isGitTrackedFile,
@@ -16,6 +19,7 @@ import {
   pushLockfile,
   resolveKindSelection,
 } from "@/sync";
+import { requestEffect, WorkerResponseError } from "@/sync/request";
 
 const execFileAsync = promisify(execFile);
 
@@ -151,6 +155,117 @@ describe("sync command helpers", () => {
     expect(normalizeSha256("A".repeat(64))).toBe("a".repeat(64));
     expect(() => normalizeSha256("abc")).toThrow("64-character SHA-256");
   });
+
+  test("sync uses one deadline for headers and body and aborts a stalled transfer", async () => {
+    const fetchStarted = Promise.withResolvers<void>();
+    const headersReady = Promise.withResolvers<void>();
+    const bodyStarted = Promise.withResolvers<void>();
+    let signal: AbortSignal | undefined;
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    let settledAt: number | undefined;
+    const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      fetchStarted.resolve();
+      await headersReady.promise;
+      return new Response(
+        new ReadableStream<Uint8Array>(
+          {
+            start(stream) {
+              controller = stream;
+              signal?.addEventListener("abort", () => stream.error(signal?.reason), { once: true });
+            },
+            pull() {
+              bodyStarted.resolve();
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      );
+    };
+    fetcher.preconnect = () => {};
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.gen(function* () {
+          const result = yield* Effect.result(
+            requestEffect(
+              ["lockfiles", "machine", "nix"],
+              {},
+              {
+                workerUrl: "https://sync.example/api",
+                token: "fixture-token",
+              },
+            ),
+          );
+          settledAt = yield* Clock.currentTimeMillis;
+          return result;
+        }).pipe(Effect.forkChild);
+        yield* Effect.promise(() => fetchStarted.promise);
+        yield* TestClock.adjust(9_000);
+        headersReady.resolve();
+        yield* Effect.promise(() => bodyStarted.promise);
+        yield* TestClock.adjust(5_999);
+        expect(settledAt).toBeUndefined();
+        expect(signal?.aborted).toBe(false);
+        yield* TestClock.adjust(1_001);
+        // Complete the wrong implementations too, so they fail instead of hanging.
+        if (!signal?.aborted) {
+          controller.enqueue(new Uint8Array([0x00, 0xff, 0x42]));
+          controller.close();
+        }
+        const result = yield* Fiber.join(fiber);
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(CliFailure);
+          expect(result.failure.cause).toMatchObject({ _tag: "TimeoutError" });
+        }
+        expect(settledAt).toBe(15_000);
+        expect(signal?.aborted).toBe(true);
+      }).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provideService(FetchHttpClient.Fetch, fetcher),
+      ),
+    );
+  });
+
+  test.each([200, 401, 412])(
+    "sync preserves buffered responses and HTTP errors: %s",
+    async (status) => {
+      const bytes = new Uint8Array([0x00, 0xff, 0x42]);
+      const fetcher = async () =>
+        new Response(status === 200 ? bytes : JSON.stringify({ error: "fixture failure" }), {
+          status,
+          headers: {
+            "Content-Type": status === 200 ? "application/octet-stream" : "application/json",
+            ETag: '"fixture"',
+          },
+        });
+      fetcher.preconnect = () => {};
+      const result = await Effect.runPromise(
+        requestEffect(
+          ["lockfiles", "machine", "nix"],
+          {},
+          {
+            workerUrl: "https://sync.example/api",
+            token: "fixture-token",
+          },
+        ).pipe(Effect.result, Effect.provideService(FetchHttpClient.Fetch, fetcher)),
+      );
+      if (status === 200) {
+        expect(Result.isSuccess(result)).toBe(true);
+        if (Result.isSuccess(result)) {
+          expect(new Uint8Array(await result.success.arrayBuffer())).toEqual(bytes);
+          expect(result.success.headers.get("ETag")).toBe('"fixture"');
+        }
+      } else {
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(WorkerResponseError);
+          expect(result.failure).toMatchObject({ status, detail: "fixture failure" });
+        }
+      }
+    },
+  );
 
   test("treats omitted and all kinds as the all selection", () => {
     expect(resolveKindSelection(undefined)).toEqual({ mode: "all" });
