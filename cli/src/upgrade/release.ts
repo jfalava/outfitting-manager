@@ -121,12 +121,3 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
     executableName,
   };
 });
-
-/** Promise adapter for callers that have not migrated to Effect yet. */
-export function latestCliRelease(
-  assetName: string,
-  executableName: string,
-  fetcher: Fetcher = fetch,
-): Promise<CliRelease> {
-  return Effect.runPromise(latestCliReleaseEffect(assetName, executableName, fetcher));
-}

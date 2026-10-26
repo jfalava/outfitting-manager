@@ -6,7 +6,6 @@ export { configFilePath, defaultStateRoot, sparseSourceRoot, stateRoot } from "@
 export {
   physicalPath,
   resolveOutfittingRepo,
-  tryResolveOutfittingRepo,
   validateOutfittingRepo,
   type OutfittingRepo,
 } from "@/config/repo";

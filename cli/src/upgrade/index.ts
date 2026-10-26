@@ -8,11 +8,9 @@ import { latestCliReleaseEffect } from "@/upgrade/release";
 import { isNewerVersion } from "@/upgrade/version";
 
 export { checksumFromFile } from "@/upgrade/install";
-export { downloadBytes } from "@/upgrade/install";
 export { downloadBytesEffect, installReleaseEffect } from "@/upgrade/install";
 export { assetNameFor, executableNameFor, executablePath } from "@/upgrade/platform";
 export { extractZipBinary } from "@/upgrade/archive";
-export { latestCliRelease } from "@/upgrade/release";
 export { latestCliReleaseEffect } from "@/upgrade/release";
 export { isNewerVersion, parseCliVersion } from "@/upgrade/version";
 

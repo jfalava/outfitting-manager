@@ -309,18 +309,6 @@ export async function resolveOutfittingRepo(options?: {
   return validateOutfittingRepo(candidate, { contract, profile, platform });
 }
 
-/** Soft resolve: returns undefined when unset / invalid (setup reporting). */
-export async function tryResolveOutfittingRepo(options?: {
-  config?: ManagerConfig;
-  envRepo?: string;
-}): Promise<OutfittingRepo | undefined> {
-  try {
-    return await resolveOutfittingRepo(options);
-  } catch {
-    return undefined;
-  }
-}
-
 /** Physical path for temp dirs (Nix rejects lock paths under macOS /tmp symlinks). */
 export async function physicalPath(path: string): Promise<string> {
   return realpath(path);

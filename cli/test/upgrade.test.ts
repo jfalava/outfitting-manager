@@ -3,18 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { normalizeCommandAlias } from "@/arguments";
 import {
   assetNameFor,
   checksumFromFile,
-  downloadBytes,
+  downloadBytesEffect,
   executableNameFor,
   executablePath,
   extractZipBinary,
   isNewerVersion,
-  latestCliRelease,
+  latestCliReleaseEffect,
   parseCliVersion,
 } from "@/upgrade";
 import { scheduleWindowsReplacement } from "@/upgrade/install";
@@ -165,7 +166,9 @@ describe("self-update command helpers", () => {
     };
 
     await expect(
-      downloadBytes("https://example.test/asset", "Release asset", fetcher),
+      Effect.runPromise(
+        downloadBytesEffect("https://example.test/asset", "Release asset", fetcher),
+      ),
     ).resolves.toEqual(new Uint8Array([1, 2, 3]));
     expect(attempts).toBe(3);
   });
@@ -203,7 +206,9 @@ describe("self-update command helpers", () => {
       );
     };
 
-    await expect(latestCliRelease(asset, "outfitting-manager", fetcher)).resolves.toEqual({
+    await expect(
+      Effect.runPromise(latestCliReleaseEffect(asset, "outfitting-manager", fetcher)),
+    ).resolves.toEqual({
       version: "0.4.0",
       assetUrl: "https://example.test/archive",
       checksumUrl: "https://example.test/archive-checksum",
@@ -231,9 +236,9 @@ describe("self-update command helpers", () => {
           },
         ]),
       );
-    await expect(latestCliRelease(asset, "outfitting-manager", fetcher)).rejects.toThrow(
-      `Release cli-v0.4.0 does not contain ${asset} and its checksum.`,
-    );
+    await expect(
+      Effect.runPromise(latestCliReleaseEffect(asset, "outfitting-manager", fetcher)),
+    ).rejects.toThrow(`Release cli-v0.4.0 does not contain ${asset} and its checksum.`);
   });
 
   test("rejects releases that only have bare binaries", async () => {
@@ -259,7 +264,9 @@ describe("self-update command helpers", () => {
       );
 
     await expect(
-      latestCliRelease("outfitting-manager-linux-x64.zip", "outfitting-manager", fetcher),
+      Effect.runPromise(
+        latestCliReleaseEffect("outfitting-manager-linux-x64.zip", "outfitting-manager", fetcher),
+      ),
     ).rejects.toThrow("does not contain outfitting-manager-linux-x64.zip");
   });
 });

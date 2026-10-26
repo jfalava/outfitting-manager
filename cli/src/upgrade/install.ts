@@ -95,15 +95,6 @@ export const downloadBytesEffect = Effect.fn("upgrade.downloadBytes")(function* 
   return yield* lastError;
 });
 
-/** Promise adapter for callers that have not migrated to Effect yet. */
-export function downloadBytes(
-  url: string,
-  label: string,
-  fetcher: Fetcher = globalThis.fetch,
-): Promise<Uint8Array> {
-  return Effect.runPromise(downloadBytesEffect(url, label, fetcher));
-}
-
 export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function* (
   release: CliRelease,
   targetPath: string,
@@ -177,11 +168,6 @@ export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function
     }
   }
 });
-
-/** Promise adapter for callers that have not migrated to Effect yet. */
-export function installRelease(release: CliRelease, targetPath: string): Promise<void> {
-  return Effect.runPromise(installReleaseEffect(release, targetPath));
-}
 
 export function checksumFromFile(contents: string): string {
   const checksum = /^([a-fA-F0-9]{64})(?:\s|$)/.exec(contents.trim())?.[1];
