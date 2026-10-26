@@ -1,7 +1,13 @@
-import { Effect, Redacted } from "effect";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+import { Effect, Layer, Redacted } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { Secrets as BackupSecrets } from "@/backups/secrets";
+import { BackupError, secretNames, type BackupCredentials } from "@/backups/model";
+import { Processes } from "@/backups/process";
+import { Secrets as BackupSecrets, importSecretStore } from "@/backups/secrets";
+import { Settings, type SettingsData } from "@/backups/settings";
 import { r2Credentials } from "@/fonts/keychain";
 import { envValue, inAmpOrb } from "@/secrets";
 import { apiToken, baseUrl, storeApiToken, storeWorkerUrl } from "@/sync/keychain";
@@ -44,37 +50,240 @@ afterEach(() => {
   setEnv({});
 });
 
-test.each(["darwin", "win32"] as const)(
-  "%s backup alerts retain the existing native machine credential identity",
-  async (platform) => {
-    // Each native device store contains its own independently provisioned value.
-    const stored = new Map([
-      ["rustic-backup-alert-token/scheduled-user", `${platform}-independent-token`],
-    ]);
-    vi.stubGlobal("Bun", {
-      secrets: {
-        get: async ({ service, name }: { service: string; name: string }) =>
-          stored.get(`${service}/${name}`) ?? null,
-        set: async ({ service, name, value }: { service: string; name: string; value: string }) => {
-          stored.set(`${service}/${name}`, value);
-        },
+const account = " Scheduled O'Brien ";
+const credentials: BackupCredentials = {
+  "access-key": " Team A's Access ",
+  "secret-key": "Production Secret 02",
+  "repository-password": "Archive's repository password",
+  "alert-token": "Operations Alert Token!",
+};
+const importedValues = {
+  "access-key": "imported-access-19",
+  "secret-key": "imported-secret-72",
+  "repository-password": "imported-password-43",
+  "alert-token": "imported-alert-86",
+};
+
+function nativeStore(entries: Array<[string, string]> = [], caseInsensitive = false) {
+  const target = (value: string) => (caseInsensitive ? value.toUpperCase() : value);
+  const stored = new Map(entries.map(([key, value]) => [target(key), value]));
+  const writes: Array<{ service: string; name: string; value: string }> = [];
+  vi.stubGlobal("Bun", {
+    secrets: {
+      get: async ({ service, name }: { service: string; name: string }) =>
+        stored.get(target(`${service}/${name}`)) ?? null,
+      set: async (entry: { service: string; name: string; value: string }) => {
+        writes.push(entry);
+        stored.set(target(`${entry.service}/${entry.name}`), entry.value);
       },
-    });
+    },
+  });
+  return { stored, writes };
+}
+
+test.each(["darwin", "win32"] as const)(
+  "%s backup credentials preserve every configured service and account exactly",
+  async (platform) => {
+    const { stored } = nativeStore(
+      secretNames.map((name) => [
+        `${credentials[name]}/${account}`,
+        `${platform}-original-${name}`,
+      ]),
+      platform === "win32",
+    );
     await Effect.runPromise(
       Effect.gen(function* () {
         const secrets = yield* BackupSecrets;
-        expect(Redacted.value(yield* secrets.get("alert-token"))).toBe(
-          `${platform}-independent-token`,
-        );
-        yield* secrets.set("alert-token", Redacted.make(`${platform}-rotated-token`));
-        expect(Redacted.value(yield* secrets.get("alert-token"))).toBe(`${platform}-rotated-token`);
-      }).pipe(Effect.provide(BackupSecrets.layer("scheduled-user", platform))),
+        for (const name of secretNames) {
+          expect(Redacted.value(yield* secrets.get(name))).toBe(`${platform}-original-${name}`);
+          yield* secrets.set(name, Redacted.make(`${platform}-rotated-${name}`));
+          expect(Redacted.value(yield* secrets.get(name))).toBe(`${platform}-rotated-${name}`);
+        }
+      }).pipe(Effect.provide(BackupSecrets.layer(account, credentials, platform))),
     );
-    expect([...stored]).toEqual([
-      ["rustic-backup-alert-token/scheduled-user", `${platform}-rotated-token`],
-    ]);
+    expect([...stored]).toEqual(
+      secretNames.map((name) => [
+        platform === "win32"
+          ? `${credentials[name]}/${account}`.toUpperCase()
+          : `${credentials[name]}/${account}`,
+        `${platform}-rotated-${name}`,
+      ]),
+    );
   },
 );
+
+describe("SecretStore import", () => {
+  function runImport(
+    alert: SettingsData["alert"],
+    values: Partial<typeof importedValues>,
+    options: { credentials?: BackupCredentials; vault?: string; powerShellPrelude?: string } = {},
+  ) {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const settings: SettingsData = {
+      repoRoot: "C:\\fixture",
+      home: "C:\\Users\\fixture",
+      account,
+      hostname: "fixture-host",
+      rustic: "rustic.exe",
+      stateDirectory: "C:\\fixture\\state",
+      logFile: "C:\\fixture\\logs\\rustic.log",
+      logDirectory: "C:\\fixture\\logs",
+      credentials: options.credentials ?? credentials,
+      scheduleLabel: "fixture-backups",
+      alert,
+      repository: "fixture-repository",
+      jobs: ["photos"],
+      dailyHour: 9,
+      jobPolicies: {},
+      sources: { photos: ["C:\\Photos"] },
+      environment: {},
+      profile: {
+        repository: { repository: "s3:https://example.invalid/backups" },
+        forget: { "keep-daily": 7 },
+        backup: {
+          snapshots: [
+            {
+              name: "photos",
+              sources: ["C:\\Photos"],
+              tags: ["photos"],
+              "skip-if-unchanged": true,
+            },
+          ],
+        },
+      },
+    };
+    const result = Effect.runPromise(
+      importSecretStore(options.vault ?? "Team's Vault").pipe(
+        Effect.provide([
+          Layer.succeed(Settings, settings),
+          Layer.succeed(
+            Processes,
+            Processes.of({
+              run: (_executable, args) => {
+                if (options.powerShellPrelude !== undefined) {
+                  return Effect.tryPromise({
+                    try: async () => {
+                      const output = await promisify(execFile)(process.env.OUTFITTING_TEST_PWSH!, [
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        `${options.powerShellPrelude}; ${args[args.length - 1]!}`,
+                      ]);
+                      return { ...output, exitCode: 0 };
+                    },
+                    catch: (error) => new BackupError({ message: String(error) }),
+                  });
+                }
+                return Effect.succeed({ stdout: JSON.stringify(values), stderr: "", exitCode: 0 });
+              },
+            }),
+          ),
+          BackupSecrets.layer(account, settings.credentials, "win32"),
+        ]),
+      ),
+    );
+    return { result };
+  }
+
+  const enabled: SettingsData["alert"] = {
+    protocol: "v1",
+    url: "https://example.invalid/alerts",
+    sender: "fixture",
+    recipient: ["operator"],
+  };
+
+  test.each([false, true])(
+    "imports configured identities with alerts enabled=%s",
+    async (alerts) => {
+      // An unrelated identity and a matching collision must both survive the import.
+      const unrelated: [string, string] = ["unrelated-service/another-account", "keep-me"];
+      const { stored } = nativeStore([
+        unrelated,
+        [`${credentials["secret-key"]}/${account}`, importedValues["secret-key"]],
+      ]);
+      const values = alerts
+        ? importedValues
+        : {
+            "access-key": importedValues["access-key"],
+            "secret-key": importedValues["secret-key"],
+            "repository-password": importedValues["repository-password"],
+          };
+      const { result } = runImport(alerts ? enabled : { protocol: "disabled" }, values);
+      const names = await result;
+      expect(names).toEqual(
+        alerts
+          ? ["access-key", "secret-key", "repository-password", "alert-token"]
+          : ["access-key", "secret-key", "repository-password"],
+      );
+      expect(stored).toEqual(
+        new Map([
+          unrelated,
+          ...names.map((name): [string, string] => [
+            `${credentials[name]}/${account}`,
+            importedValues[name],
+          ]),
+        ]),
+      );
+    },
+  );
+
+  // Uses only a stub Get-Secret function, never the host's vault or native credentials.
+  test.skipIf(!process.env.OUTFITTING_TEST_PWSH)(
+    "PowerShell imports smart quotes and code-like service/vault names as literal data",
+    async () => {
+      const identities = {
+        "access-key": "Workstation’s Access",
+        "secret-key": "access’; Write-Output INJECTION-PROBE; #",
+        "repository-password": "archive‘; throw 'injected'; #",
+        "alert-token": "alert’$(Write-Output injected)",
+      };
+      const vault = "Team’s Vault‘; throw 'vault injection'; #";
+      const fixture = Buffer.from(
+        JSON.stringify({
+          vault,
+          names: Object.values(identities),
+          values: Object.values(importedValues),
+        }),
+      ).toString("base64");
+      const powerShellPrelude = `$fixture = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${fixture}')) | ConvertFrom-Json; function Get-Secret { param($Vault, $Name, [switch]$AsPlainText, $ErrorAction); if ($Vault -cne $fixture.vault) { throw 'Wrong vault' }; $index = [Array]::IndexOf([object[]]$fixture.names, $Name); if ($index -lt 0) { throw 'Wrong service name' }; $fixture.values[$index] }`;
+      const { stored } = nativeStore();
+      const { result } = runImport(enabled, importedValues, {
+        credentials: identities,
+        vault,
+        powerShellPrelude,
+      });
+      await expect(result).resolves.toEqual(secretNames);
+      expect(stored).toEqual(
+        new Map(
+          secretNames.map((name) => [`${identities[name]}/${account}`, importedValues[name]]),
+        ),
+      );
+    },
+  );
+
+  test.each(secretNames)("rejects a differing %s before writing any credentials", async (name) => {
+    const entry: [string, string] = [`${credentials[name]}/${account}`, "existing-local-value"];
+    const { stored, writes } = nativeStore([entry]);
+    const { result } = runImport(enabled, importedValues);
+    await expect(result).rejects.toThrow(
+      `Credential ${name} already exists with a different value`,
+    );
+    expect(stored).toEqual(new Map([entry]));
+    expect(writes).toEqual([]);
+  });
+
+  test("requires the alert token when alerts are enabled, without writing repository credentials", async () => {
+    const { stored, writes } = nativeStore();
+    const { result } = runImport(enabled, {
+      "access-key": importedValues["access-key"],
+      "secret-key": importedValues["secret-key"],
+      "repository-password": importedValues["repository-password"],
+    });
+    await expect(result).rejects.toThrow("SecretStore returned missing alert-token.");
+    expect(stored.size).toBe(0);
+    expect(writes).toEqual([]);
+  });
+});
 
 describe("orb environment credentials", () => {
   test("treats AMP_ORB=1 as an Amp orb", () => {

@@ -8,6 +8,7 @@ import {
   type TomlValueWithoutBigInt,
 } from "smol-toml";
 
+import { BackupCredentials } from "@/backups/model";
 import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { autoMachineId } from "@/config/machine-id";
 import { configFilePath, stateRoot as resolveStateRoot } from "@/config/paths";
@@ -48,6 +49,11 @@ const BackupsFileSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
   logDirectory: Schema.optionalKey(Schema.NonEmptyString),
+  credentials: Schema.optionalKey(BackupCredentials),
+  scheduleLabel: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$(?![\s\S])/)),
+  ),
+  alertsDisabled: Schema.optionalKey(Schema.Literal(true)),
   alertUrl: Schema.optionalKey(Schema.NonEmptyString),
   alertSender: Schema.optionalKey(Schema.String),
   alertRecipient: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -124,9 +130,7 @@ function normalizeAlertUrl(value: string): string {
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
-    (url.pathname !== "/v1/alerts/backups-jfa-mac-mini" &&
-      url.pathname !== "/v1/alerts/backups-jfa-windows") ||
-    url.hostname === "backup-alert.jfalava.workers.dev" ||
+    !/^\/v1\/alerts\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(url.pathname) ||
     url.username !== "" ||
     url.password !== "" ||
     url.search !== "" ||
@@ -134,7 +138,7 @@ function normalizeAlertUrl(value: string): string {
     value !== url.origin + url.pathname
   ) {
     throw new Error(
-      "backups.alertUrl must be a canonical standalone HTTPS /v1/alerts/backups-jfa-mac-mini or /v1/alerts/backups-jfa-windows endpoint, not the legacy backup Worker, without credentials, query, or fragment.",
+      "backups.alertUrl must be a canonical HTTPS /v1/alerts/<slug> endpoint without credentials, query, or fragment; use lowercase letters, digits and single hyphens in the slug.",
     );
   }
   return url.href;
@@ -145,16 +149,28 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
     defaultProfile: backups.profile,
     profiles: backups.profiles,
   })!;
-  const config: BackupsConfig = { profile: validated.defaultProfile, profiles: validated.profiles };
+  const config: Pick<
+    BackupsConfig,
+    "profile" | "profiles" | "logDirectory" | "credentials" | "scheduleLabel"
+  > = { profile: validated.defaultProfile, profiles: validated.profiles };
   if (backups.logDirectory !== undefined) {
     config.logDirectory = backups.logDirectory;
+  }
+  if (backups.credentials !== undefined) {
+    config.credentials = backups.credentials;
+  }
+  if (backups.scheduleLabel !== undefined) {
+    config.scheduleLabel = backups.scheduleLabel;
   }
   if (
     backups.alertUrl === undefined &&
     backups.alertSender === undefined &&
     backups.alertRecipient === undefined
   ) {
-    return config;
+    return backups.alertsDisabled === true ? { ...config, alertsDisabled: true } : config;
+  }
+  if (backups.alertsDisabled === true) {
+    throw new Error("backups.alertsDisabled cannot be combined with alert addressing fields.");
   }
   const alerts = Schema.decodeUnknownSync(BackupAlertConfig)(backups);
   const alertUrl = normalizeAlertUrl(alerts.alertUrl);

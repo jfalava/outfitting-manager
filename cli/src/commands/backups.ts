@@ -7,9 +7,16 @@ import { FetchHttpClient } from "effect/http";
 
 import { Backup } from "@/backups/backup";
 import { launchAgent } from "@/backups/launchd";
-import { BackupError, Job, JobState, SnapshotGroups, SnapshotId } from "@/backups/model";
+import {
+  BackupError,
+  Job,
+  JobState,
+  SnapshotGroups,
+  SnapshotId,
+  secretNames,
+} from "@/backups/model";
 import { Processes } from "@/backups/process";
-import { Secrets, secretNames, importSecretStore } from "@/backups/secrets";
+import { Secrets, importSecretStore } from "@/backups/secrets";
 import { Settings } from "@/backups/settings";
 import { scheduledTask } from "@/backups/windows";
 
@@ -37,7 +44,8 @@ const configured = Effect.fn("configured")(function* <A, E>(
   );
   const keychain = Layer.unwrap(
     Effect.gen(function* () {
-      return Secrets.layer((yield* Settings).account, process.platform);
+      const config = yield* Settings;
+      return Secrets.layer(config.account, config.credentials, process.platform);
     }),
   ).pipe(Layer.provide(settings));
   const dependencies = Layer.mergeAll(
@@ -265,7 +273,11 @@ const secrets = Command.make("secrets").pipe(
         yield* configured(
           Effect.gen(function* () {
             const service = yield* Secrets;
+            const settings = yield* Settings;
             for (const name of secretNames) {
+              if (name === "alert-token" && settings.alert.protocol === "disabled") {
+                continue;
+              }
               yield* service.get(name);
               yield* Console.log(`${name}: available`);
             }
@@ -315,6 +327,9 @@ const doctor = Command.make(
               stateDirectory: settings.stateDirectory,
               logDirectory: settings.logDirectory,
               logFile: settings.logFile,
+              credentials: settings.credentials,
+              scheduleLabel: settings.scheduleLabel,
+              alert: settings.alert,
               checkedAt: DateTime.formatIso(yield* DateTime.now),
               accessVerified: false,
               note: "Only Rustic traverses sources. Verify native credentials and source access through the real scheduled executable before cutover.",

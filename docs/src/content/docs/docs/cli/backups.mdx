@@ -11,11 +11,13 @@ sidebar:
 
 Job arguments use the `name` from a configured Rustic `[[backup.snapshots]]` entry. There are no built-in platform job names. The examples use `project-data` and `photos` from the setup guide; replace them with names shown by `backups doctor` for your selected profile.
 
+Every backup command requires local `[backups.credentials]` with exactly `access-key`, `secret-key`, `repository-password`, and `alert-token` mapped to distinct, nonblank, control-free service names. There are no defaults. Set the mapping directly or import `backups.credentials` from `outfitting.json`; source refresh alone does not import it. Also configure all three alert addressing fields or explicitly set `backups.alertsDisabled = true` without any addressing fields. Incomplete settings fail before native credential access. The configuration wizard remains usable for migration; see [setup](/docs/backups/setup/).
+
 ## `doctor`
 
 **Syntax:** `outfitting-manager backups doctor`
 
-Show resolved configuration, hostname, repository configuration, ordered job names, job policies, retention defaults, sources, state directory, and log directory/file without accessing the repository or native credentials. Source bindings come from the selected profile's `paths` table; see [path configuration](/docs/backups/setup/#bind-source-paths-explicitly).
+Show resolved configuration, hostname, repository configuration, ordered job names, job policies, retention defaults, sources, state directory, log directory/file, credential service names, schedule label, and alert configuration without accessing the repository or native credentials. Secret values are never printed. Source bindings come from the selected profile's `paths` table; see [path configuration](/docs/backups/setup/#bind-source-paths-explicitly).
 
 ```sh
 outfitting-manager backups doctor
@@ -152,7 +154,7 @@ outfitting-manager backups restore project-data 0123456789abcdef0123456789abcdef
 
 ## `secrets`
 
-Manage backup credentials in macOS Keychain or Windows Credential Manager.
+Manage backup credentials in macOS Keychain or Windows Credential Manager. Logical names resolve through local `backups.credentials`; values stay in the native store under the scheduled user's account, not in config.
 
 ### `secrets set`
 
@@ -172,7 +174,7 @@ outfitting-manager backups secrets set repository-password
 
 **Syntax:** `outfitting-manager backups secrets check`
 
-Verify required credentials in the native store without printing their values.
+Verify required credentials in the native store without printing their values. With alerts enabled, check all four. With `backups.alertsDisabled = true`, check only the three repository credentials and never look up `alert-token`.
 
 ```sh
 outfitting-manager backups secrets check
@@ -182,7 +184,7 @@ outfitting-manager backups secrets check
 
 **Syntax:** `outfitting-manager backups secrets import-secretstore [--vault <vault>]`
 
-Migrate backup credentials from PowerShell SecretStore to Windows Credential Manager. Supported on Windows only.
+Migrate backup credentials from PowerShell SecretStore to Windows Credential Manager. Supported on Windows only. Read source entries using the configured service names and write to those same names in Credential Manager. Preflight destination conflicts before writing; there are no implicit legacy-name aliases.
 
 ```sh
 # Import credentials from the default 'ResticVault'
@@ -203,6 +205,8 @@ outfitting-manager backups secrets import-secretstore --vault CustomVault
 Print a LaunchAgent property list (macOS) or Task Scheduler XML (Windows) configured to invoke `outfitting-manager backups run-due` using the specified executable path. The command is print-only and does not install schedules.
 
 Both use the selected config file and profile to resolve source paths at run time. Newly generated macOS LaunchAgents put stdout/stderr in `backups.logDirectory`, or `~/Library/Logs` by default. Create that directory before loading the LaunchAgent. Existing installed schedules retain their captured output paths until explicitly replaced.
+
+The macOS label defaults to `dev.outfitting.backups.<selected-profile>`. Override it with local `backups.scheduleLabel`, matching `[A-Za-z0-9][A-Za-z0-9._-]{0,254}`. This only affects generated XML, not installed schedules or live labels. Windows task naming remains the registration caller's responsibility. The local override does not invalidate the source cache or change repository hashes, receipts, or locks.
 
 ```sh
 # Generate macOS LaunchAgent XML

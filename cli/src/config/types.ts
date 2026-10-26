@@ -1,3 +1,4 @@
+import type { BackupCredentials } from "@/backups/model";
 import type { ByorBackupsDeclaration, ByorContract } from "@/source/contract";
 
 /** Platform profile selected for this machine. */
@@ -18,10 +19,15 @@ export type BackupsConfig = {
   profiles: ByorBackupsDeclaration["profiles"];
   /** Machine-local log directory; supports platform builtin path bindings. */
   logDirectory?: string;
+  /** Native service names, not credential values. Required before running backup commands. */
+  credentials?: BackupCredentials;
+  /** Label used only when generating a macOS LaunchAgent. */
+  scheduleLabel?: string;
 } & (
-  | { alertUrl?: never; alertSender?: never; alertRecipient?: never }
+  | { alertsDisabled?: true; alertUrl?: never; alertSender?: never; alertRecipient?: never }
   | {
-      /** Full machine-specific POST /v1/alerts/<slug> endpoint. Omit all alert fields for legacy. */
+      alertsDisabled?: never;
+      /** Full POST /v1/alerts/<slug> endpoint. */
       alertUrl: string;
       alertSender: string;
       alertRecipient: ReadonlyArray<string>;

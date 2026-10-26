@@ -31,6 +31,7 @@ import {
   validateLinuxByorSource,
   validateMacosByorSource,
   validateWindowsByorSource,
+  type ByorBackupsDeclaration,
   type ByorContract,
   type ByorProfileDeclaration,
   type ByorWindowsShared,
@@ -705,21 +706,32 @@ function importedBackups(
   if (manifest === undefined) {
     return existing;
   }
-  const declaration = manifest.backups;
+  const declaration: ByorBackupsDeclaration = manifest.backups ?? {
+    defaultProfile: "",
+    profiles: {},
+  };
   const profiles = Object.fromEntries(
     Object.entries(existing?.profiles ?? {}).filter(([, profile]) => profile.platform !== platform),
   );
-  for (const [name, profile] of Object.entries(declaration?.profiles ?? {}).filter(
+  const imported = Object.entries(declaration.profiles).filter(
     ([, entry]) => entry.platform === platform,
-  )) {
+  );
+  for (const [name, profile] of imported) {
     if (profiles[name] !== undefined) {
       throw new Error(`Backup profile ${name} conflicts with an unrelated platform.`);
     }
     profiles[name] = profile;
   }
-  const preferred = declaration?.defaultProfile ?? "";
+  const preferred = declaration.defaultProfile;
   const profile = Object.hasOwn(profiles, preferred) ? preferred : Object.keys(profiles)[0];
-  return profile === undefined ? undefined : { ...existing, profile, profiles };
+  if (profile === undefined) {
+    return undefined;
+  }
+  const config: BackupsConfig = { ...existing, profile, profiles };
+  if (imported.length > 0 && declaration.credentials !== undefined) {
+    config.credentials = declaration.credentials;
+  }
+  return config;
 }
 
 function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatform, root?: string) {

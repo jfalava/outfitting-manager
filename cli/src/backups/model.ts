@@ -4,6 +4,27 @@ export class BackupError extends Schema.TaggedError<BackupError>()("BackupError"
   message: Schema.String,
 }) {}
 
+export const secretNames = [
+  "access-key",
+  "secret-key",
+  "repository-password",
+  "alert-token",
+] as const;
+export const SecretName = Schema.Literals(secretNames);
+export type SecretName = typeof SecretName.Type;
+const CredentialService = Schema.String.check(
+  Schema.makeFilter((value) => value.trim().length > 0),
+  // eslint-disable-next-line no-control-regex -- Native credential identities cannot contain controls.
+  Schema.isPattern(/^[^\u0000-\u001f\u007f-\u009f]+$(?![\s\S])/),
+);
+export const BackupCredentials = Schema.Struct({
+  "access-key": CredentialService,
+  "secret-key": CredentialService,
+  "repository-password": CredentialService,
+  "alert-token": CredentialService,
+}).check(Schema.makeFilter((value) => new Set(Object.values(value)).size === secretNames.length));
+export type BackupCredentials = typeof BackupCredentials.Type;
+
 // Job IDs are also receipt filenames and single Rustic identity tags.
 export const Job = Schema.String.check(
   Schema.isPattern(/^(?!check$|con$|prn$|aux$|nul$|com[1-9]$|lpt[1-9]$)[a-z0-9][a-z0-9_-]{0,63}$/),

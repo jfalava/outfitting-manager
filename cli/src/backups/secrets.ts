@@ -1,29 +1,8 @@
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
-import { BackupError } from "./model.ts";
+import { BackupError, secretNames, type SecretName, type BackupCredentials } from "./model.ts";
 import { Processes, parseJson } from "./process.ts";
 import { Settings } from "./settings.ts";
-
-export const secretNames = [
-  "access-key",
-  "secret-key",
-  "repository-password",
-  "alert-token",
-] as const;
-export const SecretName = Schema.Literals(secretNames);
-export type SecretName = typeof SecretName.Type;
-export const services = {
-  "access-key": "restic-s3-access-key",
-  "secret-key": "restic-s3-secret-key",
-  "repository-password": "restic-repo-ultramar-password",
-  "alert-token": "rustic-backup-alert-token",
-} satisfies Record<SecretName, string>;
-export const windowsServices = {
-  "access-key": "r2-access-key-id",
-  "secret-key": "r2-secret-access-key",
-  "repository-password": "restic-repo-password",
-  "alert-token": "rustic-backup-alert-token",
-} satisfies Record<SecretName, string>;
 
 export class Secrets extends Context.Service<
   Secrets,
@@ -32,8 +11,11 @@ export class Secrets extends Context.Service<
     set(name: SecretName, value: Redacted.Redacted<string>): Effect.Effect<void, BackupError>;
   }
 >()("backup/Secrets") {
-  static layer(account: string, platform: NodeJS.Platform = "darwin") {
-    const identities = platform === "win32" ? windowsServices : services;
+  static layer(
+    account: string,
+    identities: BackupCredentials,
+    platform: NodeJS.Platform = "darwin",
+  ) {
     const store = platform === "win32" ? "Credential Manager" : "Keychain";
     return Layer.succeed(
       Secrets,
@@ -87,12 +69,17 @@ export const importSecretStore = Effect.fn("importSecretStore")(function* (vault
   const settings = yield* Settings;
   const processes = yield* Processes;
   const secrets = yield* Secrets;
-  const script = `$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $values = @{}; ${secretNames
-    .map(
-      (name) =>
-        `$value = Get-Secret -Vault '${vault.replaceAll("'", "''")}' -Name '${windowsServices[name]}' -AsPlainText -ErrorAction ${name === "alert-token" ? "SilentlyContinue" : "Stop"}; if ($null -ne $value) { $values['${name}'] = $value };`,
-    )
-    .join(" ")} $values | ConvertTo-Json -Compress`;
+  const names = secretNames.filter(
+    (name) => name !== "alert-token" || settings.alert.protocol !== "disabled",
+  );
+  // Pass arbitrary native identities as data, never PowerShell source, including smart quotes.
+  const request = Buffer.from(
+    JSON.stringify({
+      vault,
+      credentials: names.map((name) => ({ name, service: settings.credentials[name] })),
+    }),
+  ).toString("base64");
+  const script = `$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${request}')) | ConvertFrom-Json; $values = @{}; foreach ($credential in $request.credentials) { $value = Get-Secret -Vault $request.vault -Name $credential.service -AsPlainText -ErrorAction Stop; if ($null -ne $value) { $values[$credential.name] = $value } }; $values | ConvertTo-Json -Compress`;
   const output = yield* processes
     .run("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", script])
     .pipe(
@@ -122,10 +109,12 @@ export const importSecretStore = Effect.fn("importSecretStore")(function* (vault
       () => new BackupError({ message: "SecretStore returned missing or invalid credentials." }),
     ),
   );
-  const present = secretNames.filter((name) => values[name] !== undefined);
-  for (const name of present) {
+  if (settings.alert.protocol !== "disabled" && values["alert-token"] === undefined) {
+    return yield* new BackupError({ message: "SecretStore returned missing alert-token." });
+  }
+  for (const name of names) {
     const existing = yield* Effect.tryPromise({
-      try: () => Bun.secrets.get({ service: windowsServices[name], name: settings.account }),
+      try: () => Bun.secrets.get({ service: settings.credentials[name], name: settings.account }),
       catch: () =>
         new BackupError({ message: "Could not inspect Credential Manager before import." }),
     });
@@ -135,11 +124,11 @@ export const importSecretStore = Effect.fn("importSecretStore")(function* (vault
       });
     }
   }
-  for (const name of present) {
+  for (const name of names) {
     yield* secrets.set(name, Redacted.make(values[name]!));
     if (Redacted.value(yield* secrets.get(name)) !== values[name]) {
       return yield* new BackupError({ message: `Credential ${name} failed import verification.` });
     }
   }
-  return present;
+  return names;
 });

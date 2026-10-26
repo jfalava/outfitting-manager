@@ -21,6 +21,20 @@ rustic --version
 
 ## Store credentials
 
+First import or configure a backup profile as described below. You can declare native service names in `backups.credentials` in `outfitting.json` and import them, or add this mapping directly to local `config.toml`. Backup commands refuse incomplete identity or alert settings before accessing the native store. The configuration wizard still opens incomplete configurations so you can migrate them.
+
+```toml
+[backups.credentials]
+access-key = "workstation-backup-access-key"
+secret-key = "workstation-backup-secret-key"
+repository-password = "workstation-backup-repository-password"
+alert-token = "workstation-backup-alert-token"
+```
+
+All four logical keys are required, with no defaults or extra keys. Choose distinct, nonblank service names without control characters. Windows names must also be distinct ignoring case. Accepted strings retain their exact spelling. These are native store identifiers, not secret values; the account remains the scheduled OS user's name. A manifest may declare the names, but secret values stay in the native store, never in `outfitting.json` or Rustic files.
+
+Explicit manifest import copies its mapping into local config when it imports backup profiles for the current platform. A declared mapping replaces the existing local one; omission preserves it. A manifest containing only another platform's backups cannot replace these names. After import, local config remains authoritative. `nix switch` and source refresh do not import settings or rewrite config.
+
 Use `backups secrets set` to enter credentials in a prompt. The CLI stores them in the OS credential store and supplies repository credentials to Rustic at run time; values are not accepted as command arguments or saved in your repository configuration.
 
 - macOS: Keychain
@@ -35,7 +49,7 @@ Set these credentials on each machine:
 | `repository-password` | Password that encrypts the Rustic repository.              |
 | `alert-token`         | Bearer token for failure and review alerts.                |
 
-Run `secrets check` after setting them. It verifies all four credentials, including the alert token.
+Configure alerts or explicitly disable them as described below before running these commands. Run `secrets check` after setting credentials. It verifies all four when alerts are enabled. With `alertsDisabled = true`, skip `secrets set alert-token`; checks and backup operations never look up that token, but its service-name mapping remains required.
 
 ```sh
 outfitting-manager backups secrets set access-key
@@ -61,6 +75,12 @@ Backup profiles are separate from package profiles. Declare a profile in your `o
   },
   "backups": {
     "defaultProfile": "personal",
+    "credentials": {
+      "access-key": "workstation-backup-access-key",
+      "secret-key": "workstation-backup-secret-key",
+      "repository-password": "workstation-backup-repository-password",
+      "alert-token": "workstation-backup-alert-token"
+    },
     "profiles": {
       "personal": {
         "platform": "macos",
@@ -83,10 +103,11 @@ Replace the package profile with your own declarations. The `files` paths are re
 ```sh
 outfitting-manager config wizard \
   --manifest system/macos/outfitting.json
+# The manifest imports service names; configure local alert settings before checking readiness.
 outfitting-manager backups doctor
 ```
 
-For a local setup, use `schema = 2` and declare the same profile and policies in `config.toml`:
+For a local setup, use `schema = 2` and declare the same profile and policies in `config.toml`. Combine this with the credential mapping above and one of the alert configurations below; do not duplicate TOML table headers:
 
 ```toml
 schema = 2
@@ -130,47 +151,43 @@ The override accepts an absolute path and platform builtin substitutions, not pr
 
 Newly generated macOS LaunchAgents use the same directory for `rustic-wrapper.log` and `rustic-wrapper.error.log`. Create that directory before loading the LaunchAgent: launchd opens these files before starting the CLI. Generation remains print-only. Existing installed schedules are not updated, and their captured stdout/stderr paths do not change until explicitly regenerated and installed.
 
-### Select the standalone alert service
+### Configure alerts or explicitly disable them
 
-Configurations without alert settings keep posting the legacy backup payload to `https://backup-alert.jfalava.workers.dev/`. To opt in to the standalone service, set all three alert fields under the local `[backups]` table, alongside `profile`:
+Set all three alert fields under the local `[backups]` table, alongside `profile`. There is no default endpoint or legacy payload fallback. If these settings are absent, backup commands refuse to run until you configure alerts or explicitly disable them.
 
 ```toml
 [backups]
 profile = "personal"
-alertUrl = "https://<approved-host>/v1/alerts/backups-jfa-mac-mini"
-alertSender = "jfa-mac-mini@alerts.jfa.dev"
-alertRecipient = ["backup-alerts@jfa.dev"]
+alertUrl = "https://alerts.example.com/v1/alerts/workstation-backups"
+alertSender = "workstation@alerts.example.com"
+alertRecipient = ["backup-operator@example.com"]
 ```
 
-The example selects the Mac machine identity. Windows uses the other row below. Both send to `backup-alerts@jfa.dev`:
+Use your service's canonical HTTPS URL with path `/v1/alerts/<slug>`. The slug must match `[a-z0-9]+(?:-[a-z0-9]+)*`: lowercase ASCII letters and digits in segments joined by single hyphens. URL credentials, queries, fragments, trailing slashes, and encoded or path-normalized aliases are rejected. The CLI has no host or platform-route allowlist; the server owns route and addressing authorization. This is local manager configuration, not an `outfitting.json` or Rustic setting. Wizard edits and manifest re-import preserve these fields. Scheduled invocations read the same config file.
 
-| Machine | Endpoint path                     | `alertSender`                 |
-| ------- | --------------------------------- | ----------------------------- |
-| macOS   | `/v1/alerts/backups-jfa-mac-mini` | `jfa-mac-mini@alerts.jfa.dev` |
-| Windows | `/v1/alerts/backups-jfa-windows`  | `jfa-windows@alerts.jfa.dev`  |
+All jobs in the selected profile use the configured endpoint and `alert-token` service name; there are no per-job credentials, selector headers, or fan-out. Store the service's token using `outfitting-manager backups secrets set alert-token`, not in TOML or environment variables. Equal service names on separate devices do not imply shared token values.
 
-Use the full HTTPS endpoint from the approved `alert-worker` deployment output; the example host is not provisioned here. Only these two canonical paths are accepted, with no URL credentials, query, fragment, trailing slash, or encoded/path-normalized aliases. The selected profile's platform must match its machine route. The old `/v1/alerts`, `/v1/alerts/backups`, and per-job routes are not supported. This is local manager configuration, not an `outfitting.json` or Rustic setting. Wizard edits and manifest re-import preserve all three fields. Scheduled invocations read the same config file, so no extra scheduler environment variable is needed. Partial alert configuration fails validation; it never silently selects the legacy service.
+To disable alerts instead, omit all three addressing fields and set:
 
-All jobs on one machine share that machine's route and token; there are no per-job credentials, selector headers, or fan-out. Provision **different token values** for Mac and Windows. The native `alert-token` remains `rustic-backup-alert-token` under the scheduled user's account in each device's Keychain or Credential Manager. Equal native identity names on separate devices do not imply shared values. The existing interactive `outfitting-manager backups secrets set alert-token` command stays unchanged; do not put tokens in TOML or environment variables. Windows SecretStore import retains its existing identities and does not provision the new server credentials.
+```toml
+[backups]
+profile = "personal"
+alertsDisabled = true
+```
 
-`alertSender` is one bare mailbox; `alertRecipient` contains 1–50 distinct bare mailboxes, all visible in the email's To field. The Worker currently allows only the machine sender in the table and the shared `backup-alerts@jfa.dev` recipient. Mailboxes use ASCII dot-atom local parts (up to 64 characters) and DNS domains (labels up to 63 characters), with at most 254 characters overall. Display names, whitespace, quoted local parts, domain literals, and non-ASCII addresses are rejected. Domain case is ignored for duplicate and allowlist checks, but local-part case is significant; the CLI preserves supplied case. Local validation checks syntax, counts, and duplicates, not the server's live allowlists. A syntactically valid address outside the configured allowlists still fails with 403.
+Opt-out is mutually exclusive with `alertUrl`, `alertSender`, and `alertRecipient`. It skips alert delivery and all alert-token lookups, including `secrets check`. Keep all four keys in `[backups.credentials]`. Changing credentials, `scheduleLabel`, or `alertsDisabled` does not invalidate the source cache. Alert addressing retains its existing source-hash behavior; refresh the validated remote cache after changing it.
 
-The CLI sends `POST` to the configured machine endpoint with `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains required `sender` and `recipient` (an array), `title`, `message`, `severity: "error"`, an ISO timestamp with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Repository-wide/check failures use the **same machine endpoint and token**, with `metadata: { hostname, operation }` and no invented job name. The authenticated route identifies the machine; the job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
+`alertSender` is one bare mailbox; `alertRecipient` contains 1–50 distinct bare mailboxes, all visible in the email's To field. Mailboxes use ASCII dot-atom local parts (up to 64 characters) and DNS domains (labels up to 63 characters), with at most 254 characters overall. Display names, whitespace, quoted local parts, domain literals, and non-ASCII addresses are rejected. Domain case is ignored for duplicate checks, but local-part case is significant; the CLI preserves supplied case. Local validation checks syntax, counts, and duplicates, not the server's live authorization. A syntactically valid address can still fail with 403.
+
+The CLI sends `POST` to the configured endpoint using the v1 protocol with `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains required `sender` and `recipient` (an array), `title`, `message`, `severity: "error"`, an ISO timestamp with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Repository-wide/check failures use the same endpoint and token, with `metadata: { hostname, operation }` and no invented job name. The job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
 
 The CLI strips NUL from messages, keeps its existing 4,000 UTF-16-unit message cap, and bounds control-free titles to 200 UTF-16 units. It rejects serialized bodies over 32,768 actual UTF-8 bytes locally, including all addressing and metadata. Only HTTP 202 with `{ "sent": true, "message_id": "..." }` and a nonempty ID confirms provider acceptance, not inbox delivery.
 
 Rejected responses never confirm acceptance: 400 indicates invalid payload, 401 authentication or disabled service, 403 an address outside the service allowlists, 404 a wrong route, 413 an oversized body, 415 unsupported encoding, 502 provider failure, and 503 unavailable service configuration or bindings. A 403 rejects the whole recipient list without sending any email. Fix configuration or provisioning rather than retrying rejected requests.
 
-Cut over each host separately, with explicit approval for deployment, server secrets, and host changes:
-
-1. Deploy the standalone service and obtain its endpoint. Independently provision the pinned credentials `ALERT_WORKER_BACKUPS_JFA_MAC_MINI_TOKEN` and `ALERT_WORKER_BACKUPS_JFA_WINDOWS_TOKEN` with distinct values, and the approved machine allowlists. The checked-in Worker desired state leaves both machine services disabled; activation is a separate approved change after provider/binding readiness is verified. The legacy Worker's secrets remain untouched. Do not rename or overwrite native credentials as part of installing this CLI.
-2. For each machine service, send a controlled request with its provisioned credential and approved addressing after approved activation. Verify HTTP 202 and receipt of the email, and verify that the other machine's token is rejected. A successful health check or partial validation does not verify delivery. Do not deliberately fail a real backup for this test.
-3. Pause scheduled invocations briefly. Set that machine's approved endpoint, sender, and recipient array together in local `config.toml`; explicitly update its `alert-token` through the native prompt if the token changes, retaining the old value securely for rollback. Verify the selected endpoint, addressing, and token before resuming the schedule. Repository credentials and backup receipts do not change. Earlier standalone configurations must replace the shared or unscoped URL with the correct machine route; no automatic migration writes host settings.
-4. On rollback, pause scheduling, remove all three fields (`backups.alertUrl`, `backups.alertSender`, and `backups.alertRecipient`), restore the old token if it changed, then resume. Verify the old endpoint and credential still work before relying on rollback; a revoked legacy credential cannot be restored by this CLI. There is no automatic fallback from v1 to legacy after a rejection or timeout.
-
 Requests have a 20-second timeout, no automatic retry, and no idempotency guarantee. A timeout can occur after provider acceptance; retrying manually or on a later failed backup may duplicate email. Alert errors only log a warning and never replace the backup result.
 
-The legacy default exists only for staged cutover. Remove the legacy endpoint and payload branch once **every scheduled host** has a verified v1 endpoint/token pair and the rollback window is closed. Retiring the old Worker, its infrastructure state, or its secrets is a separate approved operation. Installing this CLI alone does not deploy the service, change any host configuration or credentials, or retire the old Worker.
+Before enabling alerts, verify a controlled request with the service's provisioned token and approved addressing, checking HTTP 202 and inbox receipt. Do not deliberately fail a real backup. Installing this CLI does not deploy a service, edit live host settings or credentials, or replace schedules. Those actions and any native credential approval remain manual.
 
 ### Configure the Rustic TOML files
 
@@ -226,6 +243,24 @@ skipIfProcessesRunning = ["ExampleEditor", "Editor_Helper"]
 ```
 
 ### Migrate an existing backup configuration
+
+Before upgrading, keep a matched copy of the previous binary, local config, and validated source cache for rollback. Pause schedules and add explicit credential service names matching the entries already in your native store; no credential rename or copy is required. For example, the historical macOS Ultramar mapping was:
+
+```toml
+[backups.credentials]
+access-key = "restic-s3-access-key"
+secret-key = "restic-s3-secret-key"
+repository-password = "restic-repo-ultramar-password"
+alert-token = "rustic-backup-alert-token"
+```
+
+The historical Windows R2 mapping used `r2-access-key-id`, `r2-secret-access-key`, `restic-repo-password`, and `rustic-backup-alert-token`, respectively. These names are migration examples, not defaults. SecretStore import reads these configured service names in the source vault and uses the same names in Credential Manager; it preflights destination conflicts before writing.
+
+Also configure the complete v1 alert settings or explicitly set `alertsDisabled = true`. Removing alert fields alone no longer enables backups. The wizard tolerates missing readiness settings, but backup commands fail before native access until configuration is complete. Check `doctor` for resolved service names, alert configuration, and schedule label without exposing secret values.
+
+New macOS schedules default to `dev.outfitting.backups.<selected-profile>`. To preserve an existing LaunchAgent identity when generating a replacement, set `scheduleLabel = "com.jfa.rustic-backup"` in the local `[backups]` table. Custom labels must match `[A-Za-z0-9][A-Za-z0-9._-]{0,254}`. Generation does not install or relabel live schedules. The caller registering a Windows task chooses its task name. Keep only one scheduled writer per repository.
+
+This identity cleanup does not change repository hashes, receipt or lock locations, or backup sources. Credential mappings, `scheduleLabel`, and `alertsDisabled` are excluded from the source hash. Native permission prompts and cutover approval remain manual. To roll back, pause schedules and restore the matched previous binary, config, and cache; restore any separately changed token securely. Do not rely on deleting alert fields to select a legacy endpoint in the new binary.
 
 Backup declarations now require manifest schema 3 and local config schema 2. Older backup-bearing configurations are rejected rather than silently losing implicit policies. Configurations without backups remain readable.
 

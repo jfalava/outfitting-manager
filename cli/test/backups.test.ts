@@ -15,7 +15,7 @@ import { loadBackupSettings } from "@/backups/settings";
 import { loadConfig } from "@/config/load";
 import { buildWizardConfigDocument } from "@/config/wizard";
 import { syncByorSparseSource } from "@/setup/source";
-import { normalizeBackups, parseByorContract } from "@/source/contract";
+import { normalizeBackups, parseByorContract, parseByorContractJson } from "@/source/contract";
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof os>();
@@ -51,10 +51,146 @@ const base = {
   backup: { snapshots: [documents] },
 };
 const alertConfig = {
-  alertUrl: "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini",
-  alertSender: "jfa-mac-mini@alerts.jfa.dev",
-  alertRecipient: ["backup-alerts@jfa.dev"],
+  alertUrl: "https://alerts.invalid/v1/alerts/archive-laptop",
+  alertSender: "laptop@alerts.example.net",
+  alertRecipient: ["backups@example.net"],
 };
+const credentials = {
+  "access-key": "team storage access",
+  "secret-key": "team storage secret",
+  "repository-password": "archive passphrase",
+  "alert-token": "notification token",
+};
+
+test("missing backup identities remain editable but fail before source access", async () => {
+  const root = await tempRoot();
+  const contract = parseByorContract({
+    schema: 3,
+    profiles: { desk: { macos: { nix: { flake: "missing", attribute: "desk" } } } },
+    backups: {
+      defaultProfile: "archive",
+      profiles: { archive: { platform: "macos", files: ["missing.toml"] } },
+    },
+  });
+  const document = buildWizardConfigDocument(
+    contract,
+    { path: root },
+    { platform: "macos", profiles: ["desk"], manifest: contract },
+  );
+  expect(document.backups?.alertsDisabled).toBeUndefined();
+  await writeFile(join(root, "config.toml"), stringify(document));
+  const config = await loadConfig({ stateRoot: root });
+  await expect(loadBackupSettings(config, undefined, "darwin")).rejects.toThrow(
+    "backups.credentials",
+  );
+  config.backups!.credentials = credentials;
+  await expect(loadBackupSettings(config, undefined, "darwin")).rejects.toThrow(
+    "backups.alertsDisabled",
+  );
+});
+
+test.each([
+  { ...credentials, "access-key": "Access", "secret-key": "access" },
+  { ...credentials, "repository-password": "Archive Password", "alert-token": "ARCHIVE PASSWORD" },
+])("Windows rejects case-only credential collisions before source access: %j", async (mapping) => {
+  const root = await tempRoot();
+  await writeFile(
+    join(root, "config.toml"),
+    stringify({
+      schema: 2,
+      backups: {
+        profile: "archive",
+        credentials: mapping,
+        alertsDisabled: true,
+        profiles: { archive: { platform: "windows", files: ["missing.toml"] } },
+      },
+    }),
+  );
+  const config = await loadConfig({ stateRoot: root });
+  await expect(loadBackupSettings(config, undefined, "win32")).rejects.toThrow(
+    "case-insensitively distinct",
+  );
+});
+
+test.each([
+  { credentials: {} },
+  { credentials: { ...credentials, "alert-token": undefined } },
+  { credentials: { ...credentials, typo: "unknown" } },
+  { credentials: { ...credentials, "access-key": "   " } },
+  { credentials: { ...credentials, "secret-key": "bad\nname" } },
+  { credentials: { ...credentials, "repository-password": "bad\0name" } },
+  { credentials: { ...credentials, "alert-token": credentials["secret-key"] } },
+  ...["", "../agent", "label with space", "label\n", "a".repeat(256)].map((scheduleLabel) => ({
+    scheduleLabel,
+  })),
+])("rejects invalid native identities or schedule labels: %j", async (identities) => {
+  const root = await tempRoot();
+  await writeFile(
+    join(root, "config.toml"),
+    stringify({
+      schema: 2,
+      backups: {
+        profile: "archive",
+        profiles: { archive: { platform: "macos", files: ["missing.toml"] } },
+        ...identities,
+      },
+    }),
+  );
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  if ("credentials" in identities) {
+    expect(() =>
+      parseByorContractJson(
+        JSON.stringify({
+          schema: 3,
+          profiles: { desk: { macos: { nix: { flake: "nix", attribute: "desk" } } } },
+          backups: {
+            defaultProfile: "archive",
+            profiles: { archive: { platform: "macos", files: ["jobs.toml"] } },
+            ...identities,
+          },
+        }),
+      ),
+    ).toThrow();
+  }
+});
+
+test.each(["macos", "windows"] as const)(
+  "%s manifest credentials import exactly and round-trip through local config",
+  async (platform) => {
+    const root = await tempRoot();
+    const mapping = {
+      "access-key": " Archive’s Access ",
+      "secret-key": "Team's storage secret",
+      "repository-password": "Repository password 42",
+      "alert-token": "Notification token 19",
+    };
+    const contract = parseByorContract({
+      schema: 3,
+      profiles: {
+        desk: {
+          [platform]:
+            platform === "macos"
+              ? { nix: { flake: "nix", attribute: "desk" } }
+              : { winget: { manifest: "packages.txt" } },
+        },
+      },
+      backups: {
+        defaultProfile: "archive",
+        credentials: mapping,
+        profiles: { archive: { platform, files: ["jobs.toml"] } },
+      },
+    });
+    expect(contract.backups?.credentials).toEqual(mapping);
+    const document = buildWizardConfigDocument(
+      contract,
+      { path: root },
+      { platform, profiles: ["desk"], manifest: contract },
+    );
+    expect(document.backups?.credentials).toEqual(mapping);
+    await writeFile(join(root, "config.toml"), stringify(document));
+    expect((await loadConfig({ stateRoot: root })).backups?.credentials).toEqual(mapping);
+  },
+);
 
 test.each(["macos", "windows"] as const)(
   "%s resolves explicit paths without changing spelling or repository identity",
@@ -89,6 +225,8 @@ test.each(["macos", "windows"] as const)(
       source: { path: root },
       backups: {
         profile: "personal",
+        credentials,
+        alertsDisabled: true,
         logDirectory:
           platform === "windows" ? "${LOCALAPPDATA}/Backup Logs" : "${HOME}/Backup Logs",
         profiles: { personal: { platform, files: ["jobs.toml"], paths } },
@@ -196,7 +334,12 @@ test.each([
   );
   const config = await loadConfig({ stateRoot: root });
   config.source = { kind: "local", path: root };
-  config.backups = { profile: "one", profiles: { one: { platform, files: ["jobs.toml"] } } };
+  config.backups = {
+    profile: "one",
+    credentials,
+    alertsDisabled: true,
+    profiles: { one: { platform, files: ["jobs.toml"] } },
+  };
   await expect(
     loadBackupSettings(config, undefined, platform === "windows" ? "win32" : "darwin"),
   ).rejects.toThrow(/backup (substitution|path)/i);
@@ -335,11 +478,18 @@ test("rejects external symlinks, unsupported substitutions, and unknown Rustic k
 
 test("manifest re-import replaces current-platform backups, preserves other platforms and ordered runtime files", async () => {
   const root = await tempRoot();
+  const staleCredentials = {
+    "access-key": "old access",
+    "secret-key": "old secret",
+    "repository-password": "old password",
+    "alert-token": "old notification",
+  };
   const contract = parseByorContract({
     schema: 3,
     profiles: { desk: { windows: { winget: { manifest: "packages.txt" } } } },
     backups: {
       defaultProfile: "gaming",
+      credentials,
       profiles: { gaming: { platform: "windows", files: ["common.toml", "gaming.toml"] } },
     },
   });
@@ -353,6 +503,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
       existing: {
         backups: {
           profile: "old",
+          credentials: staleCredentials,
           ...alertConfig,
           profiles: {
             old: { platform: "windows", files: ["stale.toml"] },
@@ -364,6 +515,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
   );
   expect(document.backups).toEqual({
     profile: "gaming",
+    credentials,
     ...alertConfig,
     profiles: {
       mac: { platform: "macos", files: ["mac.toml"] },
@@ -389,9 +541,26 @@ test("manifest re-import replaces current-platform backups, preserves other plat
     ).backups,
   ).toEqual({
     profile: "mac",
+    credentials,
     ...alertConfig,
     profiles: { mac: { platform: "macos", files: ["mac.toml"] } },
   });
+  const foreignManifest = parseByorContract({
+    schema: 3,
+    profiles: contract.profiles,
+    backups: {
+      defaultProfile: "other-mac",
+      credentials: staleCredentials,
+      profiles: { "other-mac": { platform: "macos", files: ["other.toml"] } },
+    },
+  });
+  expect(
+    buildWizardConfigDocument(
+      contract,
+      { path: root },
+      { platform: "windows", profiles: ["desk"], manifest: foreignManifest, existing: document },
+    ).backups?.credentials,
+  ).toEqual(credentials);
   await expect(loadBackupSettings(config, "gaming", "darwin")).rejects.toThrow("not this host");
   await expect(loadBackupSettings(config, "missing", "win32")).rejects.toThrow("Select a declared");
   await expect(loadBackupSettings(config, "mac", "linux")).rejects.toThrow(
@@ -405,12 +574,13 @@ test("manifest re-import replaces current-platform backups, preserves other plat
 });
 
 test.each([
-  "https://backup-alert.jfalava.workers.dev/",
-  "https://backup-alert.jfalava.workers.dev/v1/alerts/backups-jfa-mac-mini",
+  "https://alerts.invalid/",
   "https://alerts.invalid/v1/alerts",
-  "https://alerts.invalid/v1/alerts/backups",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini-documents",
-  "https://alerts.invalid/v1/alerts/backups-jfa-windows-ffxiv-mods",
+  "https://alerts.invalid/v1/alerts/Uppercase",
+  "https://alerts.invalid/v1/alerts/a--b",
+  "https://alerts.invalid/v1/alerts/-leading",
+  "https://alerts.invalid/v1/alerts/trailing-",
+  "https://alerts.invalid/v1/alerts/extra/path",
   "http://alerts.invalid/v1/alerts/backups-jfa-mac-mini",
   "https://token@alerts.invalid/v1/alerts/backups-jfa-mac-mini",
   "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini?token=secret",
@@ -421,7 +591,7 @@ test.each([
   "https://alerts.invalid/v1/alerts/%62ackups-jfa-mac-mini",
   "https://alerts.invalid/v1/alerts/other/../backups-jfa-mac-mini",
   "not a URL",
-])("rejects an unsafe or non-machine alert URL: %s", async (alertUrl) => {
+])("rejects an unsafe or noncanonical alert URL: %s", async (alertUrl) => {
   const root = await tempRoot();
   await writeFile(
     join(root, "config.toml"),
@@ -439,6 +609,9 @@ test.each([
 });
 
 test.each([
+  { alertsDisabled: true, ...alertConfig },
+  { alertsDisabled: true, alertSender: alertConfig.alertSender },
+  { alertsDisabled: false },
   { alertUrl: alertConfig.alertUrl },
   { alertSender: alertConfig.alertSender },
   { alertRecipient: alertConfig.alertRecipient },
@@ -505,11 +678,11 @@ test.each([1, 50])("accepts %i distinct recipients and preserves mailbox case", 
     }),
   );
   const config = await loadConfig({ stateRoot: root });
-  expect(config.backups?.alertSender).toBe("jfa-mac-mini@alerts.jfa.dev");
+  expect(config.backups?.alertSender).toBe("laptop@alerts.example.net");
   expect(config.backups?.alertRecipient).toEqual(recipient);
 });
 
-test("rejects per-job alert maps rather than silently using legacy", async () => {
+test("rejects per-job alert maps rather than silently disabling alerts", async () => {
   const root = await tempRoot();
   await writeFile(
     join(root, "config.toml"),
@@ -581,9 +754,26 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
   );
   config.backups.profiles.mac!.files.reverse();
   config.backups.logDirectory = "/different/logs";
+  config.backups.credentials = credentials;
+  config.backups.scheduleLabel = "org.example.backup";
+  config.backups.alertsDisabled = true;
   await expect(syncByorSparseSource({ ...options, offline: true })).resolves.toMatchObject({
     root: sourceRoot,
   });
+  config.declarations = parseByorContract({
+    ...config.declarations,
+    schema: 3,
+    backups: {
+      defaultProfile: "manifest-only",
+      credentials: { ...credentials, "access-key": "different manifest service" },
+      profiles: { "manifest-only": { platform: "macos", files: ["not-fetched.toml"] } },
+    },
+  });
+  await expect(syncByorSparseSource({ ...options, offline: true })).resolves.toMatchObject({
+    root: sourceRoot,
+  });
+  vi.mocked(os.homedir).mockReturnValue("/Users/fixture");
+  expect((await loadBackupSettings(config, undefined, "darwin")).credentials).toEqual(credentials);
   config.backups.profiles.mac!.paths = { PHOTOS: "${HOME}/Pictures" };
   await expect(syncByorSparseSource({ ...options, offline: true })).rejects.toThrow(
     "does not match",
@@ -635,6 +825,8 @@ test.each(["macos", "windows"] as const)(
       source: { path: root },
       backups: {
         profile: "personal",
+        credentials,
+        alertsDisabled: true,
         profiles: { personal: { platform, files: ["jobs.toml"], jobs: policies } },
       },
     };
@@ -652,25 +844,25 @@ test.each(["macos", "windows"] as const)(
     expect(first.sources.photos).toEqual([
       platform === "windows" ? "D:/Backup Sources/photos" : "/Volumes/Data/photos",
     ]);
-    expect(first.alert).toEqual({
-      protocol: "legacy-backup",
-      url: "https://backup-alert.jfalava.workers.dev/",
-    });
+    expect(first.alert).toEqual({ protocol: "disabled" });
+    expect(first.credentials).toEqual(credentials);
+    expect(first.scheduleLabel).toBe("dev.outfitting.backups.personal");
     const hash = first.repository;
     config.backups!.profiles.personal!.jobs = { photos: { retention: { "keep-monthly": 9 } } };
     const machineAlert =
       platform === "windows"
         ? {
             ...alertConfig,
-            alertUrl: "https://alerts.invalid/v1/alerts/backups-jfa-windows",
-            alertSender: "jfa-windows@alerts.jfa.dev",
+            alertUrl: "https://alerts.invalid/v1/alerts/storage-desktop",
+            alertSender: "desktop@alerts.example.net",
           }
         : alertConfig;
+    const { alertsDisabled: _alertsDisabled, ...enabledBackups } = config.backups!;
     await writeFile(
       join(root, "config.toml"),
       stringify({
         ...local,
-        backups: { ...config.backups, ...machineAlert },
+        backups: { ...enabledBackups, scheduleLabel: "org.example.archive", ...machineAlert },
       }),
     );
     const second = await loadBackupSettings(
@@ -684,22 +876,22 @@ test.each(["macos", "windows"] as const)(
       protocol: "v1",
       url: machineAlert.alertUrl,
       sender: machineAlert.alertSender,
-      recipient: ["backup-alerts@jfa.dev"],
+      recipient: ["backups@example.net"],
     });
-    const wrongMachine = {
+    expect(second.scheduleLabel).toBe("org.example.archive");
+    const differentRoute = {
       ...config,
       backups: {
-        ...config.backups!,
+        ...enabledBackups,
         ...machineAlert,
-        alertUrl:
-          platform === "windows"
-            ? alertConfig.alertUrl
-            : "https://alerts.invalid/v1/alerts/backups-jfa-windows",
+        alertUrl: "https://alerts.invalid/v1/alerts/unrelated-device-42",
       },
     };
     await expect(
-      loadBackupSettings(wrongMachine, undefined, platform === "macos" ? "darwin" : "win32"),
-    ).rejects.toThrow("requires the machine alert route");
+      loadBackupSettings(differentRoute, undefined, platform === "macos" ? "darwin" : "win32"),
+    ).resolves.toMatchObject({
+      alert: { url: "https://alerts.invalid/v1/alerts/unrelated-device-42" },
+    });
     await writeFile(
       join(root, "jobs.toml"),
       stringify({ ...base, backup: { snapshots: [snapshots[1]!] } }),
@@ -752,6 +944,9 @@ test("paths and policies round-trip through import and local config; re-import r
         backups: {
           profile: "desk",
           logDirectory: "${LOCALAPPDATA}/Backup Logs",
+          credentials,
+          alertsDisabled: true,
+          scheduleLabel: "org.example.existing",
           profiles: {
             desk: {
               platform: "windows",
@@ -768,6 +963,9 @@ test("paths and policies round-trip through import and local config; re-import r
   expect(document.backups?.profiles.desk?.jobs).toEqual(jobs);
   expect(document.backups?.profiles.desk?.paths).toEqual(paths);
   expect(document.backups?.logDirectory).toBe("${LOCALAPPDATA}/Backup Logs");
+  expect(document.backups?.credentials).toEqual(credentials);
+  expect(document.backups?.alertsDisabled).toBe(true);
+  expect(document.backups?.scheduleLabel).toBe("org.example.existing");
   await writeFile(join(root, "config.toml"), stringify(document));
   expect((await loadConfig({ stateRoot: root })).backups).toEqual(document.backups);
   const edited = buildWizardConfigDocument(
@@ -778,6 +976,9 @@ test("paths and policies round-trip through import and local config; re-import r
   expect(edited.backups?.profiles.desk?.jobs).toEqual(jobs);
   expect(edited.backups?.profiles.desk?.paths).toEqual(paths);
   expect(edited.backups?.logDirectory).toBe(document.backups?.logDirectory);
+  expect(edited.backups?.credentials).toEqual(credentials);
+  expect(edited.backups?.alertsDisabled).toBe(true);
+  expect(edited.backups?.scheduleLabel).toBe("org.example.existing");
   await writeFile(join(root, "config.toml"), stringify({ ...document, schema: 1 }));
   await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
     "Migrate retention overrides and process guards",

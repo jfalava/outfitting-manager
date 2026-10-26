@@ -242,37 +242,31 @@ export class Backup extends Context.Service<
 
       const notify = Effect.fn("MacBackup.notify")(
         function* (operation: string, message: string, job?: Job) {
+          if (config.alert.protocol === "disabled") {
+            return;
+          }
           const token = yield* secrets.get("alert-token");
           const timestamp = DateTime.formatIso(yield* DateTime.now);
-          const payload =
-            config.alert.protocol === "v1"
-              ? {
-                  sender: config.alert.sender,
-                  recipient: config.alert.recipient,
-                  title: `Backup alert: ${operation} on ${config.hostname}`
-                    // eslint-disable-next-line no-control-regex -- Email subjects cannot contain controls.
-                    .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-                    .slice(0, 200)
-                    .trim(),
-                  message: message.replaceAll("\0", "").slice(0, 4_000),
-                  severity: "error",
-                  timestamp,
-                  // No numeric exit code survives all backup validation failures.
-                  metadata: {
-                    hostname: config.hostname,
-                    operation,
-                    job,
-                  },
-                }
-              : {
-                  hostname: config.hostname,
-                  operation,
-                  exit_code: "unknown",
-                  timestamp,
-                  message: message.slice(0, 4_000),
-                };
+          const payload = {
+            sender: config.alert.sender,
+            recipient: config.alert.recipient,
+            title: `Backup alert: ${operation} on ${config.hostname}`
+              // eslint-disable-next-line no-control-regex -- Email subjects cannot contain controls.
+              .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+              .slice(0, 200)
+              .trim(),
+            message: message.replaceAll("\0", "").slice(0, 4_000),
+            severity: "error",
+            timestamp,
+            // No numeric exit code survives all backup validation failures.
+            metadata: {
+              hostname: config.hostname,
+              operation,
+              job,
+            },
+          };
           const body = JSON.stringify(payload);
-          if (config.alert.protocol === "v1" && Buffer.byteLength(body, "utf8") > 32_768) {
+          if (Buffer.byteLength(body, "utf8") > 32_768) {
             return yield* localFailure("Alert payload exceeds the service's 32 KiB limit.");
           }
           const response = yield* client.execute(
@@ -281,14 +275,12 @@ export class Backup extends Context.Service<
               HttpClientRequest.bodyText(body, "application/json"),
             ),
           );
-          if (config.alert.protocol === "v1") {
-            if (response.status !== 202) {
-              return yield* localFailure("Alert service did not confirm provider acceptance.");
-            }
-            yield* Schema.decodeUnknownEffect(
-              Schema.Struct({ sent: Schema.Literal(true), message_id: Schema.NonEmptyString }),
-            )(yield* response.json);
+          if (response.status !== 202) {
+            return yield* localFailure("Alert service did not confirm provider acceptance.");
           }
+          yield* Schema.decodeUnknownEffect(
+            Schema.Struct({ sent: Schema.Literal(true), message_id: Schema.NonEmptyString }),
+          )(yield* response.json);
         },
         Effect.timeout("20 seconds"),
         Effect.catch(() =>

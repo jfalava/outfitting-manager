@@ -10,7 +10,7 @@ import type { ManagerConfig } from "@/config/types";
 import { syncByorSparseSource } from "@/setup/source";
 import type { BackupPlatform } from "@/source/contract";
 
-import { BackupError, Profile, type JobPolicy, type Job } from "./model.ts";
+import { BackupError, Profile, type BackupCredentials, type JobPolicy, type Job } from "./model.ts";
 import {
   requireAbsoluteBackupPath,
   resolveBackupBindings,
@@ -28,8 +28,10 @@ export interface SettingsData {
   readonly stateDirectory: string;
   readonly logFile: string;
   readonly logDirectory: string;
+  readonly credentials: BackupCredentials;
+  readonly scheduleLabel: string;
   readonly alert:
-    | { readonly protocol: "legacy-backup"; readonly url: string }
+    | { readonly protocol: "disabled" }
     | {
         readonly protocol: "v1";
         readonly url: string;
@@ -125,6 +127,23 @@ export async function loadBackupSettings(
   platform = process.platform,
 ): Promise<SettingsData> {
   const { name, declaration, backups } = selectProfile(manager, requested, platform);
+  if (backups.credentials === undefined) {
+    throw new Error("Declare native service names in backups.credentials before using backups.");
+  }
+  const services = Object.values(backups.credentials);
+  if (
+    new Set(services.map((service) => (platform === "win32" ? service.toUpperCase() : service)))
+      .size !== services.length
+  ) {
+    throw new Error(
+      "backups.credentials requires distinct service names, case-insensitively distinct on Windows.",
+    );
+  }
+  if (backups.alertUrl === undefined && backups.alertsDisabled !== true) {
+    throw new Error(
+      "Configure backup alert addressing or explicitly set backups.alertsDisabled = true.",
+    );
+  }
   const repoRoot =
     manager.source?.kind === "local"
       ? manager.source.path
@@ -145,26 +164,18 @@ export async function loadBackupSettings(
     substituteBackupPaths(backups.logDirectory ?? host.logDirectory, builtins),
     declaration.platform,
   );
-  if (backups.alertUrl !== undefined) {
-    const expected =
-      platform === "win32" ? "/v1/alerts/backups-jfa-windows" : "/v1/alerts/backups-jfa-mac-mini";
-    if (new URL(backups.alertUrl).pathname !== expected) {
-      throw new Error(
-        `The selected ${declaration.platform} backup profile requires the machine alert route ${expected}.`,
-      );
-    }
-  }
   return {
     ...host,
     logDirectory,
     logFile: (platform === "win32" ? win32.join : join)(logDirectory, "rustic.log"),
+    credentials: backups.credentials,
+    scheduleLabel: backups.scheduleLabel ?? `dev.outfitting.backups.${name}`,
     repoRoot: resolve(repoRoot),
     configPath: manager.configPath,
     backupProfile: name,
-    // Remove legacy mode after every scheduled host migrates and the rollback window closes.
     alert:
       backups.alertUrl === undefined
-        ? { protocol: "legacy-backup", url: "https://backup-alert.jfalava.workers.dev/" }
+        ? { protocol: "disabled" }
         : {
             protocol: "v1",
             url: backups.alertUrl,

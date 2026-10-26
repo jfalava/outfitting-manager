@@ -37,7 +37,7 @@ export const launchAgent = Effect.fn("launchAgent")(function* (binary: string) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.jfa.rustic-backup</string>
+  <key>Label</key><string>${xml(config.scheduleLabel)}</string>
   <key>ProgramArguments</key><array>${args.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array>
   <key>WorkingDirectory</key><string>${xml(config.repoRoot)}</string>
   <key>EnvironmentVariables</key><dict>

@@ -15,11 +15,12 @@ import {
   JobState,
   type Job,
   type JobPolicy,
+  type SecretName,
   type Snapshot,
   type SnapshotMetadata,
 } from "@/backups/model";
 import { Processes, type ProcessOutput } from "@/backups/process";
-import { Secrets, type SecretName } from "@/backups/secrets";
+import { Secrets } from "@/backups/secrets";
 import { Settings, type SettingsData } from "@/backups/settings";
 import { scheduledTask } from "@/backups/windows";
 
@@ -91,7 +92,14 @@ const fixture = async (
     stateDirectory: join(root, "state"),
     logFile: join(root, "logs/rustic.log"),
     logDirectory: join(root, "logs"),
-    alert: { protocol: "legacy-backup", url: "https://example.invalid/alert" },
+    credentials: {
+      "access-key": "fixture-access",
+      "secret-key": "fixture-secret",
+      "repository-password": "fixture-password",
+      "alert-token": "fixture-alert",
+    },
+    scheduleLabel: "dev.outfitting.backups.fixture",
+    alert: v1Alert,
     repository: "fixture-repository",
     jobs: activeJobs,
     dailyHour: windows ? 9 : 10,
@@ -136,8 +144,8 @@ const fixture = async (
   const secretReads: Array<SecretName> = [];
   let missingToken: SecretName | undefined;
   let alertToken = "fixture-alert-token";
-  let alertStatus = 200;
-  let alertBody = "{}";
+  let alertStatus = 202;
+  let alertBody = '{"sent":true,"message_id":"fixture-message"}';
   let gameStatus = ok("stopped");
   let backupTime: string | undefined;
   let next = 1;
@@ -334,12 +342,12 @@ const fixture = async (
   };
 };
 
-test.each(["legacy-backup", "v1"] as const)(
-  "%s alerts use the selected wire contract without changing failed backup receipts",
+test.each(["disabled", "v1"] as const)(
+  "%s alerts preserve failed backup receipts",
   async (protocol) => {
     const f = await fixture();
     Object.assign(f.settings, {
-      alert: protocol === "v1" ? v1Alert : f.settings.alert,
+      alert: protocol === "v1" ? v1Alert : { protocol: "disabled" },
     });
     f.setAlertResponse(protocol === "v1" ? 202 : 200);
     f.setBackup(() => ({ stdout: "", stderr: "disk unavailable", exitCode: 17 }));
@@ -348,37 +356,33 @@ test.each(["legacy-backup", "v1"] as const)(
     expect(state?.error).toBe("rustic backup exited 17: disk unavailable");
     expect(state?.acceptedAt).toBeUndefined();
     expect(await f.run(Effect.flatMap(MacBackup, (service) => service.status))).toEqual([state]);
+    if (protocol === "disabled") {
+      expect(f.alerts).toEqual([]);
+      expect(f.secretReads).not.toContain("alert-token");
+      expect(f.logs).toEqual([]);
+      return;
+    }
     expect(f.alerts).toHaveLength(1);
     const request = f.alerts[0]!;
-    expect(request.url).toBe(f.settings.alert.url);
+    expect(request.url).toBe(v1Alert.url);
     expect(request.method).toBe("POST");
     expect(request.headers.get("authorization")).toBe("Bearer fixture-alert-token");
     expect(request.headers.get("content-type")).toBe("application/json");
     expect([...request.headers.keys()].filter((key) => key.startsWith("x-alert"))).toEqual([]);
     const body = await request.json();
-    expect(body).toEqual(
-      protocol === "v1"
-        ? {
-            sender: "jfa-mac-mini@alerts.jfa.dev",
-            recipient: ["backup-alerts@jfa.dev"],
-            title: "Backup alert: rustic backup (images) on fixture-host",
-            message: state!.error,
-            severity: "error",
-            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
-            metadata: {
-              hostname: "fixture-host",
-              operation: "rustic backup (images)",
-              job: "images",
-            },
-          }
-        : {
-            hostname: "fixture-host",
-            operation: "rustic backup (images)",
-            exit_code: "unknown",
-            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
-            message: state!.error,
-          },
-    );
+    expect(body).toEqual({
+      sender: "jfa-mac-mini@alerts.jfa.dev",
+      recipient: ["backup-alerts@jfa.dev"],
+      title: "Backup alert: rustic backup (images) on fixture-host",
+      message: state!.error,
+      severity: "error",
+      timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+      metadata: {
+        hostname: "fixture-host",
+        operation: "rustic backup (images)",
+        job: "images",
+      },
+    });
     expect(f.logs).toEqual([]);
   },
 );
@@ -486,11 +490,11 @@ test.each([
   ]);
 });
 
-test.each(["legacy-backup", "v1"] as const)(
-  "%s repository checks use the machine identity without a job label",
+test.each(["disabled", "v1"] as const)(
+  "%s repository checks preserve the error without a job label",
   async (protocol) => {
     const f = await fixture();
-    Object.assign(f.settings, { alert: protocol === "v1" ? v1Alert : f.settings.alert });
+    Object.assign(f.settings, { alert: protocol === "v1" ? v1Alert : { protocol: "disabled" } });
     f.setAlertResponse(protocol === "v1" ? 202 : 200);
     await mkdir(join(f.settings.stateDirectory, f.settings.repository), { recursive: true });
     await writeFile(join(f.settings.stateDirectory, f.settings.repository, "check.json"), "broken");
@@ -499,29 +503,25 @@ test.each(["legacy-backup", "v1"] as const)(
       "Invalid repository-check receipt.",
     );
     expect(f.calls).toEqual([]);
+    if (protocol === "disabled") {
+      expect(f.alerts).toEqual([]);
+      expect(f.secretReads).toEqual([]);
+      expect(f.logs).toEqual([]);
+      return;
+    }
     expect(f.alerts).toHaveLength(1);
-    expect(f.alerts[0]!.url).toBe(f.settings.alert.url);
+    expect(f.alerts[0]!.url).toBe(v1Alert.url);
     expect(f.alerts[0]!.headers.get("authorization")).toBe("Bearer fixture-alert-token");
     const body = await f.alerts[0]!.json();
-    expect(body).toEqual(
-      protocol === "v1"
-        ? {
-            sender: "jfa-mac-mini@alerts.jfa.dev",
-            recipient: ["backup-alerts@jfa.dev"],
-            title: "Backup alert: rustic repository check on fixture-host",
-            message: "Invalid repository-check receipt.",
-            severity: "error",
-            timestamp: expect.stringMatching(/Z$/),
-            metadata: { hostname: "fixture-host", operation: "rustic repository check" },
-          }
-        : {
-            hostname: "fixture-host",
-            operation: "rustic repository check",
-            exit_code: "unknown",
-            message: "Invalid repository-check receipt.",
-            timestamp: expect.stringMatching(/Z$/),
-          },
-    );
+    expect(body).toEqual({
+      sender: "jfa-mac-mini@alerts.jfa.dev",
+      recipient: ["backup-alerts@jfa.dev"],
+      title: "Backup alert: rustic repository check on fixture-host",
+      message: "Invalid repository-check receipt.",
+      severity: "error",
+      timestamp: expect.stringMatching(/Z$/),
+      metadata: { hostname: "fixture-host", operation: "rustic repository check" },
+    });
     expect(f.secretReads).toEqual(["alert-token"]);
     expect(f.logs).toEqual([]);
   },
@@ -949,6 +949,7 @@ test("managed profiles disable hooks and first-run skipping, and secrets stay ou
   expect(command.env?.RUSTIC_PASSWORD).toBe("fixture-password");
   const receipt = await stat(join(f.settings.stateDirectory, f.settings.repository, "images.json"));
   if (process.platform !== "win32") expect(receipt.mode & 0o777).toBe(0o600);
+  Object.assign(f.settings, { scheduleLabel: "org.example.preserved-backup" });
   const plist = await f.run(launchAgent(join(f.root, "Backup & Tools/backup")));
   await writeFile(join(f.root, "agent.plist"), plist);
   if (process.platform === "darwin") {
@@ -956,6 +957,7 @@ test("managed profiles disable hooks and first-run skipping, and secrets stay ou
     expect(lint.status).toBe(0);
   }
   expect(plist).toContain("Backup &amp; Tools");
+  expect(plist).toContain("<key>Label</key><string>org.example.preserved-backup</string>");
   expect(plist).toContain(
     `<string>${join(f.settings.logDirectory, "rustic-wrapper.log")}</string>`,
   );

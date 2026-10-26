@@ -3,7 +3,7 @@ import { isAbsolute, join, relative } from "node:path";
 
 import { Result, Schema } from "effect";
 
-import { Job, JobPolicy } from "@/backups/model";
+import { BackupCredentials, Job, JobPolicy } from "@/backups/model";
 import { validateBackupBindings } from "@/backups/paths";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
@@ -95,6 +95,8 @@ export interface BackupProfileDeclaration {
 
 export interface ByorBackupsDeclaration {
   defaultProfile: string;
+  /** Native service names imported into local config; never credential values. */
+  credentials?: BackupCredentials;
   profiles: Readonly<Record<string, BackupProfileDeclaration>>;
 }
 
@@ -231,6 +233,7 @@ export const BackupProfileSchema = Schema.Struct({
 
 const BackupsSchema = Schema.Struct({
   defaultProfile: Schema.String,
+  credentials: Schema.optionalKey(BackupCredentials),
   profiles: Schema.Record(Schema.String, BackupProfileSchema),
 });
 
@@ -356,7 +359,7 @@ export function normalizeBackups(
       profiles[name].jobs = normalizeBackupPolicies(profile.jobs, profile.platform);
     }
   }
-  return { defaultProfile: value.defaultProfile, profiles };
+  return { ...value, profiles };
 }
 
 function profileName(value: string, label: string): LinuxProfile {
