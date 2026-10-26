@@ -63,6 +63,7 @@ async function runAlchemyDeploy(options: {
     env: {
       ...environment,
       ...deployConfigToEnv(options.deployConfig),
+      OUTFITTING_DEPLOY_CONFIG: options.deployConfig.configPath ?? "",
       OUTFITTING_SYNC_TOKEN: options.workerToken,
     },
     stdin: "inherit",
@@ -126,7 +127,7 @@ export const provisionCommand = Command.make(
     domain: Flag.String("domain").pipe(
       Flag.optional,
       Flag.withDescription(
-        "Hostname for the manager API router (empty string clears the default).",
+        "Custom hostname for the manager API router (default Worker URL; empty string clears a configured hostname).",
       ),
     ),
     stackName: Flag.String("stack-name").pipe(

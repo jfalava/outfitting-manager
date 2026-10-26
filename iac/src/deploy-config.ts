@@ -57,7 +57,7 @@ export const DEFAULT_DEPLOY_CONFIG: Omit<DeployConfig, "configPath"> = {
     router: "outfitting-manager-router",
     api: "outfitting-api",
   },
-  domain: "outfitting.jfa.dev",
+  domain: undefined,
 };
 
 export type DeployOverrides = Partial<{
@@ -198,8 +198,11 @@ export function loadDeployConfig(options?: {
   readonly overrides?: DeployOverrides;
 }): DeployConfig {
   const configPath = discoverConfigPath(options?.configPath);
+  if (configPath !== undefined && !existsSync(configPath)) {
+    throw new Error(`Deploy config does not exist: ${configPath}`);
+  }
   const fromFile =
-    configPath === undefined || !existsSync(configPath)
+    configPath === undefined
       ? undefined
       : parseDeployFile(readFileSync(configPath, "utf8"), configPath);
   const overrides = options?.overrides;

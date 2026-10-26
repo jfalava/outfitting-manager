@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,6 +17,9 @@ const ENV_KEYS = [
 ] as const;
 
 function withCleanEnv(run: () => void): void {
+  const previousCwd = process.cwd();
+  const directory = mkdtempSync(join(tmpdir(), "outfitting-deploy-cwd-"));
+  process.chdir(directory);
   const saved = new Map<string, string | undefined>();
   for (const key of ENV_KEYS) {
     saved.set(key, process.env[key]);
@@ -25,6 +28,8 @@ function withCleanEnv(run: () => void): void {
   try {
     run();
   } finally {
+    process.chdir(previousCwd);
+    rmSync(directory, { recursive: true });
     for (const key of ENV_KEYS) {
       const value = saved.get(key);
       if (value === undefined) {
@@ -36,18 +41,45 @@ function withCleanEnv(run: () => void): void {
   }
 }
 
-test("defaults the manager API router to the bare outfitting hostname", () => {
+test("defaults to the Worker URL without selecting a production deployment", () => {
   withCleanEnv(() => {
-    const config = loadDeployConfig({
-      configPath: join(tmpdir(), "missing-outfitting-deploy.json"),
-    });
+    const config = loadDeployConfig();
     expect(config.stackName).toBe("OutfittingManager");
-    expect(config.domain).toBe("outfitting.jfa.dev");
+    expect(config.domain).toBeUndefined();
+    expect(config.configPath).toBeUndefined();
     expect(config.workers).toEqual({
       router: "outfitting-manager-router",
       api: "outfitting-api",
     });
     expect(config.databaseName).toBe(DEFAULT_DEPLOY_CONFIG.databaseName);
+  });
+});
+
+test("explicit production config preserves the existing hostname and resource identities", () => {
+  withCleanEnv(() => {
+    const config = loadDeployConfig({
+      configPath: join(import.meta.dir, "../outfitting.production.deploy.json"),
+    });
+    expect(config).toMatchObject({
+      domain: "outfitting.jfa.dev",
+      stackName: "OutfittingManager",
+      databaseName: "outfitting-lockfiles",
+      kvTitle: "outfitting-lockfiles",
+      privateFontsBucket: "outfitting-private-fonts",
+      workers: { router: "outfitting-manager-router", api: "outfitting-api" },
+    });
+    Object.assign(process.env, deployConfigToEnv(config));
+    expect(loadDeployConfig()).toEqual({ ...config, configPath: undefined });
+  });
+});
+
+test.each(["flag", "environment"])("rejects a missing config selected by %s", (selection) => {
+  withCleanEnv(() => {
+    const path = join(process.cwd(), "missing.json");
+    if (selection === "environment") process.env.OUTFITTING_DEPLOY_CONFIG = path;
+    expect(() => loadDeployConfig(selection === "flag" ? { configPath: path } : undefined)).toThrow(
+      `Deploy config does not exist: ${path}`,
+    );
   });
 });
 
@@ -126,12 +158,36 @@ test("deployConfigToEnv includes only manager stack settings", () => {
 
 test("empty OUTFITTING_DOMAIN clears the custom domain", () => {
   withCleanEnv(() => {
+    const path = join(process.cwd(), "outfitting.deploy.json");
+    writeFileSync(path, JSON.stringify({ domain: "file.example.com" }));
     process.env.OUTFITTING_DOMAIN = "";
-    const config = loadDeployConfig({
-      configPath: join(tmpdir(), "missing-outfitting-deploy.json"),
-    });
+    const config = loadDeployConfig();
 
     expect(config.domain).toBeUndefined();
+    expect(deployConfigToEnv(config).OUTFITTING_DOMAIN).toBe("");
+  });
+});
+
+test.each([undefined, "", "   "])(
+  "explicit domain %j clears file and environment values",
+  (domain) => {
+    withCleanEnv(() => {
+      writeFileSync(
+        join(process.cwd(), "outfitting.deploy.json"),
+        JSON.stringify({ domain: "file.example.com" }),
+      );
+      process.env.OUTFITTING_DOMAIN = "env.example.com";
+      expect(loadDeployConfig({ overrides: { domain } }).domain).toBeUndefined();
+    });
+  },
+);
+
+test("rejects malformed JSON selected through the environment", () => {
+  withCleanEnv(() => {
+    const path = join(process.cwd(), "bad.json");
+    writeFileSync(path, "{");
+    process.env.OUTFITTING_DEPLOY_CONFIG = path;
+    expect(() => loadDeployConfig()).toThrow(`Could not parse deploy config at ${path}`);
   });
 });
 

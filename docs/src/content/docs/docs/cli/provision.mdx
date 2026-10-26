@@ -12,7 +12,7 @@ Deploy the Outfitting service, including its API and documentation site. After d
 Provisioning requires a checkout of the [manager repository](https://github.com/jfalava/outfitting-manager), [Bun](https://bun.sh), and Cloudflare deployment credentials. Run `bun install` in the checkout, then run the command from the repository root. From another directory, set `OUTFITTING_IAC_DIR` to the checkout's `iac/` directory. The installed CLI binary alone does not contain the deployment stack or its dependencies.
 
 ```sh
-# Deploy with the default settings
+# Deploy with the default settings and a workers.dev URL
 outfitting-manager provision
 
 # Deploy using a config file and a custom hostname
@@ -22,17 +22,23 @@ outfitting-manager provision --deploy-config outfitting.deploy.json --domain man
 outfitting-manager provision --skip-configure
 ```
 
-| Option                     | Description                                                                                            |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `--deploy-config <path>`   | Read deployment settings from this JSON file.                                                          |
-| `--domain <hostname>`      | Set the service hostname. Defaults to `outfitting.jfa.dev`; pass an empty value to use the Worker URL. |
-| `--stack-name <name>`      | Set the Alchemy stack name.                                                                            |
-| `--api-name <name>`        | Set the API Worker name.                                                                               |
-| `--router-name <name>`     | Set the router Worker name.                                                                            |
-| `--database-name <name>`   | Set the D1 database name.                                                                              |
-| `--kv-title <title>`       | Set the KV namespace title.                                                                            |
-| `--private-fonts <bucket>` | Set the private-fonts bucket name.                                                                     |
-| `--token <value>`          | Set the API token. Defaults to the environment value or a generated token.                             |
-| `--skip-configure`         | Deploy without configuring this machine to use the service.                                            |
+| Option                     | Description                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `--deploy-config <path>`   | Read deployment settings from this JSON file; a missing file is an error.                          |
+| `--domain <hostname>`      | Set a custom hostname. Without a configured domain, use the Worker URL; an empty value clears one. |
+| `--stack-name <name>`      | Set the Alchemy stack name.                                                                        |
+| `--api-name <name>`        | Set the API Worker name.                                                                           |
+| `--router-name <name>`     | Set the router Worker name.                                                                        |
+| `--database-name <name>`   | Set the D1 database name.                                                                          |
+| `--kv-title <title>`       | Set the KV namespace title.                                                                        |
+| `--private-fonts <bucket>` | Set the private-fonts bucket name.                                                                 |
+| `--token <value>`          | Set the API token. Defaults to the environment value or a generated token.                         |
+| `--skip-configure`         | Deploy without configuring this machine to use the service.                                        |
 
-CLI flags take precedence over environment variables and values in the deployment file. Existing installations keep their current service URL until it is changed.
+CLI flags take precedence over environment variables and values in the deployment file. Select a file with `--deploy-config` or `OUTFITTING_DEPLOY_CONFIG`; otherwise, the command discovers `outfitting.deploy.json` in the current directory. Explicitly selected missing files and malformed files stop provisioning instead of falling back to defaults.
+
+There is no built-in custom hostname. Configure one with `domain` in the deployment file, `OUTFITTING_DOMAIN`, or `--domain`; otherwise, the router uses its `workers.dev` URL. The API is served under `/api` in either case. An empty `OUTFITTING_DOMAIN` or `--domain ""` clears a configured hostname. Existing installations keep their saved service URL until it is changed.
+
+The manager repository's production infrastructure scripts explicitly select `iac/outfitting.production.deploy.json`. This command does not automatically select that file or its production hostname.
+
+Omitting or clearing the domain enables the Worker URL but does not detach existing custom-domain bindings. The default stack and resource names remain unchanged, so omitting the production config does not create an isolated deployment. Provisioning can adopt and update existing resources in the same account and stage; choose distinct stack and resource names for an independent deployment.
