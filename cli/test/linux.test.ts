@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,7 +112,7 @@ test("Linux offline source resolution accepts local sources but rejects refreshi
       refresh: true,
       offline: true,
     });
-    expect(local).toMatchObject({ root: repo, mode: "checkout" });
+    expect(local).toMatchObject({ root: await realpath(repo), mode: "checkout" });
 
     await expect(
       prepareLinuxSource({
