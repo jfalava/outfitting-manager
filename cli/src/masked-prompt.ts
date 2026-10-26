@@ -1,3 +1,7 @@
+import { Terminal } from "effect";
+
+import { terminalSessionContext } from "@/terminal-alert";
+
 type TerminalEscapeState = "normal" | "escape" | "csi";
 
 function consumeTerminalEscape(
@@ -22,12 +26,14 @@ export async function maskedPrompt(message: string): Promise<string | null> {
     throw new Error("API token entry requires an interactive terminal.");
   }
 
+  const session = terminalSessionContext.getStore();
+  session?.blocked("auth", "Credential required");
   output.write(message);
   input.setEncoding("utf8");
   setRawMode(true);
   input.resume();
 
-  return new Promise((resolve, reject) => {
+  return new Promise<string | null>((resolve, reject) => {
     let value = "";
     let escapeState: TerminalEscapeState = "normal";
 
@@ -58,7 +64,7 @@ export async function maskedPrompt(message: string): Promise<string | null> {
 
         if (character === "\u0003") {
           cleanup();
-          reject(new Error("API token entry cancelled."));
+          reject(new Terminal.QuitError());
           return;
         }
 
@@ -78,5 +84,5 @@ export async function maskedPrompt(message: string): Promise<string | null> {
     };
 
     input.on("data", onData);
-  });
+  }).finally(() => session?.resume());
 }

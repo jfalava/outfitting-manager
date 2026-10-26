@@ -1,6 +1,8 @@
-import { spawnSync } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { writeSync } from "node:fs";
+import { createInterface } from "node:readline";
 
-import { Context, Effect } from "effect";
+import { Cause, Context, Effect, Exit, Schema, Terminal } from "effect";
 
 export type TerminalAlert = "password-required" | "error";
 
@@ -16,33 +18,40 @@ const APP = "outfitting-manager";
 export interface TerminalSessionControls {
   begin(path: ReadonlyArray<string>): void;
   phase(label: string): void;
+  progress(done: number, total: number): void;
+  blocked(kind: "permission" | "question" | "auth", label: string): void;
+  cancel(): void;
+  summary(message: string, hasErrors?: boolean): void;
   alert(alert: TerminalAlert): void;
   resume(): void;
-  close(interrupted?: boolean): void;
+  close(outcome?: "done" | "idle" | "error"): void;
 }
 
 export interface TerminalSessionOptions {
   stream?: TerminalAlertStream;
   env?: NodeJS.ProcessEnv;
-  supportsStatus?: (env: NodeJS.ProcessEnv) => boolean;
 }
 
-/** Read the capability advertisement without sending terminal queries or reading stdin. */
-export function supportsProgramStatus(env: NodeJS.ProcessEnv): boolean {
-  if (!env.TERM || env.TERM === "dumb") {
-    return false;
+/** Bridge the Effect service into legacy Promise-based credential helpers. */
+export const terminalSessionContext = new AsyncLocalStorage<TerminalSessionControls>();
+
+export async function terminalPrompt(message: string): Promise<string> {
+  const session = terminalSessionContext.getStore();
+  session?.blocked("question", message);
+  const input = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      input.once("SIGINT", () => reject(new Terminal.QuitError()));
+      input.once("close", () => reject(new Terminal.QuitError()));
+      input.question(`${message} `, resolve);
+    });
+  } finally {
+    input.close();
+    session?.resume();
   }
-  const result = spawnSync("infocmp", ["-x", "-1", env.TERM], {
-    env,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-    timeout: 500,
-    maxBuffer: 128 * 1024,
-  });
-  return result.status === 0 && /^\s*Pst=[^,\r\n]+,?$/m.test(result.stdout);
 }
 
-function terminalText(text: string): string {
+function terminalText(text: string, limit = 192): string {
   const cleaned = text
     // oxlint-disable-next-line no-control-regex -- OSC text must not contain C0/C1 controls or bidi overrides.
     .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ")
@@ -52,7 +61,7 @@ function terminalText(text: string): string {
   let bytes = 0;
   for (const character of cleaned) {
     bytes += Buffer.byteLength(character);
-    if (bytes > 192) {
+    if (bytes > limit) {
       break;
     }
     result += character;
@@ -60,49 +69,84 @@ function terminalText(text: string): string {
   return result;
 }
 
-/** One invocation owns one title stack entry and one application-scoped status record. */
+/** Flush bounded reports before runMain exits; embedders may supply their own stream. */
+function writeReport(title: string, sequence: string, stream?: TerminalAlertStream): void {
+  const windowTitle = `\u001b]2;${title}${ST}`;
+  if (stream !== undefined) {
+    stream.write(windowTitle);
+    stream.write(sequence);
+    return;
+  }
+  const bytes = Buffer.from(windowTitle + sequence);
+  let offset = 0;
+  while (offset < bytes.length) {
+    offset += writeSync(2, bytes, offset, bytes.length - offset);
+  }
+}
+
+/** One foreground invocation owns the root record. No capability queries touch stdin. */
 export function createTerminalSession(
   options: TerminalSessionOptions = {},
 ): TerminalSessionControls {
   const stream = options.stream ?? process.stderr;
   const env = options.env ?? process.env;
-  const supportsStatus = options.supportsStatus ?? supportsProgramStatus;
-  const titles = stream.isTTY === true && env.OUTFITTING_TITLE_PROTOCOL === "xterm-window-stack";
-  let status: boolean | undefined;
+  let enabled =
+    stream.isTTY === true && env.TERM !== "dumb" && env.OUTFITTING_PROGRAM_STATUS !== "0";
   let command = "";
   let activePhase = "Working";
-  let state: "working" | "blocked" | "error" | undefined;
-  let savedTitle = false;
+  let percentage: number | undefined;
+  let state: "working" | "blocked" | "error" = "working";
+  let kind: "permission" | "question" | "auth" | undefined;
+  let blockedLabel = "";
+  let summary: string | undefined;
+  let hasErrors = false;
+  let cancelled = false;
+  let previous: string | undefined;
   let closed = false;
 
-  const report = (next: "working" | "blocked" | "error" | "clear" | "idle", label?: string) => {
-    status ??= stream.isTTY === true && supportsStatus(env);
-    if (!status) {
+  const report = (
+    next: "working" | "blocked" | "error" | "idle" | "done",
+    label: string,
+    message?: string,
+  ) => {
+    if (!enabled || !command) {
       return;
     }
-    const kind = next === "blocked" ? ":kind=auth" : "";
-    const msg =
-      label === undefined ? "" : `:msg=${Buffer.from(terminalText(label)).toString("base64")}`;
-    stream.write(`\u001b]7501;state=${next}:id=${APP}:app=${APP}${kind}${msg}${ST}`);
-  };
-  const title = (label: string) => {
-    if (!titles || !command) {
+    const progress = next === "working" || next === "blocked" ? percentage : undefined;
+    const suffix = progress === undefined ? "" : ` ${progress}%`;
+    const title = `${terminalText(`Outfitting: ${label}`, 192 - Buffer.byteLength(suffix))}${suffix}`;
+    const pairs = [
+      `state=${next}`,
+      `app=${APP}`,
+      `title=${Buffer.from(title).toString("base64")}`,
+      `msg=${Buffer.from(terminalText(message ?? `${command}: ${label}`, 2048)).toString("base64")}`,
+    ];
+    if (next === "blocked") {
+      pairs.push(`kind=${kind}`);
+    }
+    if (progress !== undefined) {
+      pairs.push(`progress=${progress}`);
+    }
+    const sequence = `\u001b]7501;${pairs.join(":")}${ST}`;
+    if (sequence === previous) {
       return;
     }
-    if (!savedTitle) {
-      savedTitle = true;
-      stream.write("\u001b[22;2t");
+    try {
+      writeReport(title, sequence, options.stream);
+      previous = sequence;
+    } catch {
+      // Terminal output must not fail an operation or its cleanup.
+      enabled = false;
     }
-    stream.write(`\u001b]2;${terminalText(`Outfitting · ${command} · ${label}`)}${ST}`);
   };
   const phase = (label: string) => {
     if (closed || !command || state === "error") {
       return;
     }
     activePhase = terminalText(label);
+    percentage = undefined;
     state = "working";
-    title(activePhase);
-    report("working", `${command}: ${activePhase}`);
+    report("working", activePhase);
   };
 
   return {
@@ -114,34 +158,76 @@ export function createTerminalSession(
       phase("Working");
     },
     phase,
+    progress: (done, total) => {
+      if (closed || !command || state === "error") {
+        return;
+      }
+      percentage =
+        total > 0 && Number.isFinite(total) && Number.isFinite(done)
+          ? Math.floor((Math.max(0, Math.min(done, total)) * 100) / total)
+          : undefined;
+      report(state, state === "blocked" ? blockedLabel : activePhase);
+    },
+    blocked: (nextKind, label) => {
+      if (closed || !command || state === "error") {
+        return;
+      }
+      state = "blocked";
+      kind = nextKind;
+      blockedLabel = terminalText(label);
+      report("blocked", blockedLabel);
+    },
+    cancel: () => {
+      if (!closed) {
+        cancelled = true;
+      }
+    },
+    summary: (message, errors = false) => {
+      if (closed) {
+        return;
+      }
+      summary = terminalText(message, 2048);
+      hasErrors ||= errors;
+    },
     alert: (alert) => {
-      if (closed || stream.isTTY !== true) {
+      if (closed || !command || stream.isTTY !== true) {
         return;
       }
       state = alert === "error" ? "error" : "blocked";
       const label = alert === "error" ? "Failed" : "Password required";
-      title(label);
-      report(state, command ? `${command}: ${label}` : label);
-      if (!status) {
-        emitTerminalAlert(alert, stream);
+      kind = "auth";
+      blockedLabel = label;
+      report(state, label);
+      if (!enabled) {
+        try {
+          emitTerminalAlert(alert, stream);
+        } catch {
+          // A closed terminal must not replace the original command result.
+        }
       }
     },
     resume: () => {
-      if (state === "blocked") {
-        phase(activePhase);
+      if (!closed && state === "blocked") {
+        state = "working";
+        report("working", activePhase);
       }
     },
-    close: (interrupted = false) => {
+    close: (outcome = "done") => {
       if (closed) {
         return;
       }
       closed = true;
-      if (status && state !== "error") {
-        report(interrupted ? "idle" : "clear");
+      const next =
+        outcome === "error" || state === "error" || hasErrors
+          ? "error"
+          : outcome === "idle" || cancelled
+            ? "idle"
+            : "done";
+      const label = next === "error" ? "Failed" : next === "idle" ? "Cancelled" : "Done";
+      if (next === "idle") {
+        summary = undefined;
       }
-      if (savedTitle) {
-        stream.write("\u001b[23;2t");
-      }
+      report(next, label, summary);
     },
   };
 }
@@ -153,6 +239,10 @@ export const TerminalSession = Context.Reference<TerminalSessionControls>(
     defaultValue: () => ({
       begin: () => undefined,
       phase: () => undefined,
+      progress: () => undefined,
+      blocked: () => undefined,
+      cancel: () => undefined,
+      summary: () => undefined,
       alert: emitTerminalAlert,
       resume: () => undefined,
       close: () => undefined,
@@ -162,6 +252,33 @@ export const TerminalSession = Context.Reference<TerminalSessionControls>(
 
 export const setTerminalPhase = (label: string) =>
   Effect.flatMap(TerminalSession, (session) => Effect.sync(() => session.phase(label)));
+
+/** Preserve progress across a prompt, and remember cancellation even if callers catch QuitError. */
+export const withTerminalInput = Effect.fnUntraced(function* <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  kind: "permission" | "question" | "auth" = "question",
+  label = "Waiting for input",
+) {
+  const session = yield* TerminalSession;
+  yield* Effect.sync(() => session.blocked(kind, label));
+  return yield* effect.pipe(
+    Effect.tapError((error) =>
+      Effect.sync(() => {
+        if (Schema.is(Terminal.QuitError)(error)) {
+          session.cancel();
+        }
+      }),
+    ),
+    Effect.onExit((exit) =>
+      Effect.sync(() => {
+        if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) {
+          session.cancel();
+        }
+        session.resume();
+      }),
+    ),
+  );
+});
 
 /**
  * Use the terminal's configured bell sound without polluting redirected output.

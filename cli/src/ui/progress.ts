@@ -45,7 +45,7 @@ export function createProgress(
   options: ProgressOptions = {},
 ): ProgressRenderer {
   const stream = options.stream ?? process.stderr;
-  const isTTY = stream.isTTY === true;
+  const isTTY = stream.isTTY;
   const isActivity = total === undefined;
   const operationCount = total ?? 1;
   let attempted = 0;
@@ -120,26 +120,34 @@ export function createProgress(
 
   return {
     track: (label, effect) =>
-      Effect.flatMap(TerminalSession, (session) =>
-        Effect.sync(() => {
-          start(label);
-          if (!disabled && !finished) {
-            session.phase(label);
+      Effect.gen(function* () {
+        const session = yield* TerminalSession;
+        start(label);
+        if (!disabled && !finished) {
+          session.phase(label);
+          if (total !== undefined) {
+            session.progress(attempted, total);
           }
-        }),
-      ).pipe(
-        Effect.flatMap(() => effect),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (!isActivity) {
-              attempted += 1;
-            }
-            if (bar !== undefined && started && !finished) {
-              bar.update(attempted, { step: activeStep });
-            }
-          }),
-        ),
-      ),
+        }
+        return yield* effect.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (!isActivity) {
+                attempted += 1;
+              }
+              if (finished) {
+                return;
+              }
+              if (bar !== undefined && started) {
+                bar.update(attempted, { step: activeStep });
+              }
+              if (total !== undefined && !disabled) {
+                session.progress(attempted, total);
+              }
+            }),
+          ),
+        );
+      }),
     log,
     finish: () => {
       if (finished) {

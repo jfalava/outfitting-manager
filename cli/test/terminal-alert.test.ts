@@ -1,58 +1,28 @@
-import * as childProcess from "node:child_process";
+import { Effect, Terminal } from "effect";
+import { expect, test, vi } from "vitest";
 
-import { afterEach, expect, test, vi } from "vitest";
+import {
+  createTerminalSession,
+  emitTerminalAlert,
+  TerminalSession,
+  withTerminalInput,
+} from "@/terminal-alert";
 
-import { createTerminalSession, emitTerminalAlert, supportsProgramStatus } from "@/terminal-alert";
-
-vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
-
-afterEach(() => vi.clearAllMocks());
-
-function stream(isTTY: boolean) {
-  const write = vi.fn<(chunk: string) => unknown>();
-  return { isTTY, write };
-}
-
-test("emits one terminal bell for a password-required alert", () => {
-  const output = stream(true);
-
-  emitTerminalAlert("password-required", output);
-
-  expect(output.write).toHaveBeenCalledWith("\u0007");
-});
-
-test("emits two terminal bells for an error alert", () => {
-  const output = stream(true);
-
-  emitTerminalAlert("error", output);
-
-  expect(output.write).toHaveBeenCalledWith("\u0007\u0007");
-});
-
-test("does not write bell characters when output is not a TTY", () => {
-  const output = stream(false);
-
-  emitTerminalAlert("error", output);
-
-  expect(output.write).not.toHaveBeenCalled();
-});
-
-function capture(isTTY: boolean | undefined, status = true, titles = true) {
+function capture(isTTY: boolean | undefined = true, env: NodeJS.ProcessEnv = {}) {
   const chunks: string[] = [];
-  const supportsStatus = vi.fn(() => status);
   const session = createTerminalSession({
     stream: { isTTY, write: (chunk) => chunks.push(chunk) },
-    env: { OUTFITTING_TITLE_PROTOCOL: titles ? "xterm-window-stack" : undefined },
-    supportsStatus,
+    env,
   });
-  return { session, chunks, supportsStatus };
+  return { session, chunks };
 }
 
 function reports(chunks: string[]) {
   return chunks
     .filter((chunk) => chunk.startsWith("\u001b]7501;"))
     .map((chunk) => {
-      expect(chunk).toMatch(/^\u001b\]7501;[^\u001b\u0007]+\u001b\\$/);
+      expect(chunk).toMatch(/^\u001b\]7501;[A-Za-z0-9_.,+/=:\-]+\u001b\\$/);
+      expect(Buffer.byteLength(chunk)).toBeLessThanOrEqual(4096);
       const fields = Object.fromEntries(
         chunk
           .slice(7, -2)
@@ -62,188 +32,198 @@ function reports(chunks: string[]) {
             return [pair.slice(0, equals), pair.slice(equals + 1)];
           }),
       );
-      return {
-        ...fields,
-        state: fields.state as string,
-        msg: fields.msg ? Buffer.from(fields.msg, "base64").toString("utf8") : undefined,
-      };
+      for (const key of ["title", "msg"]) {
+        if (fields[key]) fields[key] = Buffer.from(fields[key], "base64").toString("utf8");
+      }
+      return fields;
     });
 }
 
-test("status-capable terminals report auth and error without bell bytes, independent of identity", () => {
-  const { session, chunks, supportsStatus } = capture(true);
+test("reports complete root records with matching window titles, real progress, and retained completion", () => {
+  const { session, chunks } = capture();
   session.begin(["outfitting-manager", "nix", "switch"]);
-  session.phase("Activating");
+  session.phase("Building");
+  session.progress(1, 3);
   session.alert("password-required");
   session.resume();
-  session.alert("error");
+  session.phase("Publishing lock");
   session.close();
 
-  expect(reports(chunks)).toEqual([
-    {
-      state: "working",
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: "nix switch: Working",
-    },
-    {
-      state: "working",
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: "nix switch: Activating",
-    },
-    {
-      state: "blocked",
-      kind: "auth",
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: "nix switch: Password required",
-    },
-    {
-      state: "working",
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: "nix switch: Activating",
-    },
-    {
-      state: "error",
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: "nix switch: Failed",
-    },
+  const records = reports(chunks);
+  expect(records.map((record) => [record.state, record.title, record.progress])).toEqual([
+    ["working", "Outfitting: Working", undefined],
+    ["working", "Outfitting: Building", undefined],
+    ["working", "Outfitting: Building 33%", "33"],
+    ["blocked", "Outfitting: Password required 33%", "33"],
+    ["working", "Outfitting: Building 33%", "33"],
+    ["working", "Outfitting: Publishing lock", undefined],
+    ["done", "Outfitting: Done", undefined],
   ]);
+  expect(records[3]?.kind).toBe("auth");
+  expect(records[4]?.kind).toBeUndefined();
+  expect(
+    records.every((record) => record.app === "outfitting-manager" && record.id === undefined),
+  ).toBe(true);
+  expect(records.at(-1)?.msg).toBe("nix switch: Done");
+  expect(chunks.filter((chunk) => chunk.startsWith("\u001b]2;"))).toEqual(
+    records.map((record) => `\u001b]2;${record.title}\u001b\\`),
+  );
+  expect(chunks.join("")).not.toContain("state=clear");
   expect(chunks.join("")).not.toContain("\u0007");
-  expect(supportsStatus).toHaveBeenCalledTimes(1);
-  expect(chunks.at(-1)).toBe("\u001b[23;2t");
 });
 
-test.each([true, false])("status and title capabilities are independent (status %s)", (status) => {
-  const { session, chunks } = capture(true, status, false);
-  session.begin(["outfitting-manager", "update"]);
-  session.alert("password-required");
-  session.alert("error");
+test.each(["done", "idle", "error"] as const)(
+  "%s finalization seals all callbacks and drops progress",
+  (outcome) => {
+    const { session, chunks } = capture();
+    session.begin(["outfitting-manager", "apply"]);
+    session.progress(2, 3);
+    session.close(outcome);
+    const before = [...chunks];
+    session.begin(["outfitting-manager", "other"]);
+    session.phase("Too late");
+    session.progress(3, 3);
+    session.blocked("auth", "Too late");
+    session.alert("error");
+    session.resume();
+    session.cancel();
+    session.summary("Too late", true);
+    session.close();
+    expect(chunks).toEqual(before);
+    expect(reports(chunks).at(-1)).toMatchObject({ state: outcome });
+    expect(reports(chunks).at(-1)?.progress).toBeUndefined();
+  },
+);
+
+test("partial failures survive a successful close without publishing the summary prematurely", () => {
+  const { session, chunks } = capture();
+  session.begin(["outfitting-manager", "apply"]);
+  session.summary("One package failed", true);
+  expect(reports(chunks).at(-1)?.msg).not.toContain("failed");
   session.close();
-
-  expect(chunks.join("")).not.toContain("\u001b]2;");
-  expect(chunks.join("")).not.toContain("\u001b[22;2t");
-  if (status) {
-    expect(reports(chunks).map((report) => report.state)).toEqual(["working", "blocked", "error"]);
-  } else {
-    expect(chunks).toEqual(["\u0007", "\u0007\u0007"]);
-  }
+  expect(reports(chunks).at(-1)).toMatchObject({ state: "error", msg: "One package failed" });
 });
 
-test("title-only sessions keep bell alerts and save/restore exactly once", () => {
-  const { session, chunks } = capture(true, false, true);
-  session.begin(["outfitting-manager", "nix", "switch"]);
-  session.begin(["outfitting-manager", "other"]);
+test.each([false, undefined])("non-TTY output (%s) stays entirely clean", (isTTY) => {
+  const chunks: string[] = [];
+  const session = createTerminalSession({
+    stream: { isTTY, write: (chunk) => chunks.push(chunk) },
+    env: {},
+  });
+  session.begin(["outfitting-manager", "update"]);
   session.phase("Building");
   session.alert("password-required");
-  session.resume();
-  session.close();
-  const beforeLateCallbacks = [...chunks];
-  session.close();
-  session.phase("Too late");
   session.alert("error");
-  session.resume();
+  session.close();
+  expect(chunks).toEqual([]);
+});
 
-  expect(chunks).toEqual(beforeLateCallbacks);
-  expect(chunks).toEqual([
-    "\u001b[22;2t",
-    "\u001b]2;Outfitting · nix switch · Working\u001b\\",
-    "\u001b]2;Outfitting · nix switch · Building\u001b\\",
-    "\u001b]2;Outfitting · nix switch · Password required\u001b\\",
-    "\u0007",
-    "\u001b]2;Outfitting · nix switch · Building\u001b\\",
-    "\u001b[23;2t",
+test.each([{ TERM: "dumb" }, { OUTFITTING_PROGRAM_STATUS: "0" }])(
+  "disabled reporting retains only attention bells (%s)",
+  (env) => {
+    const { session, chunks } = capture(true, env);
+    session.begin(["outfitting-manager", "update"]);
+    session.alert("password-required");
+    session.resume();
+    session.alert("error");
+    session.close();
+    expect(chunks).toEqual(["\u0007", "\u0007\u0007"]);
+  },
+);
+
+test("duplicate reports are suppressed, unknown totals omit progress, and percentages stay bounded", () => {
+  const { session, chunks } = capture();
+  session.begin(["outfitting-manager", "apply"]);
+  session.progress(0, 3);
+  const before = [...chunks];
+  session.progress(0, 3);
+  expect(chunks).toEqual(before);
+  session.progress(2, 3);
+  session.progress(1, 0);
+  session.progress(10, 3);
+  session.progress(-1, 3);
+  expect(reports(chunks).map((record) => record.progress)).toEqual([
+    undefined,
+    "0",
+    "66",
+    undefined,
+    "100",
+    "0",
   ]);
 });
 
-test.each([false, undefined])(
-  "non-TTY streams (%s) never inspect capabilities or emit controls",
-  (isTTY) => {
-    const { session, chunks, supportsStatus } = capture(isTTY);
-    session.begin(["outfitting-manager", "update"]);
-    session.phase("Building");
-    session.alert("password-required");
-    session.alert("error");
-    session.close(true);
-
-    expect(chunks).toEqual([]);
-    expect(supportsStatus).not.toHaveBeenCalled();
-  },
-);
-
-test.each([
-  [false, "clear"],
-  [true, "idle"],
-] as const)(
-  "successful/cancelled work closes only its own status record (%s)",
-  (interrupted, state) => {
-    const { session, chunks } = capture(true);
-    session.begin(["outfitting-manager", "apply"]);
-    session.alert("password-required");
-    session.close(interrupted);
-
-    expect(reports(chunks).at(-1)).toEqual({
-      state,
-      id: "outfitting-manager",
-      app: "outfitting-manager",
-      msg: undefined,
-    });
-    expect(chunks.at(-1)).toBe("\u001b[23;2t");
-    expect(chunks.join("")).not.toContain("state=done");
-  },
-);
-
-test("title and message text strip controls and truncate at a UTF-8 boundary", () => {
-  const { session, chunks } = capture(true);
+test("titles and messages sanitize controls, respect separate byte limits, and preserve UTF-8", () => {
+  const { session, chunks } = capture();
   session.begin(["outfitting-manager", "update"]);
   session.phase("A\u0007B\u001bC\u0085D\u202eE\nF");
-  expect(chunks).toContain("\u001b]2;Outfitting · update · A B C D E F\u001b\\");
-  expect(reports(chunks).at(-1)?.msg).toBe("update: A B C D E F");
-
+  expect(reports(chunks).at(-1)?.title).toBe("Outfitting: A B C D E F");
   session.phase("界".repeat(100));
-  const title = chunks
-    .filter((chunk) => chunk.startsWith("\u001b]2;"))
-    .at(-1)!
-    .slice(4, -2);
-  expect(title).toBe("Outfitting · update · " + "界".repeat(56));
-  expect(Buffer.byteLength(title)).toBe(192);
-  expect(reports(chunks).at(-1)?.msg).toBe("update: " + "界".repeat(61));
+  session.progress(1, 3);
+  session.summary("界".repeat(800));
+  session.close();
+  const records = reports(chunks);
+  expect(records.at(-2)?.title).toBe("Outfitting: " + "界".repeat(58) + " 33%");
+  expect(records.at(-1)?.msg).toBe("界".repeat(682));
 });
 
-test.each([
-  [0, "\tPst=\\E]7501;%p1%s\\E\\\\,\n", true],
-  [0, "\tPst@,\n", false],
-  [0, "\tPst=,\n", false],
-  [0, "\tOtherPst=value,\n", false],
-  [1, "\tPst=value,\n", false],
-  [null, "", false],
-] as const)("Pst advertisement detection: exit %s, output %s", (status, stdout, supported) => {
-  const inspect = vi.mocked(childProcess.spawnSync).mockReturnValue({
-    status,
-    stdout,
-    stderr: "",
-    pid: 0,
-    signal: null,
-    output: [],
+test("terminal write failures never replace command results or escape through cleanup", () => {
+  const write = vi.fn(() => {
+    throw new Error("Terminal closed");
   });
-  expect(supportsProgramStatus({ TERM: "test-terminal", TERM_PROGRAM: "not-ghostty" })).toBe(
-    supported,
-  );
-  expect(inspect).toHaveBeenCalledWith(
-    "infocmp",
-    ["-x", "-1", "test-terminal"],
-    expect.objectContaining({
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 500,
-    }),
-  );
+  const session = createTerminalSession({ stream: { isTTY: true, write }, env: {} });
+  expect(() => {
+    session.begin(["outfitting-manager", "apply"]);
+    session.phase("Building");
+    session.alert("error");
+    session.close();
+  }).not.toThrow();
+  expect(write).toHaveBeenCalledTimes(2);
 });
 
-test.each([undefined, "", "dumb"])("missing/dumb TERM (%s) does not spawn a lookup", (TERM) => {
-  const inspect = vi.mocked(childProcess.spawnSync);
-  expect(supportsProgramStatus({ TERM, TERM_PROGRAM: "ghostty" })).toBe(false);
-  expect(inspect).not.toHaveBeenCalled();
+test.each(["permission", "question", "auth"] as const)(
+  "input reports %s only while waiting and resumes the previous percentage",
+  async (kind) => {
+    const { session, chunks } = capture();
+    session.begin(["outfitting-manager", "apply"]);
+    session.phase("Installing");
+    session.progress(2, 3);
+    const result = await Effect.runPromise(
+      withTerminalInput(
+        Effect.sync(() => {
+          expect(reports(chunks).at(-1)).toMatchObject({ state: "blocked", kind, progress: "66" });
+          return "secret-answer";
+        }),
+        kind,
+        "Input needed",
+      ).pipe(Effect.provideService(TerminalSession, session)),
+    );
+    expect(result).toBe("secret-answer");
+    expect(reports(chunks).at(-1)).toMatchObject({
+      state: "working",
+      title: "Outfitting: Installing 66%",
+    });
+    expect(chunks.join("")).not.toContain("secret-answer");
+  },
+);
+
+test("caught prompt cancellation still finishes as idle", async () => {
+  const { session, chunks } = capture();
+  session.begin(["outfitting-manager", "config", "wizard"]);
+  await Effect.runPromise(
+    withTerminalInput(Effect.fail(new Terminal.QuitError())).pipe(
+      Effect.catchTag("QuitError", () => Effect.void),
+      Effect.provideService(TerminalSession, session),
+    ),
+  );
+  session.close();
+  expect(reports(chunks).at(-1)?.state).toBe("idle");
+});
+
+test("standalone alerts retain one password bell, two error bells, and non-TTY silence", () => {
+  const chunks: string[] = [];
+  const output = { isTTY: true, write: (text: string) => chunks.push(text) };
+  emitTerminalAlert("password-required", output);
+  emitTerminalAlert("error", output);
+  emitTerminalAlert("error", { ...output, isTTY: false });
+  expect(chunks).toEqual(["\u0007", "\u0007\u0007"]);
 });

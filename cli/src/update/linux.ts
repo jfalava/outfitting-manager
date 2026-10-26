@@ -17,6 +17,7 @@ import {
 import { runCommand, which, type RunCommandResult } from "@/process";
 import { selectByorProfile, validateLinuxByorSource } from "@/source/contract";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
+import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import {
@@ -752,6 +753,7 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     if ((missing.length > 0 || removals.length > 0) && !options.yes) {
       const confirmed = options.confirm === undefined ? false : yield* options.confirm;
       if (!confirmed) {
+        (yield* TerminalSession).cancel();
         yield* Console.log(ui.muted("Aborted. No package changes were made."));
         return;
       }

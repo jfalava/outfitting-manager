@@ -11,6 +11,7 @@ import {
 } from "@/fonts/inventory";
 import type { FontPlan } from "@/fonts/plan";
 import type { FontObjectStore, RemoteArchiveState } from "@/fonts/r2";
+import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 async function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {
@@ -48,6 +49,7 @@ export function applyFontPlan(
 
     const confirmed = yield* confirmPlan(yes, "Upload the packed archive and rewrite inventory?");
     if (!confirmed) {
+      (yield* TerminalSession).cancel();
       yield* Console.log(ui.muted("Aborted."));
       return;
     }

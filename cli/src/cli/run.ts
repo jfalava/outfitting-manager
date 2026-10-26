@@ -1,9 +1,10 @@
 import { BunServices } from "@effect/platform-bun";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Schema, Terminal } from "effect";
 import { CliError, Command } from "effect/cli";
 
 import { normalizeCommandAlias } from "@/arguments";
 import { makeCommandHelpLayer } from "@/cli/help";
+import { CliFailure } from "@/errors";
 import {
   createTerminalSession,
   TerminalSession,
@@ -36,7 +37,7 @@ function withTerminalCommands<Name extends string, Input, ContextInput, E, R>(
   >;
 }
 
-/** Keep error reporting inside the title scope, so restoration always happens last. */
+/** Publish the outcome after command resources have finished cleanup. */
 export const runCli = Effect.fnUntraced(function* <Name extends string, Input, ContextInput, E, R>(
   root: Command.Command<Name, Input, ContextInput, E, R>,
   version: string,
@@ -46,34 +47,62 @@ export const runCli = Effect.fnUntraced(function* <Name extends string, Input, C
   // Let runMain install signal handlers before terminal side effects.
   yield* Effect.yieldNow;
 
-  const session = yield* Effect.acquireRelease(
-    Effect.sync(() => createTerminalSession(terminalOptions)),
-    (resource, exit) => Effect.sync(() => resource.close(Exit.hasInterrupts(exit))),
-  );
+  const session = createTerminalSession(terminalOptions);
+  let failed = false;
+  let quit = false;
   const command = withTerminalCommands(root, session);
   yield* Effect.sync(() => normalizeCommandAlias(args)).pipe(
     Effect.flatMap((normalized) =>
       Command.runWith(command, { version })(normalized.length === 0 ? ["--help"] : normalized),
     ),
     Effect.provide([makeCommandHelpLayer(command), BunServices.layer]),
-    Effect.catch((error) =>
-      Effect.sync(() => {
-        process.exitCode = 1;
-        if (!CliError.isCliError(error)) {
-          session.alert("error");
-          const message = error instanceof Error ? error.message : String(error);
-          console.error(ui.error(message));
+    Effect.provideService(TerminalSession, session),
+    Effect.scoped,
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) {
+        return Effect.interrupt;
+      }
+      return Effect.sync(() => {
+        const errors = cause.reasons
+          .flatMap((reason) =>
+            Cause.isFailReason(reason)
+              ? [reason.error]
+              : Cause.isDieReason(reason)
+                ? [reason.defect]
+                : [],
+          )
+          .filter(
+            (error) =>
+              !Schema.is(Terminal.QuitError)(error instanceof CliFailure ? error.cause : error),
+          );
+        if (errors.length === 0) {
+          quit = true;
+          session.cancel();
+          process.exitCode = 130;
+          return;
         }
-      }),
-    ),
-    Effect.catchDefect((defect) =>
-      Effect.sync(() => {
+        failed = true;
         process.exitCode = 1;
         session.alert("error");
-        const message = defect instanceof Error ? defect.message : String(defect);
-        console.error(ui.error(message));
+        for (const error of errors) {
+          if (!CliError.isCliError(error)) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(ui.error(message));
+          }
+        }
+      });
+    }),
+    Effect.onExit((exit) =>
+      Effect.sync(() => {
+        const interrupted = Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause);
+        session.close(
+          interrupted || quit
+            ? "idle"
+            : Exit.isFailure(exit) || failed || Number(process.exitCode ?? 0) !== 0
+              ? "error"
+              : "done",
+        );
       }),
     ),
-    Effect.provideService(TerminalSession, session),
   );
-}, Effect.scoped);
+});

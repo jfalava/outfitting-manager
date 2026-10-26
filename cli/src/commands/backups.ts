@@ -19,6 +19,7 @@ import { Processes } from "@/backups/process";
 import { Secrets, importSecretStore } from "@/backups/secrets";
 import { Settings } from "@/backups/settings";
 import { scheduledTask } from "@/backups/windows";
+import { withTerminalInput } from "@/terminal-alert";
 
 const root = Command.make("backups").pipe(
   Command.withDescription(
@@ -232,8 +233,16 @@ const secrets = Command.make("secrets").pipe(
               "Secret entry requires an interactive terminal. Values are never accepted in arguments or environment variables.",
           });
         }
-        const value = yield* Prompt.Password({ message: `Credential ${name}` });
-        const repeated = yield* Prompt.Password({ message: "Repeat secret" });
+        const value = yield* withTerminalInput(
+          Prompt.Password({ message: `Credential ${name}` }),
+          "auth",
+          "Backup credential required",
+        );
+        const repeated = yield* withTerminalInput(
+          Prompt.Password({ message: "Repeat secret" }),
+          "auth",
+          "Confirm backup credential",
+        );
         if (Redacted.value(value) !== Redacted.value(repeated)) {
           return yield* new BackupError({ message: "Secrets did not match; nothing was stored." });
         }

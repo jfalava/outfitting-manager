@@ -12,6 +12,7 @@ import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
 import { validateWindowsByorSource, type SelectedWindowsByorProfiles } from "@/source/contract";
 import { parseWindowsPackageList, type WindowsWingetPackage } from "@/source/windows-manifest";
+import { TerminalSession, withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import { parseScoopManifest, type ScoopBucket, type ScoopManifest } from "@/update/scoop";
@@ -324,6 +325,7 @@ const confirmPlan = Effect.fn("confirmWindowsApplyPlan")(function* <R>(
   }
   const confirmed = yield* confirmation;
   if (!confirmed) {
+    (yield* TerminalSession).cancel();
     yield* Console.log(ui.muted("Aborted. No package changes were made."));
   }
   return confirmed;
@@ -1220,7 +1222,11 @@ export const windowsApplyCommand = Command.make(
       strict,
       prune,
       yes,
-      confirm: Prompt.Confirm({ message: "Apply this plan?", initial: false }).pipe(Effect.orDie),
+      confirm: withTerminalInput(
+        Prompt.Confirm({ message: "Apply this plan?", initial: false }),
+        "permission",
+        "Apply this plan?",
+      ).pipe(Effect.orDie),
     }),
 ).pipe(
   Command.withDescription(

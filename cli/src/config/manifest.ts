@@ -29,6 +29,7 @@ import {
   type ByorContract,
   type ByorProfileDeclaration,
 } from "@/source/contract";
+import { TerminalSession, withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 type ManifestPlatform = HostPlatform;
@@ -62,14 +63,16 @@ function profileNamesPrompt(message: string, defaults: ReadonlyArray<string>) {
     defaults.length > 0
       ? Prompt.String({ message, default: defaults.join(", "), validate: validateProfileNames })
       : Prompt.String({ message, validate: validateProfileNames });
-  return Prompt.run(prompt).pipe(Effect.map((names) => names.split(",")));
+  return withTerminalInput(prompt, "question", message).pipe(
+    Effect.map((names) => names.split(",")),
+  );
 }
 
 function windowsDefaultProfilesPrompt(
   names: ReadonlyArray<string>,
   defaults: ReadonlyArray<string>,
 ) {
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.String({
       message: "Default Windows profiles (comma-separated)",
       default: (defaults.length > 0 ? defaults : names).join(", "),
@@ -98,7 +101,7 @@ function collectLinuxProfiles(existing?: ByorContract) {
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
       const linux = existing?.profiles[name]?.linux;
-      const backends: string[] = yield* Prompt.run(
+      const backends: string[] = yield* withTerminalInput(
         Prompt.MultiSelect({
           message: `Choose package sources for Linux profile ${name}`,
           min: 1,
@@ -294,7 +297,7 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
         : yield* tryPromise(async () => parseByorContractJson(originalContents));
     const configured = yield* tryPromise(() => loadConfig());
     const defaults = mergeByorContractDefaults(existing, configured.declarations);
-    const selected = yield* Prompt.run(
+    const selected = yield* withTerminalInput(
       Prompt.MultiSelect({
         message: "Choose platforms to include in the repo manifest",
         min: 1,
@@ -324,7 +327,7 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
     yield* Console.log(ui.heading(`Review ${BYOR_CONTRACT_PATH}:`));
     yield* Console.log(serialized);
     if (
-      !(yield* Prompt.run(
+      !(yield* withTerminalInput(
         Prompt.Confirm({
           message:
             originalContents === undefined
@@ -332,8 +335,11 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
               : "Replace the reviewed repo manifest?",
           initial: false,
         }),
+        "permission",
+        "Write the reviewed repo manifest?",
       ))
     ) {
+      (yield* TerminalSession).cancel();
       yield* Console.log(ui.muted("Manifest generation cancelled; no file was written."));
       return;
     }

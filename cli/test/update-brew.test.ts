@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { RunCommandOptions, RunCommandResult } from "@/process";
 import { pushLockfile } from "@/sync";
+import { createTerminalSession, TerminalSession } from "@/terminal-alert";
 import { applyBrew, parseBrewfileTaps, updateBrew } from "@/update/brew";
 import { captureHomebrewInventory, pushHomebrewInventory } from "@/update/snapshot";
 
@@ -106,7 +107,16 @@ test("Homebrew apply warns and returns normally for a failed bundle unless stric
   };
   const terminal = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-  await Effect.runPromise(applyBrew(options));
+  const reports: string[] = [];
+  const session = createTerminalSession({
+    stream: { isTTY: true, write: (chunk) => reports.push(chunk) },
+    env: {},
+  });
+  session.begin(["outfitting-manager", "apply"]);
+  await Effect.runPromise(applyBrew(options).pipe(Effect.provideService(TerminalSession, session)));
+  session.close();
+  expect(reports.at(-1)).toContain("state=error");
+  expect(reports.join("")).not.toContain("state=done");
   await expect(Effect.runPromise(applyBrew({ ...options, strict: true }))).rejects.toThrow(
     /brew bundle failed/,
   );

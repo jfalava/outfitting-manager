@@ -3,11 +3,16 @@ import { Console, Effect } from "effect";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { promptAndStoreApiToken, storeWorkerUrl } from "@/sync/keychain";
+import { terminalPrompt } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 export const configureWorker = (requestedUrl?: string) =>
   Effect.gen(function* () {
-    const value = requestedUrl ?? prompt("Sync Worker URL (stored in your OS keychain):")?.trim();
+    const value =
+      requestedUrl ??
+      (yield* tryPromise(async () =>
+        (await terminalPrompt("Sync Worker URL (stored in your OS keychain):")).trim(),
+      ));
     if (!value) {
       return yield* new CliFailure({ message: "A Worker URL is required." });
     }

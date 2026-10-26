@@ -39,6 +39,7 @@ import {
   type MacosProfileDeclaration,
 } from "@/source/contract";
 import { discoverNixSourcePaths, missingSourcePathFromNixError } from "@/source/nix-dependencies";
+import { TerminalSession, withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { withActivity } from "@/ui/progress";
 import { applyBrew } from "@/update/brew";
@@ -109,7 +110,7 @@ function hostPlatform(): HostPlatform {
 }
 
 function targetPathPrompt(defaultPath: string) {
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.String({
       message: "Where should config.toml be read from or written to?",
       default: defaultPath,
@@ -125,7 +126,7 @@ function targetPathPrompt(defaultPath: string) {
 }
 
 function localSourcePathPrompt(configDirectory: string, defaultPath = process.cwd()) {
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.String({
       message:
         "Path to the local source checkout containing your declared package or Nix files (relative to config.toml)",
@@ -179,13 +180,15 @@ function normalizedTextPrompt(
     defaultValue === undefined
       ? Prompt.String({ message, validate })
       : Prompt.String({ message, default: defaultValue, validate });
-  return Prompt.run(prompt);
+  return withTerminalInput(prompt, "question", message);
 }
 
 function optionalTextPrompt(message: string, defaultValue?: string) {
-  return Prompt.run(Prompt.String({ message, default: defaultValue ?? "" })).pipe(
-    Effect.map((value) => value.trim() || undefined),
-  );
+  return withTerminalInput(
+    Prompt.String({ message, default: defaultValue ?? "" }),
+    "question",
+    message,
+  ).pipe(Effect.map((value) => value.trim() || undefined));
 }
 
 function commaSeparatedPaths(value: string | undefined): string[] {
@@ -209,7 +212,7 @@ const enterProfileSentinel = "\u0000enter-profile";
 
 function profileNamePrompt(message: string, defaultName: string | undefined, candidates: string[]) {
   if (defaultName === undefined && candidates.length > 1) {
-    return Prompt.run(
+    return withTerminalInput(
       Prompt.Select({
         message: `${message} (or choose to enter another profile)`,
         choices: [
@@ -281,7 +284,7 @@ function collectLinuxPaths(existing?: ReadonlyArray<string>) {
 }
 
 function selectLinuxBackends(existing?: ByorProfileDeclaration["linux"]) {
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.MultiSelect({
       message: "Choose the package sources this Linux profile declares",
       min: 1,
@@ -749,7 +752,7 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
     }
     const current = document.backups;
     if (
-      !(yield* Prompt.run(
+      !(yield* withTerminalInput(
         Prompt.Confirm({
           message: "Configure independent backup profiles?",
           initial: current !== undefined,
@@ -853,7 +856,7 @@ function configLocationPrompt() {
 }
 
 function sourceKindPrompt(existingSource?: WizardSource) {
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.Select({
       message: "Where is the Outfitting source?",
       choices: [
@@ -921,8 +924,10 @@ function manifestPathPrompt(explicitPath?: string) {
       catch: errorMessage,
     });
   }
-  return Prompt.run(
+  return withTerminalInput(
     Prompt.Confirm({ message: "Import declarations from a repo-side manifest?", initial: false }),
+    "permission",
+    "Import declarations from a repo-side manifest?",
   ).pipe(
     Effect.flatMap((importManifest) =>
       importManifest
@@ -989,7 +994,7 @@ function interview(platform: HostPlatform, explicitManifestPath?: string) {
 }
 
 function confirm(message: string) {
-  return Prompt.run(Prompt.Confirm({ message, initial: false })).pipe(
+  return withTerminalInput(Prompt.Confirm({ message, initial: false }), "permission", message).pipe(
     Effect.catchTag("QuitError", () => Effect.succeed(false)),
   );
 }
@@ -1113,7 +1118,7 @@ function reviewLinuxNixPaths(
         "Possible repository paths referenced by Nix files under the flake (heuristic scan):",
       ),
     );
-    const selected = yield* Prompt.run(
+    const selected = yield* withTerminalInput(
       Prompt.MultiSelect({
         message: "Select the paths to include in the sparse source",
         min: 0,
@@ -1287,8 +1292,10 @@ function continueLinuxSetup(
         strict,
         noRefresh: true,
         ifConfigured: true,
-        confirm: Prompt.run(
+        confirm: withTerminalInput(
           Prompt.Confirm({ message: "Apply the displayed package plan?", initial: false }),
+          "permission",
+          "Apply the displayed package plan?",
         ).pipe(Effect.orDie),
       });
       return [];
@@ -1333,8 +1340,10 @@ function continueWindowsSetup(
         config,
         profiles,
         strict,
-        confirm: Prompt.run(
+        confirm: withTerminalInput(
           Prompt.Confirm({ message: "Apply the displayed package plan?", initial: false }),
+          "permission",
+          "Apply the displayed package plan?",
         ).pipe(Effect.orDie),
       });
       return [];
@@ -1439,6 +1448,7 @@ const runWizard = (strict: boolean, manifestPath?: string) =>
           : "Write this config and initialize the selected Outfitting source?",
       ))
     ) {
+      (yield* TerminalSession).cancel();
       yield* Console.log(
         ui.muted(
           editing

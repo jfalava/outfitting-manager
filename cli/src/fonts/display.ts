@@ -6,6 +6,7 @@ import { tryPromise } from "@/effect";
 import type { FontFace } from "@/fonts/names";
 import type { FaceChange, PlannedFace } from "@/fonts/plan";
 import { baseUrl } from "@/sync/keychain";
+import { withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 const CHANGE_LABEL = {
@@ -63,5 +64,7 @@ export function confirmPlan(
   if (yes) {
     return Effect.succeed(true);
   }
-  return Prompt.Confirm({ message, initial: false }).pipe(Effect.orDie);
+  return withTerminalInput(Prompt.Confirm({ message, initial: false }), "permission", message).pipe(
+    Effect.orDie,
+  );
 }

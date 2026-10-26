@@ -8,6 +8,7 @@ import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { runCommand, which } from "@/process";
 import { selectMacosByorProfile } from "@/source/contract";
+import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import { pushHomebrewInventory } from "@/update/snapshot";
@@ -146,6 +147,10 @@ export const applyBrew = (options: ApplyBrewOptions = {}) =>
       if (options.strict) {
         return yield* new CliFailure({ message: `${failure}.` });
       }
+      (yield* TerminalSession).summary(
+        "Homebrew apply was partial; one or more packages failed.",
+        true,
+      );
       yield* Console.log(
         ui.warning(`${failure}. Homebrew apply was partial; review the Brewfile and rerun apply.`),
       );
@@ -166,12 +171,14 @@ export const updateBrew = (options: UpdateBrewOptions = {}) =>
     yield* requireBrewOk(run, ["update"], "brew update");
     yield* requireBrewOk(run, ["upgrade"], "brew upgrade");
     yield* requireBrewOk(run, ["upgrade", "--cask"], "brew upgrade --cask");
+    yield* setTerminalPhase("Publishing Homebrew inventory");
     yield* pushHomebrewInventory({ config, run, noPush: options.noPush });
     yield* Console.log(ui.success("Homebrew update complete."));
   });
 
 const requireBrewOk = (run: typeof runCommand, args: ReadonlyArray<string>, label: string) =>
   Effect.gen(function* () {
+    yield* setTerminalPhase(label);
     yield* Console.log(ui.heading(`${label}…`));
     const result = yield* tryPromise(() => run("brew", args, { inherit: true }));
     if (result.code !== 0) {

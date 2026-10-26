@@ -8,6 +8,7 @@ import {
   optionalString,
   requestedLinuxPackageManager,
 } from "@/commands/linux-flags";
+import { withTerminalInput } from "@/terminal-alert";
 import { applyLinux } from "@/update/linux";
 
 const pruneFlag = Flag.Boolean("prune").pipe(
@@ -60,10 +61,14 @@ export const makeLinuxApplyCommand = () =>
         noRefresh: flags.noRefresh,
         ifConfigured: flags.ifConfigured,
         strict: flags.strict,
-        confirm: Prompt.Confirm({
-          message: "Apply this plan?",
-          initial: false,
-        }).pipe(Effect.orDie),
+        confirm: withTerminalInput(
+          Prompt.Confirm({
+            message: "Apply this plan?",
+            initial: false,
+          }),
+          "permission",
+          "Apply this plan?",
+        ).pipe(Effect.orDie),
       }),
   ).pipe(
     Command.withDescription(

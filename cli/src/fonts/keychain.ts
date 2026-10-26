@@ -1,5 +1,6 @@
 import { maskedPrompt } from "@/masked-prompt";
 import { envValue, inAmpOrb, storedSecret } from "@/secrets";
+import { terminalPrompt } from "@/terminal-alert";
 
 const SECRET_SERVICE = "outfitting-fonts";
 const ENDPOINT_SECRET_NAME = "r2-endpoint";
@@ -58,9 +59,9 @@ export async function r2Endpoint(): Promise<string> {
     return normalizeR2Endpoint(stored);
   }
 
-  const value = prompt(
-    "R2 S3 endpoint or Cloudflare account ID (stored in your OS keychain):",
-  )?.trim();
+  const value = (
+    await terminalPrompt("R2 S3 endpoint or Cloudflare account ID (stored in your OS keychain):")
+  ).trim();
   if (!value) {
     throw new Error("An R2 endpoint is required.");
   }
@@ -89,7 +90,9 @@ export async function storeR2Credentials(
 }
 
 export async function promptAndStoreR2Credentials(): Promise<void> {
-  const accessKeyId = prompt("R2 access key ID (stored in your OS keychain):")?.trim();
+  const accessKeyId = (
+    await terminalPrompt("R2 access key ID (stored in your OS keychain):")
+  ).trim();
   const secretAccessKey =
     (await maskedPrompt("R2 secret access key (stored in your OS keychain): "))?.trim() ?? null;
   if (!accessKeyId || !secretAccessKey) {
