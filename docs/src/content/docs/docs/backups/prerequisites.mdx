@@ -14,7 +14,7 @@ Before the first backup, make sure you have:
 - Read access to every configured source folder.
 - A local `[backups.credentials]` mapping, set directly or imported from manifest `backups.credentials`, with exactly `access-key`, `secret-key`, `repository-password`, and `alert-token` mapped to distinct, nonblank, control-free native service names. There are no defaults; configuration stores names, never secret values.
 - Repository credentials stored under those names in macOS Keychain or Windows Credential Manager for the scheduled OS account.
-- Complete local `alertUrl`, `alertSender`, and `alertRecipient` settings plus a stored `alert-token`, or explicit `alertsDisabled = true` with all three addressing fields omitted. Opt-out skips alert-token lookup and checks, but still requires its service-name mapping. Missing settings block backup commands before native access.
+- A local `alertUrl` pointing to a canonical HTTPS `/v1/alerts` endpoint plus a stored `alert-token` with an enabled Canary credential policy, or explicit `alertsDisabled = true` with `alertUrl` omitted. The server policy owns the sender and complete recipient list. Opt-out skips alert-token lookup and checks, but still requires its service-name mapping. Missing settings block backup commands before native access.
 
 If you generate a scheduled task, use the same logged-in account that stores the credentials. On Windows, that account must stay logged in; locking the session is fine. The schedule also requires absolute paths to both the Outfitting Manager and Rustic executables.
 

@@ -248,15 +248,12 @@ export class Backup extends Context.Service<
           const token = yield* secrets.get("alert-token");
           const timestamp = DateTime.formatIso(yield* DateTime.now);
           const payload = {
-            sender: config.alert.sender,
-            recipient: config.alert.recipient,
             title: `Backup alert: ${operation} on ${config.hostname}`
               // eslint-disable-next-line no-control-regex -- Email subjects cannot contain controls.
               .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ")
               .slice(0, 200)
               .trim(),
             message: message.replaceAll("\0", "").slice(0, 4_000),
-            severity: "error",
             timestamp,
             // No numeric exit code survives all backup validation failures.
             metadata: {

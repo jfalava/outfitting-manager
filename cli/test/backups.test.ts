@@ -51,9 +51,7 @@ const base = {
   backup: { snapshots: [documents] },
 };
 const alertConfig = {
-  alertUrl: "https://alerts.invalid/v1/alerts/archive-laptop",
-  alertSender: "laptop@alerts.example.net",
-  alertRecipient: ["backups@example.net"],
+  alertUrl: "https://alerts.invalid/v1/alerts",
 };
 const credentials = {
   "access-key": "team storage access",
@@ -575,21 +573,21 @@ test("manifest re-import replaces current-platform backups, preserves other plat
 
 test.each([
   "https://alerts.invalid/",
-  "https://alerts.invalid/v1/alerts",
+  "https://alerts.invalid/v1/alerts/archive-laptop",
   "https://alerts.invalid/v1/alerts/Uppercase",
   "https://alerts.invalid/v1/alerts/a--b",
   "https://alerts.invalid/v1/alerts/-leading",
   "https://alerts.invalid/v1/alerts/trailing-",
   "https://alerts.invalid/v1/alerts/extra/path",
-  "http://alerts.invalid/v1/alerts/backups-jfa-mac-mini",
-  "https://token@alerts.invalid/v1/alerts/backups-jfa-mac-mini",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini?token=secret",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini?",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini#fragment",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini#",
-  "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini/",
-  "https://alerts.invalid/v1/alerts/%62ackups-jfa-mac-mini",
-  "https://alerts.invalid/v1/alerts/other/../backups-jfa-mac-mini",
+  "http://alerts.invalid/v1/alerts",
+  "https://token@alerts.invalid/v1/alerts",
+  "https://alerts.invalid/v1/alerts?token=secret",
+  "https://alerts.invalid/v1/alerts?",
+  "https://alerts.invalid/v1/alerts#fragment",
+  "https://alerts.invalid/v1/alerts#",
+  "https://alerts.invalid/v1/alerts/",
+  "https://alerts.invalid/v1/%61lerts",
+  "https://alerts.invalid/v1/other/../alerts",
   "not a URL",
 ])("rejects an unsafe or noncanonical alert URL: %s", async (alertUrl) => {
   const root = await tempRoot();
@@ -610,38 +608,13 @@ test.each([
 
 test.each([
   { alertsDisabled: true, ...alertConfig },
-  { alertsDisabled: true, alertSender: alertConfig.alertSender },
+  { alertsDisabled: true, alertSender: "old@example.net" },
   { alertsDisabled: false },
-  { alertUrl: alertConfig.alertUrl },
-  { alertSender: alertConfig.alertSender },
-  { alertRecipient: alertConfig.alertRecipient },
-  { alertUrl: alertConfig.alertUrl, alertSender: alertConfig.alertSender },
-  { alertUrl: alertConfig.alertUrl, alertRecipient: alertConfig.alertRecipient },
-  { alertSender: alertConfig.alertSender, alertRecipient: alertConfig.alertRecipient },
-  { ...alertConfig, alertRecipient: [] },
-  { ...alertConfig, alertRecipient: Array.from({ length: 51 }, (_, i) => `r${i}@example.net`) },
-  { ...alertConfig, alertRecipient: ["User@example.net", "User@EXAMPLE.NET"] },
-  { ...alertConfig, alertRecipient: ["valid@example.net", "Invalid <other@example.net>"] },
+  { ...alertConfig, alertSender: "old@example.net" },
+  { ...alertConfig, alertRecipient: ["old@example.net"] },
+  { ...alertConfig, severity: "error" },
   { ...alertConfig, token: "never-store-tokens-in-toml" },
-  ...[
-    "",
-    " user@example.com",
-    "user@example.com\n",
-    "User <user@example.com>",
-    '"user"@example.com',
-    "user@example.com,other@example.com",
-    "user@[127.0.0.1]",
-    "josé@example.com",
-    "user@exámple.com",
-    "a..b@example.com",
-    "a".repeat(65) + "@example.com",
-    "user@" + "d".repeat(64) + ".com",
-    "a".repeat(64) + "@" + ["d".repeat(63), "e".repeat(63), "f".repeat(62)].join("."),
-  ].flatMap((address) => [
-    { ...alertConfig, alertSender: address },
-    { ...alertConfig, alertRecipient: [address] },
-  ]),
-])("rejects incomplete or invalid backup alert addressing: %j", async (alerts) => {
+])("rejects obsolete or conflicting backup alert configuration: %j", async (alerts) => {
   const root = await tempRoot();
   await writeFile(
     join(root, "config.toml"),
@@ -657,14 +630,8 @@ test.each([
   await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
 });
 
-test.each([1, 50])("accepts %i distinct recipients and preserves mailbox case", async (count) => {
+test("accepts a generic alert endpoint without caller-selected email policy", async () => {
   const root = await tempRoot();
-  // Local parts are case-sensitive; domain-case-only duplicates are rejected above.
-  const recipient = [
-    "User@EXAMPLE.net",
-    "user@example.net",
-    ...Array.from({ length: 48 }, (_, i) => `r${i}@example.net`),
-  ].slice(0, count);
   await writeFile(
     join(root, "config.toml"),
     stringify({
@@ -673,13 +640,12 @@ test.each([1, 50])("accepts %i distinct recipients and preserves mailbox case", 
         profile: "mac",
         profiles: { mac: { platform: "macos", files: ["mac.toml"] } },
         ...alertConfig,
-        alertRecipient: recipient,
       },
     }),
   );
   const config = await loadConfig({ stateRoot: root });
-  expect(config.backups?.alertSender).toBe("laptop@alerts.example.net");
-  expect(config.backups?.alertRecipient).toEqual(recipient);
+  expect(config.backups?.alertUrl).toBe("https://alerts.invalid/v1/alerts");
+  expect(config.backups?.alertsDisabled).toBeUndefined();
 });
 
 test("rejects per-job alert maps rather than silently disabling alerts", async () => {
@@ -853,8 +819,7 @@ test.each(["macos", "windows"] as const)(
       platform === "windows"
         ? {
             ...alertConfig,
-            alertUrl: "https://alerts.invalid/v1/alerts/storage-desktop",
-            alertSender: "desktop@alerts.example.net",
+            alertUrl: "https://other-alerts.invalid/v1/alerts",
           }
         : alertConfig;
     const { alertsDisabled: _alertsDisabled, ...enabledBackups } = config.backups!;
@@ -875,8 +840,6 @@ test.each(["macos", "windows"] as const)(
     expect(second.alert).toEqual({
       protocol: "v1",
       url: machineAlert.alertUrl,
-      sender: machineAlert.alertSender,
-      recipient: ["backups@example.net"],
     });
     expect(second.scheduleLabel).toBe("org.example.archive");
     const differentRoute = {
@@ -884,13 +847,13 @@ test.each(["macos", "windows"] as const)(
       backups: {
         ...enabledBackups,
         ...machineAlert,
-        alertUrl: "https://alerts.invalid/v1/alerts/unrelated-device-42",
+        alertUrl: "https://unrelated-service.invalid/v1/alerts",
       },
     };
     await expect(
       loadBackupSettings(differentRoute, undefined, platform === "macos" ? "darwin" : "win32"),
     ).resolves.toMatchObject({
-      alert: { url: "https://alerts.invalid/v1/alerts/unrelated-device-42" },
+      alert: { url: "https://unrelated-service.invalid/v1/alerts" },
     });
     await writeFile(
       join(root, "jobs.toml"),

@@ -59,34 +59,6 @@ const BackupsFileSchema = Schema.Struct({
   ),
   alertsDisabled: Schema.optionalKey(Schema.Literal(true)),
   alertUrl: Schema.optionalKey(Schema.NonEmptyString),
-  alertSender: Schema.optionalKey(Schema.String),
-  alertRecipient: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-
-// Match alert-worker's bare-mailbox rules; authorization remains server-side.
-const AlertMailbox = Schema.String.check(
-  Schema.isMaxLength(254),
-  Schema.isPattern(
-    /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$(?![\s\S])/,
-  ),
-  Schema.makeFilter((value) => value.slice(0, value.indexOf("@")).length <= 64),
-);
-const BackupAlertConfig = Schema.Struct({
-  alertUrl: Schema.NonEmptyString,
-  alertSender: AlertMailbox,
-  alertRecipient: Schema.Array(AlertMailbox).check(
-    Schema.isMinLength(1),
-    Schema.isMaxLength(50),
-    Schema.makeFilter(
-      (values) =>
-        new Set(
-          values.map((value) => {
-            const at = value.lastIndexOf("@");
-            return value.slice(0, at) + value.slice(at).toLowerCase();
-          }),
-        ).size === values.length,
-    ),
-  ),
 });
 
 const SourceFileSchema = Schema.Struct({
@@ -135,7 +107,7 @@ function normalizeAlertUrl(value: string): string {
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
-    !/^\/v1\/alerts\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(url.pathname) ||
+    url.pathname !== "/v1/alerts" ||
     url.username !== "" ||
     url.password !== "" ||
     url.search !== "" ||
@@ -143,7 +115,7 @@ function normalizeAlertUrl(value: string): string {
     value !== url.origin + url.pathname
   ) {
     throw new Error(
-      "backups.alertUrl must be a canonical HTTPS /v1/alerts/<slug> endpoint without credentials, query, or fragment; use lowercase letters, digits and single hyphens in the slug.",
+      "backups.alertUrl must be a canonical HTTPS /v1/alerts endpoint without credentials, query, or fragment.",
     );
   }
   return url.href;
@@ -167,19 +139,13 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
   if (backups.scheduleLabel !== undefined) {
     config.scheduleLabel = backups.scheduleLabel;
   }
-  if (
-    backups.alertUrl === undefined &&
-    backups.alertSender === undefined &&
-    backups.alertRecipient === undefined
-  ) {
+  if (backups.alertUrl === undefined) {
     return backups.alertsDisabled === true ? { ...config, alertsDisabled: true } : config;
   }
   if (backups.alertsDisabled === true) {
-    throw new Error("backups.alertsDisabled cannot be combined with alert addressing fields.");
+    throw new Error("backups.alertsDisabled cannot be combined with alertUrl.");
   }
-  const alerts = Schema.decodeUnknownSync(BackupAlertConfig)(backups);
-  const alertUrl = normalizeAlertUrl(alerts.alertUrl);
-  return { ...config, ...alerts, alertUrl };
+  return { ...config, alertUrl: normalizeAlertUrl(backups.alertUrl) };
 }
 
 function assertTableKeys(

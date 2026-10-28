@@ -153,21 +153,25 @@ Newly generated macOS LaunchAgents use the same directory for `rustic-wrapper.lo
 
 ### Configure alerts or explicitly disable them
 
-Set all three alert fields under the local `[backups]` table, alongside `profile`. There is no default endpoint or legacy payload fallback. If these settings are absent, backup commands refuse to run until you configure alerts or explicitly disable them.
+Set `alertUrl` under the local `[backups]` table, alongside `profile`. There is no default endpoint or legacy payload fallback. If this setting is absent, backup commands refuse to run until you configure alerts or explicitly disable them.
 
 ```toml
 [backups]
 profile = "personal"
-alertUrl = "https://alerts.example.com/v1/alerts/workstation-backups"
-alertSender = "workstation@alerts.example.com"
-alertRecipient = ["backup-operator@example.com"]
+alertUrl = "https://alerts.example.com/v1/alerts"
 ```
 
-Use your service's canonical HTTPS URL with path `/v1/alerts/<slug>`. The slug must match `[a-z0-9]+(?:-[a-z0-9]+)*`: lowercase ASCII letters and digits in segments joined by single hyphens. URL credentials, queries, fragments, trailing slashes, and encoded or path-normalized aliases are rejected. The CLI has no host or platform-route allowlist; the server owns route and addressing authorization. This is local manager configuration, not an `outfitting.json` or Rustic setting. Wizard edits and manifest re-import preserve these fields. Scheduled invocations read the same config file.
+Use your service's canonical HTTPS URL with exactly the path `/v1/alerts`. URL credentials, queries, fragments, trailing slashes, and encoded or path-normalized aliases are rejected. The CLI has no host or platform-route allowlist. This is local manager configuration, not an `outfitting.json` or Rustic setting. Wizard edits and manifest re-import preserve the endpoint. Scheduled invocations read the same config file.
 
 All jobs in the selected profile use the configured endpoint and `alert-token` service name; there are no per-job credentials, selector headers, or fan-out. Store the service's token using `outfitting-manager backups secrets set alert-token`, not in TOML or environment variables. Equal service names on separate devices do not imply shared token values.
 
-To disable alerts instead, omit all three addressing fields and set:
+Canary uses the exact raw bearer token to select a credential policy in its live `ServiceCatalog` KV. An operator manually creates `credentials/<digest>`, where the digest is lowercase hexadecimal SHA-256 of the token's UTF-8 bytes, without trimming or a trailing newline. The policy owns the sender and the complete recipient list; every configured recipient is included in the send. There is no caller inventory, per-caller secret binding, caller manifest, or required provisioning automation.
+
+When upgrading from `/v1/alerts/<slug>`, change `alertUrl` to the generic route and remove `alertSender` and `alertRecipient` before running the new CLI or wizard. Obsolete keys are rejected, not ignored. Refresh the validated remote source cache with `outfitting-manager init` after changing the endpoint. Existing native token storage and service names are unchanged. A token can be retained only if it meets Canary's 32–512 printable-ASCII limit and the operator registers its exact digest; otherwise rotate it privately. Prefer independently generated cryptographic 256-bit tokens.
+
+Coordinate this migration with Canary's deployment: the old Worker and new client contracts are incompatible. Operators must retain a registry snapshot, review the cutover/recovery plan, and onboard the sender's domain on Workers Paid for any-recipient sending. Start the new policy disabled, verify generic `401` after provisioning, then enable it when ready. KV changes can take 60 seconds or more to propagate; old `services/<slug>` records are ignored by the new Worker, and deployment does not create or reconcile credential policies. See [Canary's operator guide](https://github.com/jfalava/canary/blob/main/docs/deployment.md) for the policy schema and manual onboarding/rotation procedure.
+
+To disable alerts instead, omit `alertUrl` and set:
 
 ```toml
 [backups]
@@ -175,19 +179,17 @@ profile = "personal"
 alertsDisabled = true
 ```
 
-Opt-out is mutually exclusive with `alertUrl`, `alertSender`, and `alertRecipient`. It skips alert delivery and all alert-token lookups, including `secrets check`. Keep all four keys in `[backups.credentials]`. Changing credentials, `scheduleLabel`, or `alertsDisabled` does not invalidate the source cache. Alert addressing retains its existing source-hash behavior; refresh the validated remote cache after changing it.
+Opt-out is mutually exclusive with `alertUrl`. It skips alert delivery and all alert-token lookups, including `secrets check`. Keep all four keys in `[backups.credentials]`. Changing credentials, `scheduleLabel`, or `alertsDisabled` does not invalidate the source cache. The alert endpoint remains part of the source hash; refresh the validated remote cache after changing it.
 
-`alertSender` is one bare mailbox; `alertRecipient` contains 1–50 distinct bare mailboxes, all visible in the email's To field. Mailboxes use ASCII dot-atom local parts (up to 64 characters) and DNS domains (labels up to 63 characters), with at most 254 characters overall. Display names, whitespace, quoted local parts, domain literals, and non-ASCII addresses are rejected. Domain case is ignored for duplicate checks, but local-part case is significant; the CLI preserves supplied case. Local validation checks syntax, counts, and duplicates, not the server's live authorization. A syntactically valid address can still fail with 403.
+The CLI sends `POST` to the configured endpoint using `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains only `title`, `message`, an ISO `timestamp` with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. No sender, recipient, severity, source, or top-level identity fields are sent; Canary rejects unknown top-level fields. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Repository-wide/check failures use the same endpoint and token, with `metadata: { hostname, operation }` and no invented job name. The job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
 
-The CLI sends `POST` to the configured endpoint using the v1 protocol with `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains required `sender` and `recipient` (an array), `title`, `message`, `severity: "error"`, an ISO timestamp with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Repository-wide/check failures use the same endpoint and token, with `metadata: { hostname, operation }` and no invented job name. The job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
+The CLI strips NUL from messages, keeps its existing 4,000 UTF-16-unit message cap, and bounds control-free titles to 200 UTF-16 units. It rejects serialized bodies over 32,768 actual UTF-8 bytes locally, including metadata. Only HTTP 202 with `{ "sent": true, "message_id": "..." }` and a nonempty ID confirms provider acceptance, not inbox delivery.
 
-The CLI strips NUL from messages, keeps its existing 4,000 UTF-16-unit message cap, and bounds control-free titles to 200 UTF-16 units. It rejects serialized bodies over 32,768 actual UTF-8 bytes locally, including all addressing and metadata. Only HTTP 202 with `{ "sent": true, "message_id": "..." }` and a nonempty ID confirms provider acceptance, not inbox delivery.
-
-Rejected responses never confirm acceptance: 400 indicates invalid payload, 401 authentication or disabled service, 403 an address outside the service allowlists, 404 a wrong route, 413 an oversized body, 415 unsupported encoding, 502 provider failure, and 503 unavailable service configuration or bindings. A 403 rejects the whole recipient list without sending any email. Fix configuration or provisioning rather than retrying rejected requests.
+Rejected responses never confirm acceptance: 400 indicates invalid payload, 401 an invalid/missing token or missing/disabled policy, 404 a wrong route, 413 an oversized body, 415 unsupported media or encoding, 502 provider failure, and 503 a malformed policy or unavailable KV. Fix configuration or provisioning rather than retrying rejected requests.
 
 Requests have a 20-second timeout, no automatic retry, and no idempotency guarantee. A timeout can occur after provider acceptance; retrying manually or on a later failed backup may duplicate email. Alert errors only log a warning and never replace the backup result.
 
-Before enabling alerts, verify a controlled request with the service's provisioned token and approved addressing, checking HTTP 202 and inbox receipt. Do not deliberately fail a real backup. Installing this CLI does not deploy a service, edit live host settings or credentials, or replace schedules. Those actions and any native credential approval remain manual.
+After enabling the credential policy and allowing for propagation, verify a controlled request with the service's provisioned token, checking HTTP 202 and separately checking every intended inbox. Do not deliberately fail a real backup. Installing this CLI does not deploy a service, write live KV, edit live host settings or credentials, or replace schedules. Those actions and any native credential approval remain manual.
 
 ### Configure the Rustic TOML files
 

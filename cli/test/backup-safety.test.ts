@@ -30,9 +30,7 @@ const jobs = ["documents", "images"] as const;
 const windowsJobs = ["ffxiv-mods", "ffxiv-configs", "mmo-screenshots"] as const;
 const v1Alert = {
   protocol: "v1" as const,
-  url: "https://alerts.invalid/v1/alerts/backups-jfa-mac-mini",
-  sender: "jfa-mac-mini@alerts.jfa.dev",
-  recipient: ["backup-alerts@jfa.dev"],
+  url: "https://alerts.invalid/v1/alerts",
 };
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -371,11 +369,8 @@ test.each(["disabled", "v1"] as const)(
     expect([...request.headers.keys()].filter((key) => key.startsWith("x-alert"))).toEqual([]);
     const body = await request.json();
     expect(body).toEqual({
-      sender: "jfa-mac-mini@alerts.jfa.dev",
-      recipient: ["backup-alerts@jfa.dev"],
       title: "Backup alert: rustic backup (images) on fixture-host",
       message: state!.error,
-      severity: "error",
       timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
       metadata: {
         hostname: "fixture-host",
@@ -415,25 +410,18 @@ test("v1 bounds Unicode payloads and strips mail controls without changing a rej
 });
 
 test.each([32_768, 32_769])(
-  "v1 counts addressing in the actual %i-byte UTF-8 body limit",
+  "v1 counts metadata in the actual %i-byte UTF-8 body limit",
   async (size) => {
     const f = await fixture();
-    const recipient = Array.from(
-      { length: 50 },
-      (_, i) => `r${i}+${"x".repeat(60)}@${"d".repeat(63)}.${"e".repeat(63)}.example.net`,
-    );
-    // Independently account for the full wire body, including all 50 recipient addresses.
+    // Independently account for the full wire body, including untruncated metadata.
     const expected = {
-      sender: "jfa-mac-mini@alerts.jfa.dev",
-      recipient,
       title: "Backup alert: rustic backup (images) on " + "h".repeat(160),
       message: "rustic backup exited 17: 漢disk offline",
-      severity: "error",
       timestamp: "2026-10-22T18:30:00.000Z",
       metadata: { hostname: "", operation: "rustic backup (images)", job: "images" },
     };
     const hostname = "h".repeat(size - new TextEncoder().encode(JSON.stringify(expected)).length);
-    Object.assign(f.settings, { hostname, alert: { ...v1Alert, recipient } });
+    Object.assign(f.settings, { hostname, alert: v1Alert });
     f.setAlertResponse(202);
     f.setBackup(() => ({ stdout: "", stderr: "漢disk offline", exitCode: 17 }));
     const [state] = await f.backup(["images"]);
@@ -514,11 +502,8 @@ test.each(["disabled", "v1"] as const)(
     expect(f.alerts[0]!.headers.get("authorization")).toBe("Bearer fixture-alert-token");
     const body = await f.alerts[0]!.json();
     expect(body).toEqual({
-      sender: "jfa-mac-mini@alerts.jfa.dev",
-      recipient: ["backup-alerts@jfa.dev"],
       title: "Backup alert: rustic repository check on fixture-host",
       message: "Invalid repository-check receipt.",
-      severity: "error",
       timestamp: expect.stringMatching(/Z$/),
       metadata: { hostname: "fixture-host", operation: "rustic repository check" },
     });
@@ -549,13 +534,12 @@ test("missing machine token warns without changing job failures or sending unaut
 });
 
 test.each([false, true])(
-  "all jobs and checks share one machine route/token (Windows=%s)",
+  "all jobs and checks share the generic endpoint and native token (Windows=%s)",
   async (windows) => {
     const f = await fixture(false, windows);
-    const sender = windows ? "jfa-windows@alerts.jfa.dev" : "jfa-mac-mini@alerts.jfa.dev";
-    const url = windows ? "https://alerts.invalid/v1/alerts/backups-jfa-windows" : v1Alert.url;
+    const url = v1Alert.url;
     const token = windows ? "independent-windows-credential" : "independent-mac-credential";
-    Object.assign(f.settings, { alert: { ...v1Alert, url, sender } });
+    Object.assign(f.settings, { alert: v1Alert });
     f.setAlertToken(token);
     f.setAlertResponse(202);
     f.setBackup(() => ({ stdout: "", stderr: "disk offline", exitCode: 17 }));
@@ -575,8 +559,6 @@ test.each([false, true])(
       const body = await request.json();
       expect(body).toMatchObject({
         title: `Backup alert: rustic backup (${job}) on fixture-host`,
-        sender,
-        recipient: ["backup-alerts@jfa.dev"],
         metadata: { operation: `rustic backup (${job})`, job },
       });
     }
@@ -586,8 +568,6 @@ test.each([false, true])(
     const body = await check.json();
     expect(body).toMatchObject({
       title: "Backup alert: rustic repository check on fixture-host",
-      sender,
-      recipient: ["backup-alerts@jfa.dev"],
       metadata: { operation: "rustic repository check" },
     });
     expect(body).not.toHaveProperty("metadata.job");

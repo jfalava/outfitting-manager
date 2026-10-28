@@ -187,9 +187,7 @@ describe("SecretStore import", () => {
 
   const enabled: SettingsData["alert"] = {
     protocol: "v1",
-    url: "https://example.invalid/alerts",
-    sender: "fixture",
-    recipient: ["operator"],
+    url: "https://example.invalid/v1/alerts",
   };
 
   test.each([false, true])(

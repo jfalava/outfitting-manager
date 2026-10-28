@@ -35,8 +35,6 @@ export interface SettingsData {
     | {
         readonly protocol: "v1";
         readonly url: string;
-        readonly sender: string;
-        readonly recipient: ReadonlyArray<string>;
       };
   readonly repository: string;
   readonly profile: Profile;
@@ -140,9 +138,7 @@ export async function loadBackupSettings(
     );
   }
   if (backups.alertUrl === undefined && backups.alertsDisabled !== true) {
-    throw new Error(
-      "Configure backup alert addressing or explicitly set backups.alertsDisabled = true.",
-    );
+    throw new Error("Configure backups.alertUrl or explicitly set backups.alertsDisabled = true.");
   }
   const repoRoot =
     manager.source?.kind === "local"
@@ -179,8 +175,6 @@ export async function loadBackupSettings(
         : {
             protocol: "v1",
             url: backups.alertUrl,
-            sender: backups.alertSender,
-            recipient: backups.alertRecipient,
           },
     repository: createHash("sha256").update(JSON.stringify(profile.repository)).digest("hex"),
     profile: effective,

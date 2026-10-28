@@ -28,13 +28,11 @@ export type BackupsConfig = {
   /** Label used only when generating a macOS LaunchAgent. */
   scheduleLabel?: string;
 } & (
-  | { alertsDisabled?: true; alertUrl?: never; alertSender?: never; alertRecipient?: never }
+  | { alertsDisabled?: true; alertUrl?: never }
   | {
       alertsDisabled?: never;
-      /** Full POST /v1/alerts/<slug> endpoint. */
+      /** Full POST /v1/alerts endpoint; the credential selects the email policy. */
       alertUrl: string;
-      alertSender: string;
-      alertRecipient: ReadonlyArray<string>;
     }
 );
 
