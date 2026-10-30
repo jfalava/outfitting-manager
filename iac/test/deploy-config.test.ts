@@ -83,7 +83,7 @@ test.each(["flag", "environment"])("rejects a missing config selected by %s", (s
   });
 });
 
-test("loads manager resources and ignores docs and installer settings", () => {
+test("loads manager resources from the config file", () => {
   withCleanEnv(() => {
     const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
     const path = join(dir, "outfitting.deploy.json");
@@ -91,17 +91,11 @@ test("loads manager resources and ignores docs and installer settings", () => {
       path,
       JSON.stringify({
         domain: "api.example.com",
-        docs: false,
-        installerHosts: ["linux.example.com"],
         stackName: "my-manager",
         database: "my-db",
         kv: "my-kv",
-        workers: {
-          router: "r1",
-          api: "a1",
-          docs: "d1",
-          installer: "i1",
-        },
+        privateFonts: "my-fonts",
+        workers: { router: "r1", api: "a1" },
       }),
     );
     const config = loadDeployConfig({ configPath: path });
@@ -110,8 +104,26 @@ test("loads manager resources and ignores docs and installer settings", () => {
     expect(config.stackName).toBe("my-manager");
     expect(config.databaseName).toBe("my-db");
     expect(config.kvTitle).toBe("my-kv");
+    expect(config.privateFontsBucket).toBe("my-fonts");
     expect(config.workers).toEqual({ router: "r1", api: "a1" });
     expect(config.configPath).toBe(path);
+    rmSync(dir, { recursive: true });
+  });
+});
+
+test.each([
+  [{ databse: "typo-db" }, "unknown keys: databse"],
+  [{ installerHosts: ["linux.example.com"] }, "unknown keys: installerHosts"],
+  [{ kvTitle: "old-alias" }, "unknown keys: kvTitle"],
+  [{ workers: { router: "r1", docs: "d1" } }, "workers in deploy config"],
+  [{ workers: "r1" }, "workers in deploy config"],
+])("rejects %j instead of silently using default resources", (file, message) => {
+  withCleanEnv(() => {
+    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
+    const path = join(dir, "outfitting.deploy.json");
+    writeFileSync(path, JSON.stringify(file));
+    expect(() => loadDeployConfig({ configPath: path })).toThrow(message);
+    rmSync(dir, { recursive: true });
   });
 });
 

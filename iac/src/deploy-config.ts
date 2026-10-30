@@ -81,6 +81,15 @@ function optionalNonEmpty(candidate: JsonObject, field: string): string | undefi
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
+function rejectUnknownKeys(candidate: JsonObject, allowed: ReadonlyArray<string>, label: string) {
+  const unknown = Object.keys(candidate).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    throw new Error(
+      `${label} has unknown keys: ${unknown.join(", ")}. Allowed: ${allowed.join(", ")}.`,
+    );
+  }
+}
+
 function parseDeployFile(raw: string, path: string): Partial<DeployConfig> {
   let root: JsonValue;
   try {
@@ -95,14 +104,22 @@ function parseDeployFile(raw: string, path: string): Partial<DeployConfig> {
   if (file === undefined) {
     throw new Error(`Deploy config at ${path} must be a JSON object.`);
   }
-  const workersObject = jsonObject(file.workers) ?? {};
+  rejectUnknownKeys(
+    file,
+    ["domain", "stackName", "kv", "database", "privateFonts", "workers"],
+    `Deploy config at ${path}`,
+  );
+  const workersObject = file.workers === undefined ? {} : jsonObject(file.workers);
+  if (workersObject === undefined) {
+    throw new Error(`workers in deploy config at ${path} must be an object.`);
+  }
+  rejectUnknownKeys(workersObject, ["router", "api"], `workers in deploy config at ${path}`);
   return {
     domain: optionalNonEmpty(file, "domain"),
     stackName: optionalNonEmpty(file, "stackName"),
-    kvTitle: optionalNonEmpty(file, "kv") ?? optionalNonEmpty(file, "kvTitle"),
+    kvTitle: optionalNonEmpty(file, "kv"),
     databaseName: optionalNonEmpty(file, "database"),
-    privateFontsBucket:
-      optionalNonEmpty(file, "privateFonts") ?? optionalNonEmpty(file, "privateFontsBucket"),
+    privateFontsBucket: optionalNonEmpty(file, "privateFonts"),
     workers: {
       router: optionalNonEmpty(workersObject, "router") ?? DEFAULT_DEPLOY_CONFIG.workers.router,
       api: optionalNonEmpty(workersObject, "api") ?? DEFAULT_DEPLOY_CONFIG.workers.api,
