@@ -126,12 +126,6 @@ function discoverConfigPath(explicit: string | undefined): string | undefined {
   if (existsSync(cwdFile)) {
     return cwdFile;
   }
-  if (existsSync(join(cwd(), "alchemy.run.ts"))) {
-    const sibling = join(cwd(), "outfitting.deploy.json");
-    if (existsSync(sibling)) {
-      return sibling;
-    }
-  }
   return undefined;
 }
 
