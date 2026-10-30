@@ -8,7 +8,7 @@ export function scoopScriptPath(shimPath: string): string {
   return /\.ps1$/i.test(shimPath) ? shimPath : `${shimPath}.ps1`;
 }
 
-/** Invoke Scoop through PowerShell; its PATH entry is a `.cmd` shim, not an executable. */
+/** Invoke Scoop through PowerShell 7; its PATH entry is a `.cmd` shim, not an executable. */
 export function runScoopCommand(
   run: typeof runCommand,
   scoopPath: string,
@@ -16,7 +16,7 @@ export function runScoopCommand(
   options: RunCommandOptions = {},
 ): Promise<RunCommandResult> {
   return run(
-    "powershell.exe",
+    "pwsh.exe",
     [
       "-NoProfile",
       "-NonInteractive",

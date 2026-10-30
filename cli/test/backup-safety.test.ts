@@ -183,7 +183,7 @@ const fixture = async (
     Processes.of({
       run: Effect.fn("test.run")(function* (_exe, args, env) {
         yield* Effect.promise(() => record(args, env));
-        if (_exe === "powershell.exe") return gameStatus;
+        if (_exe === "pwsh.exe") return gameStatus;
         const job = activeJobs.find((job) => args.includes(job)) ?? activeJobs[0]!;
         if (args.includes("backup")) return backupOutput(job);
         if (args.includes("snapshots"))
@@ -579,7 +579,16 @@ test.each([false, true])(
 test("scheduling prints a quoted manager invocation without running processes or installing tasks", async () => {
   const f = await fixture(false, true);
   const binary = join(f.root, "Owner's Backup & Tools/manager");
+  const bin = join(f.root, "pwsh-bin");
+  await mkdir(bin);
+  const pwsh = join(bin, process.platform === "win32" ? "pwsh.exe" : "pwsh");
+  await writeFile(pwsh, "", { mode: 0o755 });
+  f.settings.environment.PATH = join(f.root, "no-pwsh");
+  const missing = await f.run(scheduledTask(binary).pipe(Effect.flip));
+  expect(missing.message).toContain("PowerShell 7 (pwsh) must be on PATH");
+  f.settings.environment.PATH = bin;
   const task = await f.run(scheduledTask(binary));
+  expect(task).toContain(`<Command>${pwsh}</Command>`);
   const encoded = task.match(/-EncodedCommand&quot; &quot;([A-Za-z0-9+/=]+)&quot;/)?.[1];
   expect(encoded).toBeDefined();
   const script = Buffer.from(encoded!, "base64").toString("utf16le");

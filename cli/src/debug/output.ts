@@ -649,7 +649,11 @@ function backupPreviews(platform: HostPlatform): OutputPreview[] {
       sample("backups schedule", () =>
         Console.log(
           platform === "windows"
-            ? formatScheduledTask(`${home}/bin/outfitting-manager.exe`, settings)
+            ? formatScheduledTask(
+                `${home}/bin/outfitting-manager.exe`,
+                "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+                settings,
+              )
             : formatLaunchAgent(`${home}/bin/outfitting-manager`, settings),
         ),
       ),

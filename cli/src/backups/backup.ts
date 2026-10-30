@@ -489,7 +489,7 @@ export class Backup extends Context.Service<
               if (guardedProcesses.length > 0) {
                 const running = yield* processes
                   .run(
-                    "powershell.exe",
+                    "pwsh.exe",
                     [
                       "-NoProfile",
                       "-NonInteractive",

@@ -13,7 +13,7 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 Install [Rustic](https://github.com/rustic-rs/rustic) 0.10 or later (with named backup selection) and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
 
-On Windows, optional per-job process guards use `powershell.exe`. The optional `secrets import-secretstore` command requires PowerShell 7 (`pwsh.exe`) with the SecretManagement and SecretStore modules installed.
+On Windows, the CLI requires PowerShell 7 (`pwsh.exe`) on `PATH` and never falls back to Windows PowerShell 5.1. Per-job process guards and generated scheduled tasks run through `pwsh.exe`; `backups schedule` resolves its absolute path and fails if it is missing. The optional `secrets import-secretstore` command also needs the SecretManagement and SecretStore modules installed for PowerShell 7.
 
 ```sh
 rustic --version

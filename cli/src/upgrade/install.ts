@@ -195,7 +195,7 @@ export function scheduleWindowsReplacement(
       "start",
       "",
       "/b",
-      "powershell.exe",
+      "pwsh.exe",
       "-NoLogo",
       "-NoProfile",
       "-NonInteractive",

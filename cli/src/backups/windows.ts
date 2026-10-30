@@ -1,4 +1,6 @@
-import { isAbsolute, join } from "node:path";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
+import { delimiter, isAbsolute, join } from "node:path";
 
 import { Effect } from "effect";
 
@@ -15,6 +17,22 @@ const xml = (value: string) =>
 
 const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
+async function findPwsh(path: string): Promise<string | undefined> {
+  const name = process.platform === "win32" ? "pwsh.exe" : "pwsh";
+  for (const directory of path.split(delimiter).filter((entry) => isAbsolute(entry))) {
+    const candidate = join(directory, name);
+    if (
+      await access(candidate, constants.X_OK).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: string) {
   const config = yield* Settings;
   if (!isAbsolute(binary) || !isAbsolute(config.rustic)) {
@@ -28,7 +46,14 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
       message: "Scheduling requires a config.toml path and backup profile.",
     });
   }
-  return formatScheduledTask(binary, {
+  // Resolve now: a task pointing at a missing pwsh would silently stop running backups.
+  const pwsh = yield* Effect.promise(() => findPwsh(config.environment.PATH ?? ""));
+  if (pwsh === undefined) {
+    return yield* new BackupError({
+      message: "PowerShell 7 (pwsh) must be on PATH to generate a scheduled task.",
+    });
+  }
+  return formatScheduledTask(binary, pwsh, {
     ...config,
     configPath: config.configPath,
     backupProfile: config.backupProfile,
@@ -37,6 +62,7 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
 
 export function formatScheduledTask(
   binary: string,
+  pwsh: string,
   config: SettingsData & { configPath: string; backupProfile: string },
 ): string {
   const user = `${config.environment.USERDOMAIN ?? config.hostname}\\${config.account}`;
@@ -57,6 +83,6 @@ export function formatScheduledTask(
   </Triggers>
   <Principals><Principal id="BackupUser"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
-  <Actions Context="BackupUser"><Exec><Command>${xml(join(config.environment.SystemRoot ?? "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe"))}</Command><Arguments>${xml(args.map((arg) => `"${arg}"`).join(" "))}</Arguments><WorkingDirectory>${xml(config.repoRoot)}</WorkingDirectory></Exec></Actions>
+  <Actions Context="BackupUser"><Exec><Command>${xml(pwsh)}</Command><Arguments>${xml(args.map((arg) => `"${arg}"`).join(" "))}</Arguments><WorkingDirectory>${xml(config.repoRoot)}</WorkingDirectory></Exec></Actions>
 </Task>`;
 }

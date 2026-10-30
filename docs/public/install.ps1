@@ -1,7 +1,11 @@
 $ErrorActionPreference = 'Stop'
 
 if ($env:OS -ne 'Windows_NT') {
-    throw 'This installer is for Windows PowerShell.'
+    throw 'This installer is for Windows.'
+}
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw 'outfitting-manager requires PowerShell 7. Install it (winget install Microsoft.PowerShell), then run this installer from pwsh.'
 }
 
 if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {

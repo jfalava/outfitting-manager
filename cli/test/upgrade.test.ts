@@ -116,7 +116,7 @@ describe("self-update command helpers", () => {
       await writeFile(targetPath, "old", "utf8");
       const blocker = Bun.spawn(
         [
-          "powershell.exe",
+          "pwsh.exe",
           "-NoLogo",
           "-NoProfile",
           "-NonInteractive",
