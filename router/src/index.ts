@@ -41,7 +41,7 @@ const DOCS_EXACT_PATHS = new Set([
   "/sitemap-index.xml",
 ]);
 
-const DOCS_PREFIXES = ["/docs", "/og", "/_astro", "/_nimbus", "/pagefind", "/fonts"] as const;
+const DOCS_PREFIXES = ["/docs", "/og", "/_astro", "/_nimbus", "/pagefind"] as const;
 
 function isDocsPath(pathname: string): boolean {
   if (DOCS_EXACT_PATHS.has(pathname)) {
@@ -53,7 +53,7 @@ function isDocsPath(pathname: string): boolean {
 const forwardDocs: Handler<App> = async (c) => {
   const pathname = new URL(c.req.url).pathname;
   if (!isDocsPath(pathname)) {
-    return c.text("I'm a teapot", 418);
+    return c.json({ error: "Not found" }, 404);
   }
   const docs = c.env.DOCS_WORKER;
   if (docs === undefined) {

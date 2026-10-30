@@ -101,7 +101,7 @@ describe("manager API/docs router", () => {
     const DOCS_WORKER = stubFetcher();
     const response = await hit("/unexpected", { API, DOCS_WORKER });
 
-    expect(response.status).toBe(418);
+    expect(response.status).toBe(404);
     expect(API.calls).toEqual([]);
     expect(DOCS_WORKER.calls).toEqual([]);
   });
