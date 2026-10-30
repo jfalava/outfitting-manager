@@ -103,8 +103,12 @@ export async function storeAndPromote(
   const results = await env.DB.batch([
     env.DB.prepare(
       `INSERT OR IGNORE INTO lockfiles (machine, kind, hash, size)
-       VALUES (?, ?, ?, ?)`,
-    ).bind(machine, kind, hash, size),
+       SELECT ?, ?, ?, ?
+       WHERE ? IS NULL OR EXISTS (
+         SELECT 1 FROM lockfile_heads
+         WHERE machine = ? AND kind = ? AND hash = ?
+       )`,
+    ).bind(machine, kind, hash, size, parent, machine, kind, parent),
     env.DB.prepare(PROMOTE_HISTORY_SQL).bind(
       machine,
       kind,
