@@ -241,9 +241,6 @@ export function outputPreviews(platform: HostPlatform): OutputPreview[] {
               missing: empty ? [] : ["ripgrep", "fd"],
               extra: empty ? [] : ["legacy-tool"],
               changed: empty ? [] : ["git: 2.48 → 2.49"],
-              warnings: empty
-                ? []
-                : ["Sample warning: one inventory source could not be refreshed."],
             },
           ],
           differences: !empty,

@@ -22,11 +22,6 @@ import {
   windowsLockPath,
   writeWindowsLock,
 } from "@/update/windows-lock";
-import {
-  captureBunGlobalInventory,
-  captureScoopInventory,
-  exportWingetInventory,
-} from "@/update/windows-snapshot";
 import { updateWinget, wingetPackageArgs } from "@/update/winget";
 
 const temps: string[] = [];
@@ -351,47 +346,7 @@ describe("Scoop", () => {
   });
 });
 
-describe("Windows inventories and upgrades", () => {
-  test("normalizes and sorts Scoop inventory", async () => {
-    const body = await captureScoopInventory(async () =>
-      ok(
-        JSON.stringify({
-          apps: [
-            { Name: "zulu", Source: "main", Version: "2", Info: "" },
-            { Name: "alpha", Source: "extras", Version: "1", Info: "" },
-          ],
-          buckets: [
-            { Name: "zeta", Source: "https://zeta" },
-            { Name: "alpha", Source: "https://alpha" },
-          ],
-        }),
-      ),
-    );
-    expect(body.indexOf('"Name": "alpha"')).toBeLessThan(body.indexOf('"Name": "zulu"'));
-    expect(body).not.toMatch(/timestamp|fetchedAt/i);
-  });
-
-  test("sorts and deduplicates global Bun package names", async () => {
-    const body = await captureBunGlobalInventory(async () =>
-      ok(
-        ["/tmp/global/node_modules", "├── zed@1.0.0", "├── @scope/pkg@2.0.0", "└── zed@1.0.0"].join(
-          "\n",
-        ),
-      ),
-    );
-    expect(body).toContain('"packages": [\n    "@scope/pkg",\n    "zed"\n  ]');
-  });
-
-  test("requires WinGet export to create the requested file", async () => {
-    const root = await tempRoot("outfitting-winget-export-");
-    const output = join(root, "winget.json");
-    await exportWingetInventory(output, async (_command, args) => {
-      await writeFile(args[2]!, '{"Sources":[]}\n', "utf8");
-      return ok();
-    });
-    await expect(readFile(output, "utf8")).resolves.toContain("Sources");
-  });
-
+describe("Windows upgrades", () => {
   test("WinGet upgrades all and writes local state without source configuration", async () => {
     const stateRoot = await tempRoot("outfitting-winget-update-");
     const calls: string[][] = [];

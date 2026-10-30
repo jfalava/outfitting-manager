@@ -47,6 +47,3 @@ export const makeMacosRootCommand = (currentVersion: string) =>
       makeDebugCommand("macos"),
     ]),
   );
-
-/** @deprecated Prefer makeMacosRootCommand; kept as the default until multi-entry is universal. */
-export const makeRootCommand = makeMacosRootCommand;

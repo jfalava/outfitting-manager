@@ -36,7 +36,7 @@ import { prepareLinuxSource, readLinuxManifest, type LinuxSource } from "@/updat
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
 import { parseScoopManifest, type ScoopManifest } from "@/update/scoop";
 import { runScoopCommand } from "@/update/scoop-command";
-import { parseScoopExport, type ScoopExportState } from "@/update/windows-snapshot";
+import { parseScoopExport, type ScoopExportState } from "@/update/scoop-export";
 
 const MACOS_MANAGERS = ["brew", "nix"] as const satisfies ReadonlyArray<DiffManager>;
 const WINDOWS_MANAGERS = ["winget", "scoop"] as const satisfies ReadonlyArray<DiffManager>;
@@ -75,9 +75,7 @@ interface DiffContext {
   platform: DiffPlatform;
   run: typeof runCommand;
   which: typeof which;
-  fetcher: ManifestFetcher | undefined;
   offline: boolean;
-  warnings: string[];
   reportItem: (item: string, itemIndex: number, itemTotal: number) => void;
   linuxSource?: LinuxSource;
 }
@@ -618,9 +616,7 @@ export async function collectDiff(options: CollectDiffOptions): Promise<Platform
     platform: options.platform,
     run: options.run ?? runCommand,
     which: options.which ?? which,
-    fetcher: options.fetcher,
     offline: options.offline === true,
-    warnings: [],
     reportItem: () => undefined,
     linuxSource,
   };
@@ -650,7 +646,6 @@ async function collectSections(
   const managers = selectedManagers(options.platform, options.manager);
 
   for (const manager of managers) {
-    context.warnings = [];
     context.reportItem = (item, itemIndex, itemTotal) =>
       options.onProgress?.({
         completed: sections.length,
@@ -672,9 +667,6 @@ async function collectSections(
       section = await compareSection(manager, options.profiles, context);
     } catch (cause) {
       section = unavailableSection(manager, errorMessage(cause));
-    }
-    if (context.warnings.length > 0) {
-      section.warnings = context.warnings;
     }
     sections.push(section);
     options.onProgress?.({

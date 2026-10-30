@@ -8,8 +8,6 @@ import { ui } from "@/ui";
 import { runScoopCommand } from "@/update/scoop-command";
 import { recordWindowsOperation, WINDOWS_LOCK_KIND, windowsLockPath } from "@/update/windows-lock";
 
-export const SCOOP_MANIFEST_PATH = "packages/windows/scoop.txt";
-
 class ScoopUpdateError extends Data.TaggedError("ScoopUpdateError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -155,5 +153,3 @@ export const updateScoop = (options: UpdateScoopOptions = {}) =>
     }
     yield* Console.log(ui.success("Installed Scoop packages updated."));
   });
-
-export { captureScoopInventory, parseScoopExport } from "@/update/windows-snapshot";

@@ -13,9 +13,6 @@ import { parseWindowsPackageList } from "@/source/windows-manifest";
 export const BYOR_CONTRACT_PATH = "outfitting.json";
 export const BYOR_CONTRACT_SCHEMA = 3;
 
-/** Sentinel winget path template for BYOR contracts without a common `{profile}` pattern. */
-export const BYOR_WINDOWS_WINGET_SENTINEL = "byor/{profile}";
-
 export type LinuxPackageBackend = "apt" | "pacman";
 
 export interface LinuxPackageDeclaration {

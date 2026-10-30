@@ -92,5 +92,3 @@ export const updateWinget = (options: UpdateWingetOptions = {}) =>
     }
     yield* Console.log(ui.success("WinGet update complete."));
   });
-
-export { exportWingetInventory, pushWingetInventory } from "@/update/windows-snapshot";

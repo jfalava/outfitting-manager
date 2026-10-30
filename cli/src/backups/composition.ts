@@ -1,13 +1,8 @@
-import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 import { Schema } from "effect";
-import {
-  parse as parseToml,
-  stringify as stringifyToml,
-  type TomlValueWithoutBigInt,
-} from "smol-toml";
+import { parse as parseToml, type TomlValueWithoutBigInt } from "smol-toml";
 
 import { Profile, type JobPolicy } from "@/backups/model";
 import { builtinPathNames, substituteBackupPaths } from "@/backups/paths";
@@ -73,13 +68,8 @@ export function composeTomlDocuments(documents: ReadonlyArray<TomlTable>): TomlT
 }
 
 export interface ComposedBackupProfile {
-  profile: string;
-  platform: BackupProfileDeclaration["platform"];
-  files: string[];
   jobs: Readonly<Record<string, JobPolicy>>;
-  hash: string;
   document: TomlTable;
-  toml: string;
 }
 
 const LegacyGlobal = Schema.Struct({
@@ -134,22 +124,7 @@ export async function composeBackupProfile(options: {
   const document = composeTomlDocuments(documents);
   const jobs = declaration.jobs ?? {};
   validateComposedBackup(document, declaration.platform, jobs, declaration.paths);
-  const canonical = JSON.stringify({
-    platform: declaration.platform,
-    files: declaration.files,
-    document,
-    jobs,
-    paths: declaration.paths,
-  });
-  return {
-    profile: options.profile,
-    platform: declaration.platform,
-    files: [...declaration.files],
-    jobs,
-    hash: createHash("sha256").update(canonical).digest("hex"),
-    document,
-    toml: `${stringifyToml(document).trimEnd()}\n`,
-  };
+  return { jobs, document };
 }
 
 export function validateComposedBackup(
@@ -214,15 +189,4 @@ function validateJobInventory(profile: Profile, policies: Readonly<Record<string
       throw new Error(`Job ${snapshot.name} needs at least one enabled retention counter.`);
     }
   }
-}
-
-export function backupPlan(profile: ComposedBackupProfile): string {
-  return [
-    `profile: ${profile.profile}`,
-    `platform: ${profile.platform}`,
-    `files:`,
-    ...profile.files.map((file) => `  - ${file}`),
-    `job policies: ${JSON.stringify(profile.jobs)}`,
-    `declaration hash: ${profile.hash}`,
-  ].join("\n");
 }

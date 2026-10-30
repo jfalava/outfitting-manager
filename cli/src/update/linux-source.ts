@@ -15,7 +15,6 @@ export { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 export interface LinuxSourceOptions {
   config: ManagerConfig;
   profile: LinuxProfile;
-  sourceRoot?: string;
   refresh?: boolean;
   offline?: boolean;
   fetcher?: ManifestFetcher;
@@ -62,7 +61,6 @@ export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<L
     config: options.config,
     platform: "linux",
     profile: options.profile,
-    sourceRoot: options.sourceRoot,
     fetcher: options.fetcher,
     run: options.run,
     offline: options.offline === true || options.refresh !== true,
@@ -91,7 +89,6 @@ export async function readLinuxManifest(
       config,
       platform: "linux",
       profile: selectedProfile,
-      sourceRoot,
       offline: true,
     });
     root = source.root;

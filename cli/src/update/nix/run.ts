@@ -36,7 +36,6 @@ export interface UpdateNixOptions {
   config?: ManagerConfig;
   repo?: OutfittingRepo;
   sourceFetcher?: ManifestFetcher;
-  offline?: boolean;
   /** Override Linux profile used to pick the Home Manager flake. */
   profile?: string;
   /** Use the selected local source without fetching remote changes. */
@@ -79,7 +78,7 @@ function resolveMacosRepo(options: UpdateNixOptions, config: ManagerConfig) {
         platform: "macos",
         profile,
         fetcher: options.sourceFetcher,
-        offline: options.offline === true || options.noRefresh === true,
+        offline: options.noRefresh === true,
       }),
     );
     return yield* tryPromise(() =>
@@ -122,7 +121,6 @@ function resolveLinuxNixRepo(options: UpdateNixOptions, config: ManagerConfig) {
         config,
         profile,
         refresh: options.noRefresh !== true,
-        offline: options.offline,
         fetcher: options.sourceFetcher,
       }),
     );

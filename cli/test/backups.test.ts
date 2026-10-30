@@ -9,7 +9,7 @@ import { Schema } from "effect";
 import { parse, stringify } from "smol-toml";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { composeBackupProfile, composeTomlDocuments } from "@/backups";
+import { composeBackupProfile, composeTomlDocuments } from "@/backups/composition";
 import { Job } from "@/backups/model";
 import { loadBackupSettings } from "@/backups/settings";
 import { loadConfig } from "@/config/load";
@@ -264,11 +264,6 @@ test.each(["macos", "windows"] as const)(
         ? join("C:/Users/fixture/AppData/Local", "rustic-backup")
         : join(home, "Library/Application Support/rustic-backup"),
     );
-    const composed = await composeBackupProfile({
-      root,
-      profile: "personal",
-      declaration: config.backups!.profiles.personal!,
-    });
     config.backups!.profiles.personal!.paths = { ...paths, PHOTOS: `${home}/Different Photos` };
     const changed = await loadBackupSettings(
       config,
@@ -277,15 +272,6 @@ test.each(["macos", "windows"] as const)(
     );
     expect(changed.repository).toBe(settings.repository);
     expect(changed.stateDirectory).toBe(settings.stateDirectory);
-    expect(
-      (
-        await composeBackupProfile({
-          root,
-          profile: "personal",
-          declaration: config.backups!.profiles.personal!,
-        })
-      ).hash,
-    ).not.toBe(composed.hash);
   },
 );
 
@@ -371,7 +357,7 @@ test("composes tables recursively, overrides scalars, replaces arrays, and appen
   });
 });
 
-test("rejects duplicate snapshot names and preserves ordered declaration hashing", async () => {
+test("rejects duplicate snapshot names and composes files in declaration order", async () => {
   const root = await tempRoot();
   await writeFile(join(root, "one.toml"), stringify(base));
   await writeFile(join(root, "two.toml"), stringify({ backup: { snapshots: [documents] } }));
@@ -394,9 +380,11 @@ test("rejects duplicate snapshot names and preserves ordered declaration hashing
     profile: "one",
     declaration: { platform: "macos", files: ["two.toml", "one.toml"] },
   });
-  expect(first.hash).not.toBe(second.hash);
   expect(first.document.backup).toEqual({
     snapshots: [documents, images],
+  });
+  expect(second.document.backup).toEqual({
+    snapshots: [images, documents],
   });
 });
 
@@ -983,9 +971,9 @@ test("composition rejects dangling policies, overlapping tags, empty jobs and di
     stringify({ ...base, backup: { snapshots: [photos, projects] } }),
   );
   await expect(compose({ absent: {} })).rejects.toThrow("does not match");
-  const first = await compose();
-  const policy = await compose({ photos: { retention: { "keep-monthly": 3 } } });
-  expect(policy.hash).not.toBe(first.hash);
+  await expect(compose({ photos: { retention: { "keep-monthly": 3 } } })).resolves.toMatchObject({
+    jobs: { photos: { retention: { "keep-monthly": 3 } } },
+  });
   for (const tags of [
     ["photos", "projects"],
     ["photos", "annotation,projects"],

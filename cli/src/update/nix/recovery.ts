@@ -187,17 +187,3 @@ export async function setNixRecoveryPhase(
 export async function clearNixRecovery(recoveryDir = defaultNixRecoveryDir()): Promise<void> {
   await rm(recoveryDir, { force: true, recursive: true });
 }
-
-/** Pure transition table for recovery phases (used by recover + tests). */
-export function nextRecoveryAction(phase: NixRecoveryPhase): "activate" | "publish" {
-  switch (phase) {
-    case "prepared":
-      return "activate";
-    case "activated":
-      return "publish";
-    default: {
-      const exhaustive: never = phase;
-      return exhaustive;
-    }
-  }
-}

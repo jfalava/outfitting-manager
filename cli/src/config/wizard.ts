@@ -1321,7 +1321,7 @@ function continueMacosSetup(
         "Install the declared Homebrew packages now? This may trust taps and install software.",
       )
     ) {
-      yield* applyBrew({ config, profile, noPush: true, strict });
+      yield* applyBrew({ config, profile, strict });
       return [];
     }
     return [`${prefix} apply --no-refresh${strict ? " --strict" : ""}`];

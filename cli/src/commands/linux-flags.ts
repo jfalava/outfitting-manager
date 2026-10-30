@@ -2,7 +2,6 @@ import { Option } from "effect";
 import { Flag } from "effect/cli";
 
 import { type LinuxPackageManager } from "@/platform/linux";
-import { isLinuxProfile, type LinuxProfile } from "@/update/linux";
 
 export const linuxProfileFlag = Flag.String("profile").pipe(
   Flag.optional,
@@ -48,16 +47,4 @@ export function requestedLinuxPackageManager(
     throw new Error(`Unknown Linux package manager \`${manager}\`. Choose: apt or pacman.`);
   }
   return manager;
-}
-
-export function requireLinuxProfile(profile: string | undefined): LinuxProfile | undefined {
-  if (profile === undefined) {
-    return undefined;
-  }
-  if (!isLinuxProfile(profile)) {
-    throw new Error(
-      `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
-    );
-  }
-  return profile;
 }

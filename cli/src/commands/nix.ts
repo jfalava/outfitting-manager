@@ -2,7 +2,7 @@ import { Command, Flag } from "effect/cli";
 
 import { optionalString } from "@/commands/linux-flags";
 import { type HostPlatform, NIX_ACTIONS, type NixAction } from "@/platform";
-import { updateNix } from "@/update/nix";
+import { updateNix } from "@/update/nix/run";
 
 const noPushFlag = Flag.Boolean("no-push").pipe(
   Flag.withDefault(false),

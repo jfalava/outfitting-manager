@@ -107,7 +107,7 @@ export interface UpdateBrewOptions {
   which?: typeof which;
 }
 
-export interface ApplyBrewOptions extends UpdateBrewOptions {
+export interface ApplyBrewOptions extends Omit<UpdateBrewOptions, "noPush"> {
   /** Stop with an error when Homebrew Bundle fails during apply. */
   strict?: boolean;
 }

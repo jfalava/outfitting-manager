@@ -1,12 +1,8 @@
 export {
-  foreignPackageManagerMessage,
-  foreignPackageManagers,
   NIX_ACTIONS,
-  PACKAGE_MANAGER_PLATFORM,
   platformLabel,
   type HostPlatform,
   type NixAction,
-  type PackageManager,
 } from "@/platform/availability";
 export {
   detectLinuxPackageManager,

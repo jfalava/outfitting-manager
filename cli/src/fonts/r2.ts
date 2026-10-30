@@ -96,10 +96,6 @@ export async function createR2ObjectStore(): Promise<FontObjectStore> {
   };
 }
 
-export async function loadRemoteArchive(store: FontObjectStore): Promise<FontArchive> {
-  return (await loadRemoteArchiveState(store)).archive;
-}
-
 export interface RemoteArchiveState {
   readonly bytes: Uint8Array | undefined;
   readonly etag: string | undefined;

@@ -17,6 +17,7 @@ import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import { parseScoopManifest, type ScoopBucket, type ScoopManifest } from "@/update/scoop";
 import { runScoopCommand } from "@/update/scoop-command";
+import { parseScoopExport } from "@/update/scoop-export";
 import {
   isWingetAlreadyInstalledExitCode,
   isWingetPackageAbsentExitCode,
@@ -28,7 +29,6 @@ import {
   type WindowsLock,
   type WindowsPackageRecord,
 } from "@/update/windows-lock";
-import { parseScoopExport } from "@/update/windows-snapshot";
 import { wingetPackageArgs } from "@/update/winget";
 
 export type { WindowsWingetPackage };
@@ -97,10 +97,6 @@ export function windowsWingetProfilePath(profile: string, source: WindowsSourceR
     );
   }
   return path;
-}
-
-export function windowsPowerShellProfilePath(source: WindowsSourceResolution): string | undefined {
-  return source.byor.shared?.powershell?.path;
 }
 
 export function windowsScoopPath(source: WindowsSourceResolution): string | undefined {

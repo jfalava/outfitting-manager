@@ -11,7 +11,6 @@ import { recoverNix, type RecoverNixOptions } from "@/update/nix/recover";
 import {
   clearNixRecovery,
   hasNixRecovery,
-  nextRecoveryAction,
   prepareNixRecovery,
   readNixRecovery,
   setNixRecoveryPhase,
@@ -28,13 +27,6 @@ async function tempDir(): Promise<string> {
   temps.push(dir);
   return dir;
 }
-
-describe("nextRecoveryAction", () => {
-  test("prepared → activate, activated → publish", () => {
-    expect(nextRecoveryAction("prepared")).toBe("activate");
-    expect(nextRecoveryAction("activated")).toBe("publish");
-  });
-});
 
 describe("nix recovery checkpoint", () => {
   test("prepare, set phase, clear", async () => {
@@ -65,12 +57,10 @@ describe("nix recovery checkpoint", () => {
       platform: "linux",
       profile: "workstation",
     });
-    expect(nextRecoveryAction(loaded!.phase)).toBe("activate");
 
     await setNixRecoveryPhase("activated", recoveryDir);
     const after = await readNixRecovery(recoveryDir);
     expect(after?.phase).toBe("activated");
-    expect(nextRecoveryAction(after!.phase)).toBe("publish");
 
     await expect(
       prepareNixRecovery({

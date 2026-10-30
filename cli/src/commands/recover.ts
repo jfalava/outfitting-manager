@@ -1,6 +1,6 @@
 import { Command } from "effect/cli";
 
-import { recoverNix } from "@/update/nix";
+import { recoverNix } from "@/update/nix/recover";
 
 const nixRecoveryCommand = Command.make("nix", {}, () => recoverNix()).pipe(
   Command.withDescription("Resume and publish an interrupted Nix profile update."),

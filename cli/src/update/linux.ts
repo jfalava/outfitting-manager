@@ -5,7 +5,6 @@ import { dirname, join } from "node:path";
 import { Console, Effect, Schema } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
-import { validateOutfittingRepo } from "@/config/repo";
 import { tryPromise } from "@/effect";
 import { CliFailure, toCliFailure } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
@@ -15,7 +14,7 @@ import {
   type LinuxPackageManager,
 } from "@/platform/linux";
 import { runCommand, which, type RunCommandResult } from "@/process";
-import { selectByorProfile, validateLinuxByorSource } from "@/source/contract";
+import { selectByorProfile } from "@/source/contract";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
@@ -271,8 +270,6 @@ export interface LinuxApplyOptions<ConfirmR = never> extends LinuxUpdateOptions 
   ifConfigured?: boolean;
   /** Use the selected local source without fetching remote changes. */
   noRefresh?: boolean;
-  /** Already validated source root to use for this apply, including --repo overrides. */
-  sourceRoot?: string;
   sourceFetcher?: ManifestFetcher;
   confirm?: Effect.Effect<boolean, never, ConfirmR>;
 }
@@ -322,17 +319,6 @@ async function resolveLinuxApplySource<ConfirmR>(
   config: ManagerConfig,
   profile: LinuxProfile,
 ): Promise<LinuxSource | undefined> {
-  if (options.sourceRoot !== undefined) {
-    if (config.declarations === undefined) {
-      throw new Error(`No profile declarations are configured in ${config.configPath}.`);
-    }
-    const repo = await validateOutfittingRepo(options.sourceRoot, {
-      profile,
-      contract: config.declarations,
-    });
-    await validateLinuxByorSource({ root: repo.root, profile, contract: config.declarations });
-    return { root: repo.root, mode: "checkout", repo };
-  }
   if (options.noRefresh === true) {
     return undefined;
   }

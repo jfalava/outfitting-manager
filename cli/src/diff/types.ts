@@ -11,7 +11,6 @@ export interface DiffSection {
   extra: string[];
   changed: string[];
   message?: string;
-  warnings?: string[];
 }
 
 export interface PlatformDiff {
