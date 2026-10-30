@@ -36,7 +36,7 @@ export function isWingetAlreadyInstalledExitCode(code: number): boolean {
   );
 }
 
-export type WindowsPackageManager = "winget" | "scoop" | "bun";
+export type WindowsPackageManager = "winget" | "scoop";
 export type WindowsPackageAction = "install" | "uninstall" | "upgrade";
 export type WindowsOperationStatus = "success" | "failed";
 
@@ -94,7 +94,7 @@ function newWindowsLock(config: ManagerConfig): WindowsLock {
     format: WINDOWS_LOCK_FORMAT,
     machine: config.machineId || hostname(),
     profiles: [],
-    packages: { winget: [], scoop: [], bun: [] },
+    packages: { winget: [], scoop: [] },
     operations: [],
   };
 }
@@ -109,7 +109,7 @@ const WindowsPackageRecordSchema = Schema.Struct({
 
 const WindowsOperationSchema = Schema.Struct({
   at: Schema.String,
-  manager: Schema.Literals(["winget", "scoop", "bun"] as const),
+  manager: Schema.Literals(["winget", "scoop"] as const),
   action: Schema.Literals(["install", "uninstall", "upgrade"] as const),
   name: Schema.String,
   args: Schema.Array(Schema.String),
@@ -124,7 +124,6 @@ const WindowsLockSchema = Schema.Struct({
   packages: Schema.Struct({
     winget: Schema.Array(WindowsPackageRecordSchema),
     scoop: Schema.Array(WindowsPackageRecordSchema),
-    bun: Schema.Array(WindowsPackageRecordSchema),
   }),
   operations: Schema.Array(WindowsOperationSchema),
 });
@@ -168,7 +167,6 @@ async function readWindowsLockFile(path: string): Promise<WindowsLock | undefine
     packages: {
       winget: decoded.value.packages.winget.map(clonePackageRecord),
       scoop: decoded.value.packages.scoop.map(clonePackageRecord),
-      bun: decoded.value.packages.bun.map(clonePackageRecord),
     },
     operations: decoded.value.operations.map((operation) => ({
       ...operation,
