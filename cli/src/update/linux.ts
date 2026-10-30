@@ -751,7 +751,12 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
       yield* Console.log(`  install ${command.manager}: ${spec}`);
     }
     if ((missing.length > 0 || removals.length > 0) && !options.yes) {
-      const confirmed = options.confirm === undefined ? false : yield* options.confirm;
+      if (options.confirm === undefined) {
+        return yield* new CliFailure({
+          message: "Confirmation is required to apply package changes.",
+        });
+      }
+      const confirmed = yield* options.confirm;
       if (!confirmed) {
         (yield* TerminalSession).cancel();
         yield* Console.log(ui.muted("Aborted. No package changes were made."));
