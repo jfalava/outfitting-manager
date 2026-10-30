@@ -8,11 +8,10 @@ Astro-based docs. The `nimbus-docs` package handles content schemas, sidebar/TOC
 astro.config.ts              # imports nimbus + defineNimbusConfig
 src/
 ├── components.ts            # MDX globals registry — every component used in .mdx must be listed
-├── components/              # AgentDirective, Header, Render + ui/<slug>/
+├── components/              # AgentDirective, Header + ui/<slug>/
 ├── content/
-│   ├── docs/*.mdx
-│   └── partials/*.mdx       # referenced via <Render file="..." />
-├── content.config.ts        # registers docsCollection() + partialsCollection()
+│   └── docs/*.mdx
+├── content.config.ts        # registers docsCollection()
 ├── layouts/                 # BaseLayout (NimbusHead), DocsLayout (sidebar/TOC/breadcrumbs)
 ├── lib/cn.ts                # Tailwind className merger
 ├── pages/
@@ -57,15 +56,15 @@ Rules:
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | New doc page                 | Create `src/content/docs/<slug>.mdx`. Sidebar picks it up.                                            |
 | New partial                  | Create `src/content/partials/<slug>.mdx`. Use via `<Render file="<slug>" />`.                         |
-| UI from registry             | `pnpm exec nimbus-docs add <slug>`. Register in `src/components.ts` if used in MDX.                   |
-| Feature recipe               | `pnpm exec nimbus-docs add <feature-slug>`. Pipe the printed brief to your agent.                     |
+| UI from registry             | `bunx nimbus-docs add <slug>`. Register in `src/components.ts` if used in MDX.                   |
+| Feature recipe               | `bunx nimbus-docs add <feature-slug>`. Pipe the printed brief to your agent.                     |
 | Custom page route            | Add a file under `src/pages/`.                                                                        |
 | Custom OG style              | Edit `src/pages/og/_og-card-config.ts`.                                                               |
-| Check for updates            | `pnpm exec nimbus-docs outdated` — starter files behind their tag + registry components behind.       |
-| Upgrade a starter file       | `pnpm exec nimbus-docs diff <file>` to review, `diff --apply <file>` to pull a clean upstream change. |
-| Upgrade a registry component | `pnpm exec nimbus-docs add <slug> --overwrite`, then review with `git diff`.                          |
+| Check for updates            | `bunx nimbus-docs outdated` — starter files behind their tag + registry components behind.       |
+| Upgrade a starter file       | `bunx nimbus-docs diff <file>` to review, `diff --apply <file>` to pull a clean upstream change. |
+| Upgrade a registry component | `bunx nimbus-docs add <slug> --overwrite`, then review with `git diff`.                          |
 
-List installable items: `pnpm exec nimbus-docs list`.
+List installable items: `bunx nimbus-docs list`.
 
 ## Audit this site
 
@@ -84,7 +83,7 @@ End with `Summary: N errors, N warnings.`
 - **Routes** — `llms.txt.ts`, `robots.txt.ts`, `[...slug]/index.md.ts`, `og.png.ts`, `og/[...slug].ts` all exist.
 - **Registry hygiene** — every `src/components/ui/<slug>/` is either MDX-registered or imported in `src/`; transitive deps (`lib/cn.ts`, etc.) exist.
 - **AI surface** — `<AgentDirective />` renders in `BaseLayout.astro`; doc `<head>` has `<link rel="alternate" type="text/markdown" ...>`.
-- **Search** — `data-pagefind-body` is on the docs main wrapper; after `pnpm build`, `dist/pagefind/` exists with ≥1 indexed page.
+- **Search** — `data-pagefind-body` is on the docs main wrapper; after `bun run build`, `dist/pagefind/` exists with ≥1 indexed page.
 - **Cloudflare** — docs ship as a StaticSite behind the shared API/docs router (`iac/alchemy.run.ts`); the installer Worker owns its platform hostnames directly in `jfalava/machines`. Build via `bun run build`.
 
 ## Don't
