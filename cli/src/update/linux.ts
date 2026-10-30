@@ -319,7 +319,7 @@ async function resolveLinuxApplySource<ConfirmR>(
   config: ManagerConfig,
   profile: LinuxProfile,
 ): Promise<LinuxSource | undefined> {
-  if (options.noRefresh === true) {
+  if (options.noRefresh === true || options.offline === true) {
     return undefined;
   }
   return prepareLinuxSource({

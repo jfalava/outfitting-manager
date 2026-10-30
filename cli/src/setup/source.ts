@@ -446,7 +446,10 @@ async function readSourceMetadata(root: string): Promise<ByorSourceMetadata> {
   try {
     value = JSON.parse(await readFile(join(root, SOURCE_METADATA_PATH), "utf8"));
   } catch (cause) {
-    throw new Error(`No validated remote BYOR source metadata exists at ${root}.`, { cause });
+    throw new Error(
+      `No cached remote source exists at ${root}. Refresh it once before using offline mode.`,
+      { cause },
+    );
   }
   try {
     return decodeByorSourceMetadata(value);

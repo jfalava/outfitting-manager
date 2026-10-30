@@ -131,6 +131,36 @@ test("Linux offline source resolution accepts local sources but rejects refreshi
   }
 });
 
+test("Linux offline apply reads the cached remote source instead of refreshing it", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-offline-apply-"));
+  const repo = await createLinuxRepo(stateRoot, { workstation: { apt: "curl\n" } });
+  let fetched = false;
+  try {
+    const config = await loadConfig({ stateRoot });
+    await expect(
+      Effect.runPromise(
+        applyLinux({
+          config: {
+            ...config,
+            source: { kind: "remote", repository: "owner/repository", ref: "main" },
+          },
+          offline: true,
+          yes: true,
+          sourceFetcher: async () => {
+            fetched = true;
+            throw new Error("offline apply must not fetch");
+          },
+          ...managerTools([]),
+        }),
+      ),
+    ).rejects.toThrow("No cached remote source exists");
+    expect(fetched).toBe(false);
+  } finally {
+    await rm(stateRoot, { force: true, recursive: true });
+    await rm(repo, { force: true, recursive: true });
+  }
+});
+
 test("Linux commands expose init, apply, Nix, and native update as distinct operations", async () => {
   const root = await execFileAsync("bun", [linuxEntry, "--help"], { encoding: "utf8" });
   const rootHelp = `${root.stdout}\n${root.stderr}`;
@@ -160,7 +190,7 @@ test("Linux commands expose init, apply, Nix, and native update as distinct oper
   expect(applyHelp).toContain("--if-configured");
   expect(applyHelp).toContain("--strict");
   expect(applyHelp).not.toMatch(/\bapply (all|apt|pacman)\b/i);
-  expect(applyHelp).toContain("remote sources need --no-refresh");
+  expect(applyHelp).toContain("--offline");
 
   const update = await execFileAsync("bun", [linuxEntry, "update", "--help"], {
     encoding: "utf8",

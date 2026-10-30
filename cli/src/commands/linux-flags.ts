@@ -21,7 +21,7 @@ export const linuxPackageManagerFlag = Flag.String("package-manager").pipe(
 export const linuxApplyOfflineFlag = Flag.Boolean("offline").pipe(
   Flag.withDefault(false),
   Flag.withDescription(
-    "Use the cached manifest and apt packages; remote sources need --no-refresh. pacman installs are refused offline.",
+    "Use the cached source and apt packages without refreshing. pacman installs are refused offline.",
   ),
 );
 

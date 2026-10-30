@@ -53,13 +53,13 @@ outfitting-manager apply --profile workstation --prune
 | `--profile <profile>` | Select a Linux profile. Defaults to the configured profile or `OUTFITTING_PROFILE`. |
 | `--package-manager`   | Choose `apt` or `pacman`. Defaults to host detection.                               |
 | `--prune`             | Remove packages recorded as installed for this profile that are no longer listed.   |
-| `--offline`           | Install from the local apt cache without downloading packages.                      |
+| `--offline`           | Use the cached source and local apt cache without downloading anything.             |
 | `--yes`               | Apply the plan without asking for confirmation.                                     |
 | `--no-refresh`        | Use the current source without refreshing it.                                       |
 | `--if-configured`     | Skip if the profile declares no apt or pacman packages.                             |
 | `--strict`            | Stop at the first installation failure.                                             |
 
-For a remote source, use `--offline` with `--no-refresh`. Offline pacman installs are not supported.
+With `--offline`, a remote source uses its cached snapshot instead of refreshing. Offline pacman installs are not supported.
 
 APT ownership recorded before architecture-aware tracking cannot safely authorize removals. The first apply drops those old APT pruning rights but keeps the packages installed; pacman ownership remains intact. New APT installs record their exact architecture for future `--prune` runs.
 
