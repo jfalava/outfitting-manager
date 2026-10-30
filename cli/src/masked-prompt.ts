@@ -23,7 +23,7 @@ export async function maskedPrompt(message: string): Promise<string | null> {
   const setRawMode = (mode: boolean) => input.setRawMode?.(mode);
 
   if (!input.isTTY || input.setRawMode === undefined) {
-    throw new Error("API token entry requires an interactive terminal.");
+    throw new Error("Secret entry requires an interactive terminal.");
   }
 
   const session = terminalSessionContext.getStore();

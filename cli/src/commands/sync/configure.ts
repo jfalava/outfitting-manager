@@ -8,7 +8,7 @@ const configureWorkerCommand = Command.make(
   {
     url: Argument.String("url").pipe(
       Argument.optional,
-      Argument.withDescription("HTTP(S) URL of the deployed sync Worker."),
+      Argument.withDescription("HTTPS URL of the deployed sync Worker."),
     ),
   },
   ({ url }) => configureWorker(Option.getOrUndefined(url)),

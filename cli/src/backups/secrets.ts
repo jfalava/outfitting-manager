@@ -117,7 +117,15 @@ export const importSecretStore = Effect.fn("importSecretStore")(function* (vault
       try: () => Bun.secrets.get({ service: settings.credentials[name], name: settings.account }),
       catch: () =>
         new BackupError({ message: "Could not inspect Credential Manager before import." }),
-    });
+    }).pipe(
+      Effect.timeout("20 seconds"),
+      Effect.mapError(
+        () =>
+          new BackupError({
+            message: "Credential Manager inspection failed or timed out before import.",
+          }),
+      ),
+    );
     if (existing !== null && existing !== values[name]) {
       return yield* new BackupError({
         message: `Credential ${name} already exists with a different value; nothing was imported.`,

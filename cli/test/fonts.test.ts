@@ -2,10 +2,10 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { emptyFontArchive, packFontArchive, unpackFontArchive } from "@/fonts/archive";
-import { inventoriesEqual, inventoryFromFaces, quotedHash } from "@/fonts/inventory";
+import { inventoriesEqual, inventoryFromFaces, pullInventory, quotedHash } from "@/fonts/inventory";
 import { normalizeR2Endpoint } from "@/fonts/keychain";
 import { archivePathFor, keepNamePath, readFontNames, slugifyName } from "@/fonts/names";
 import { collectIncomingFonts, planPublish, planRemove } from "@/fonts/plan";
@@ -282,5 +282,29 @@ describe("fonts helpers", () => {
     const incoming = await collectIncomingFonts(directory);
     expect(incoming).toHaveLength(1);
     expect(incoming[0]?.relativePath).toBe("regular.otf");
+  });
+});
+
+describe("pullInventory", () => {
+  test("treats only a missing remote inventory as absent", async () => {
+    vi.stubEnv("OUTFITTING_SYNC_URL", "https://lockfiles.example/api");
+    vi.stubEnv("OUTFITTING_SYNC_TOKEN", "token");
+    const statuses = [404, 500];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: "nope" },
+          { status: statuses.shift(), headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    try {
+      await expect(pullInventory()).resolves.toBeUndefined();
+      await expect(pullInventory()).rejects.toThrow("Worker returned 500");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

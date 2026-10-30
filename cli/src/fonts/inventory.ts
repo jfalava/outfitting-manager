@@ -8,7 +8,7 @@ import {
   INVENTORY_MACHINE,
 } from "@/fonts/constants";
 import type { FontFace } from "@/fonts/names";
-import { request } from "@/sync/request";
+import { request, WorkerResponseError } from "@/sync/request";
 
 const InventoryFaceSchema = Schema.Struct({
   family: Schema.String,
@@ -109,7 +109,7 @@ export async function pullInventory(): Promise<InventorySnapshot | undefined> {
     }
     return { inventory, hash };
   } catch (cause) {
-    if (cause instanceof Error && cause.message.includes("Worker returned 404:")) {
+    if (Schema.is(WorkerResponseError)(cause) && cause.status === 404) {
       return undefined;
     }
     throw cause;

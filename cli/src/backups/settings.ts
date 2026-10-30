@@ -197,7 +197,8 @@ export class Settings extends Context.Service<Settings, SettingsData>()("backup/
       Settings,
       Effect.tryPromise({
         try: async () => loadBackupSettings(await loadConfig(), requested, platform),
-        catch: (cause) => new BackupError({ message: String(cause) }),
+        catch: (cause) =>
+          new BackupError({ message: cause instanceof Error ? cause.message : String(cause) }),
       }),
     );
   }
