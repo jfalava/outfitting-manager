@@ -1,7 +1,4 @@
-import { Option } from "effect";
 import { Flag } from "effect/cli";
-
-import { type LinuxPackageManager } from "@/platform/linux";
 
 export const linuxProfileFlag = Flag.String("profile").pipe(
   Flag.optional,
@@ -13,7 +10,7 @@ export const linuxOptionalProfileFlag = Flag.String("profile").pipe(
   Flag.withDescription("Linux profile; defaults to config.toml or OUTFITTING_PROFILE."),
 );
 
-export const linuxPackageManagerFlag = Flag.String("package-manager").pipe(
+export const linuxPackageManagerFlag = Flag.Literals("package-manager", ["apt", "pacman"]).pipe(
   Flag.optional,
   Flag.withDescription("Override distro detection with apt or pacman."),
 );
@@ -31,20 +28,3 @@ export const linuxUpdateOfflineFlag = Flag.Boolean("offline").pipe(
     "Refuse upgrades because network-free package resolution cannot be guaranteed.",
   ),
 );
-
-export function optionalString(value: Option.Option<string>): string | undefined {
-  return Option.getOrUndefined(value);
-}
-
-export function requestedLinuxPackageManager(
-  value: Option.Option<string>,
-): LinuxPackageManager | undefined {
-  const manager = optionalString(value);
-  if (manager === undefined) {
-    return undefined;
-  }
-  if (manager !== "apt" && manager !== "pacman") {
-    throw new Error(`Unknown Linux package manager \`${manager}\`. Choose: apt or pacman.`);
-  }
-  return manager;
-}

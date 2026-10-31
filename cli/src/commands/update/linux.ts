@@ -1,10 +1,7 @@
+import { Option } from "effect";
 import { Command } from "effect/cli";
 
-import {
-  linuxUpdateOfflineFlag,
-  linuxPackageManagerFlag,
-  requestedLinuxPackageManager,
-} from "@/commands/linux-flags";
+import { linuxUpdateOfflineFlag, linuxPackageManagerFlag } from "@/commands/linux-flags";
 import { updateLinux } from "@/update/linux";
 
 /** Upgrade installed Linux packages with the detected or selected manager. */
@@ -14,7 +11,7 @@ export const makeLinuxUpdateCommand = () =>
     { packageManager: linuxPackageManagerFlag, offline: linuxUpdateOfflineFlag },
     ({ packageManager, offline }) =>
       updateLinux({
-        packageManager: requestedLinuxPackageManager(packageManager),
+        packageManager: Option.getOrUndefined(packageManager),
         offline,
       }),
   ).pipe(

@@ -1,11 +1,9 @@
-import { Effect } from "effect";
 import { Command, Flag } from "effect/cli";
 
-import { CliFailure } from "@/errors";
 import { updateScoop } from "@/update/scoop";
 import { updateWinget } from "@/update/winget";
 
-const packageManagerFlag = Flag.String("package-manager").pipe(
+const packageManagerFlag = Flag.Literals("package-manager", ["winget", "scoop"]).pipe(
   Flag.withDescription("Installed package manager to upgrade: winget or scoop."),
 );
 
@@ -19,19 +17,8 @@ export const makeWindowsUpdateCommand = () =>
   Command.make(
     "update",
     { packageManager: packageManagerFlag, noPush: noPushFlag },
-    ({ packageManager, noPush }) => {
-      if (packageManager === "winget") {
-        return updateWinget({ noPush });
-      }
-      if (packageManager === "scoop") {
-        return updateScoop({ noPush });
-      }
-      return Effect.fail(
-        new CliFailure({
-          message: `Unknown Windows package manager \`${packageManager}\`. Choose: winget or scoop.`,
-        }),
-      );
-    },
+    ({ packageManager, noPush }) =>
+      packageManager === "winget" ? updateWinget({ noPush }) : updateScoop({ noPush }),
   ).pipe(
     Command.withDescription(
       "Upgrade installed packages through one manager: --package-manager winget|scoop.",

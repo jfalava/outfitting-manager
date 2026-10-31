@@ -1,6 +1,7 @@
+import { Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
-import { linuxProfileFlag, optionalString } from "@/commands/linux-flags";
+import { linuxProfileFlag } from "@/commands/linux-flags";
 import { runLinuxInit } from "@/setup/linux";
 
 const machineIdFlag = Flag.String("machine-id").pipe(
@@ -28,10 +29,10 @@ export const linuxInitCommand = Command.make(
     noRefresh: noRefreshFlag,
   },
   ({ profile, machineId, repo, noRefresh }) => {
-    const repoPath = optionalString(repo);
+    const repoPath = Option.getOrUndefined(repo);
     return runLinuxInit({
-      profile: optionalString(profile),
-      machineId: optionalString(machineId),
+      profile: Option.getOrUndefined(profile),
+      machineId: Option.getOrUndefined(machineId),
       repo: repoPath,
       refreshSource: !noRefresh,
     });

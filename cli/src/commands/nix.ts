@@ -1,6 +1,6 @@
+import { Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
-import { optionalString } from "@/commands/linux-flags";
 import { type HostPlatform, NIX_ACTIONS, type NixAction } from "@/platform";
 import { updateNix } from "@/update/nix/run";
 
@@ -83,7 +83,7 @@ export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux"
         action,
         noPush: values.noPush,
         noRefresh: values.noRefresh,
-        profile: optionalString(values.profile),
+        profile: Option.getOrUndefined(values.profile),
         ifConfigured: "ifConfigured" in values && values.ifConfigured === true,
       }),
     ).pipe(Command.withDescription(actionDescriptions[action][platform])),
@@ -92,7 +92,7 @@ export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux"
     updateNix({
       action: "update",
       noRefresh: values.noRefresh,
-      profile: optionalString(values.profile),
+      profile: Option.getOrUndefined(values.profile),
       ifConfigured: "ifConfigured" in values && values.ifConfigured === true,
     }),
   ).pipe(Command.withDescription(actionDescriptions.update[platform]));

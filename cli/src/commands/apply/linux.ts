@@ -1,12 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 
 import {
   linuxApplyOfflineFlag,
   linuxOptionalProfileFlag,
   linuxPackageManagerFlag,
-  optionalString,
-  requestedLinuxPackageManager,
 } from "@/commands/linux-flags";
 import { withTerminalInput } from "@/terminal-alert";
 import { applyLinux } from "@/update/linux";
@@ -53,8 +51,8 @@ export const makeLinuxApplyCommand = () =>
     },
     (flags) =>
       applyLinux({
-        profile: optionalString(flags.profile),
-        packageManager: requestedLinuxPackageManager(flags.packageManager),
+        profile: Option.getOrUndefined(flags.profile),
+        packageManager: Option.getOrUndefined(flags.packageManager),
         prune: flags.prune,
         offline: flags.offline,
         yes: flags.yes,
