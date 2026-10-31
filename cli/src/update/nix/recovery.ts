@@ -32,7 +32,7 @@ const BASE_HASH = /^[0-9a-f]{64}$/;
 
 function unsupportedCheckpoint(dir: string, cause?: unknown): Error {
   return new Error(
-    `Unsupported Nix recovery checkpoint at ${dir} (written by an older outfitting-manager or damaged); inspect it, then remove ${dir} before retrying.`,
+    `Unsupported Nix recovery checkpoint at ${dir} (written by an older outfitting-manager or damaged); inspect it, then run 'outfitting-manager recover nix --clear' before retrying.`,
     { cause },
   );
 }
@@ -117,7 +117,7 @@ export async function prepareNixRecovery({
 }): Promise<NixRecoveryState> {
   if (await hasNixRecovery(recoveryDir)) {
     throw new Error(
-      `An unfinished Nix upgrade already exists at ${recoveryDir}. Recover or clear it before continuing.`,
+      `An unfinished Nix upgrade already exists at ${recoveryDir}. Run 'outfitting-manager recover nix' (or --clear to abandon it) before continuing.`,
     );
   }
 

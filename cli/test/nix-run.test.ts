@@ -25,6 +25,7 @@ vi.mock("@/update/nix/recovery", async (importOriginal) => ({
 vi.mock("@/update/nix/symlinks", () => ({ ensureNixSymlinks: vi.fn(async () => undefined) }));
 vi.mock("@/update/nix/build", () => ({
   buildNixSystem: vi.fn(async () => "/nix/store/test-system"),
+  rootNixBuild: vi.fn(async () => undefined),
 }));
 vi.mock("@/update/nix/activate", () => ({
   activateHomeManager: vi.fn(async () => undefined),

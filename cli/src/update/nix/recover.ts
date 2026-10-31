@@ -12,6 +12,7 @@ import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import {
   clearNixRecovery,
   defaultNixRecoveryDir,
+  hasNixRecovery,
   readNixRecovery,
   setNixRecoveryPhase,
   type NixRecoveryState,
@@ -40,7 +41,7 @@ function activatePreparedNix(
     );
     if (!available) {
       return yield* new CliFailure({
-        message: `Pinned Nix build no longer exists: ${state.systemConfig}. Checkpoint retained; refusing to rebuild from a changed source.`,
+        message: `Pinned Nix build no longer exists: ${state.systemConfig}. Checkpoint retained; refusing to rebuild from a changed source. Run 'outfitting-manager recover nix --clear' to abandon it.`,
       });
     }
     yield* setTerminalPhase("Activating recovered profile");
@@ -68,6 +69,27 @@ function activatePreparedNix(
     yield* tryPromise(() => setNixRecoveryPhase("activated", recoveryDir));
   });
 }
+
+/** Abandon an unfinished checkpoint without activating or publishing it; drops its GC root. */
+export const clearNix = (recoveryDir = defaultNixRecoveryDir()) =>
+  Effect.gen(function* () {
+    const state = yield* tryPromise(() => readNixRecovery(recoveryDir)).pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (!(yield* tryPromise(() => hasNixRecovery(recoveryDir)))) {
+      return yield* new CliFailure({
+        message: `No unfinished Nix recovery checkpoint exists at ${recoveryDir}.`,
+      });
+    }
+    yield* tryPromise(() => clearNixRecovery(recoveryDir));
+    yield* Console.log(
+      ui.success(
+        state?.phase === "activated"
+          ? `Cleared the Nix checkpoint at ${recoveryDir}; its activated lock was not published.`
+          : `Cleared the Nix checkpoint at ${recoveryDir}; nothing was activated or published.`,
+      ),
+    );
+  });
 
 /** Resume a prepared Nix checkpoint, then publish its lock with compare-and-swap. */
 export const recoverNix = (options: RecoverNixOptions = {}) =>

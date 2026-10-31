@@ -24,7 +24,7 @@ import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { prepareLinuxSource, resolveLinuxProfile } from "@/update/linux-source";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
-import { buildNixSystem } from "@/update/nix/build";
+import { buildNixSystem, rootNixBuild } from "@/update/nix/build";
 import { closeNixLock, openNixLock, type NixLock } from "@/update/nix/lock";
 import {
   clearNixRecovery,
@@ -285,6 +285,8 @@ function runNixUpdate(
         }),
       );
 
+      // The build was --no-link; pin it before activation so a GC cannot strand the checkpoint.
+      yield* tryPromise(() => rootNixBuild(systemConfig, join(checkpoint.dir, "system")));
       yield* activateNixProfile(repo, systemConfig);
       yield* tryPromise(() => setNixRecoveryPhase("activated", checkpoint.dir));
 

@@ -106,3 +106,23 @@ export async function buildNixSystem(options: NixBuildOptions): Promise<string> 
   }
   return outPath;
 }
+
+/**
+ * Register `link` as an indirect GC root for a built store path, so garbage collection
+ * cannot delete a checkpointed build before it is activated. Removing `link` drops the root.
+ */
+export async function rootNixBuild(
+  storePath: string,
+  link: string,
+  run: typeof runCommand = runCommand,
+): Promise<void> {
+  const result = await run("nix-store", ["--realise", storePath, "--add-root", link], {
+    inherit: false,
+  });
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout).trim();
+    throw new Error(
+      `Could not register a GC root for ${storePath} (exit ${result.code})${detail ? `: ${detail}` : ""}`,
+    );
+  }
+}

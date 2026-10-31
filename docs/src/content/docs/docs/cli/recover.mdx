@@ -9,12 +9,15 @@ Use `recover` to resume an interrupted Nix update on macOS or Linux.
 
 ## `nix`
 
-**Syntax:** `outfitting-manager recover nix`
+**Syntax:** `outfitting-manager recover nix [--clear]`
 
 Resume the update and publish its lock. This command supports nix-darwin on macOS and Home Manager on Linux.
 
-For a prepared checkpoint, recovery activates the build output recorded before the interruption rather than rebuilding from the current source. If that output has been garbage-collected, or an older checkpoint has no recorded output, recovery leaves the checkpoint in place and refuses to activate or publish. An already activated checkpoint can still publish its lock.
+For a prepared checkpoint, recovery activates the build output recorded before the interruption rather than rebuilding from the current source. The checkpoint holds a Nix GC root for that output, so garbage collection keeps it until the checkpoint is cleared. If the output is missing anyway, or the checkpoint is unreadable, recovery leaves the checkpoint in place and refuses to activate or publish. An already activated checkpoint can still publish its lock.
+
+`--clear` abandons the checkpoint without activating or publishing it, and releases its GC root. Use it when recovery cannot proceed; the next Nix update starts from the remote lock again.
 
 ```sh
 outfitting-manager recover nix
+outfitting-manager recover nix --clear
 ```

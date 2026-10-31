@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import type { ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
-import { recoverNix, type RecoverNixOptions } from "@/update/nix/recover";
+import { clearNix, recoverNix, type RecoverNixOptions } from "@/update/nix/recover";
 import {
   clearNixRecovery,
   hasNixRecovery,
@@ -227,10 +227,16 @@ describe("recoverNix", () => {
         }),
       ),
     ).rejects.toThrow(
-      `older outfitting-manager or damaged); inspect it, then remove ${recoveryDir}`,
+      `older outfitting-manager or damaged); inspect it, then run 'outfitting-manager recover nix --clear'`,
     );
     expect(calls).toEqual([]);
     expect((await readdir(recoveryDir)).toSorted()).toEqual(["base-hash", "flake.lock", "phase"]);
+
+    await Effect.runPromise(clearNix(recoveryDir));
+    expect(await hasNixRecovery(recoveryDir)).toBe(false);
+    await expect(Effect.runPromise(clearNix(recoveryDir))).rejects.toThrow(
+      "No unfinished Nix recovery checkpoint exists",
+    );
   });
 
   test("retains the checkpoint when publishing fails", async () => {
