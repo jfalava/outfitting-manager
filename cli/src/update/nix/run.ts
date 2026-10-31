@@ -22,7 +22,7 @@ import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/sync";
 import { isGitTrackedFile } from "@/sync/files";
 import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
-import { prepareLinuxSource, resolveLinuxProfile, type LinuxProfile } from "@/update/linux-source";
+import { prepareLinuxSource, resolveLinuxProfile } from "@/update/linux-source";
 import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
 import { closeNixLock, openNixLock, type NixLock } from "@/update/nix/lock";
@@ -52,7 +52,7 @@ export interface UpdateNixOptions {
 
 type NixSelection =
   | { platform: "macos"; profile: string | undefined }
-  | { platform: "linux"; profile: LinuxProfile };
+  | { platform: "linux"; profile: string };
 
 function selectNixProfile(
   config: ManagerConfig,

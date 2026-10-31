@@ -149,7 +149,9 @@ describe("loadConfig", () => {
   test("rejects unsupported keys and reserved source-root declarations", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "config.toml"), "schema = 2\nextra = true\n");
-    await expect(loadConfig({ stateRoot: root })).rejects.toThrow(/unsupported key/);
+    await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
+      'Expected no excess property\n  at ["extra"]',
+    );
 
     await writeFile(
       join(root, "config.toml"),

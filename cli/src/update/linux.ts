@@ -22,11 +22,8 @@ import {
   prepareLinuxSource,
   readLinuxManifest,
   resolveLinuxProfile,
-  type LinuxProfile,
   type LinuxSource,
 } from "@/update/linux-source";
-
-export { isLinuxProfile, type LinuxProfile } from "@/update/linux-source";
 
 const LINUX_OWNERSHIP_FILE = "linux-package-ownership.json";
 
@@ -276,7 +273,7 @@ export interface LinuxApplyOptions<ConfirmR = never> extends LinuxUpdateOptions 
 function skipUnconfiguredLinuxApply<ConfirmR>(
   options: LinuxApplyOptions<ConfirmR>,
   config: ManagerConfig,
-  profile: LinuxProfile,
+  profile: string,
 ): Effect.Effect<boolean> {
   const declaration = config.declarations?.profiles[profile]?.linux;
   if (
@@ -295,7 +292,7 @@ function skipUnconfiguredLinuxApply<ConfirmR>(
 async function resolveLinuxApplySource<ConfirmR>(
   options: LinuxApplyOptions<ConfirmR>,
   config: ManagerConfig,
-  profile: LinuxProfile,
+  profile: string,
 ): Promise<LinuxSource | undefined> {
   if (options.noRefresh === true || options.offline === true) {
     return undefined;
@@ -383,7 +380,7 @@ async function writeOwnership(config: ManagerConfig, state: LinuxOwnershipState)
 
 function owned(
   state: LinuxOwnershipState,
-  profile: LinuxProfile,
+  profile: string,
   manager: LinuxPackageManager,
 ): string[] {
   return state.profiles[profile]?.[manager] ?? [];
@@ -391,7 +388,7 @@ function owned(
 
 function setOwned(
   state: LinuxOwnershipState,
-  profile: LinuxProfile,
+  profile: string,
   manager: LinuxPackageManager,
   packages: ReadonlyArray<string>,
 ): void {
@@ -402,10 +399,10 @@ function setOwned(
 
 function otherOwners(
   state: LinuxOwnershipState,
-  active: LinuxProfile,
+  active: string,
   manager: LinuxPackageManager,
   name: string,
-): LinuxProfile[] {
+): string[] {
   return Object.keys(state.profiles).filter(
     (profile) => profile !== active && owned(state, profile, manager).includes(name),
   );
@@ -446,7 +443,7 @@ async function simulateRemoval(
 
 interface LinuxApplyContext {
   config: ManagerConfig;
-  profile: LinuxProfile;
+  profile: string;
   command: LinuxCommandOptions;
   ownership: LinuxOwnershipState;
   offline: boolean;

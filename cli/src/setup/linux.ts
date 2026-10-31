@@ -1,8 +1,7 @@
 import { runSetup, type SetupOptions } from "@/setup/run";
-import type { LinuxProfile } from "@/source/linux-profile";
 
 export interface LinuxInitOptions extends SetupOptions {
-  profile?: LinuxProfile;
+  profile?: string;
 }
 
 /** Prepare Linux state and validate its configured source. */

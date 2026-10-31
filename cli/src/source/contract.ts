@@ -8,7 +8,7 @@ import { validateBackupBindings } from "@/backups/paths";
 import { errorMessage } from "@/errors";
 import { platformLabel, type HostPlatform } from "@/platform";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
-import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
+import { isProfileName } from "@/source/profile-name";
 import { isReservedSourcePath } from "@/source/reserved";
 import { parseWindowsPackageList } from "@/source/windows-manifest";
 
@@ -113,12 +113,12 @@ export interface ByorContract {
 }
 
 export interface SelectedByorProfile {
-  name: LinuxProfile;
+  name: string;
   linux: LinuxProfileDeclaration;
 }
 
 export interface SelectedMacosByorProfile {
-  name: LinuxProfile;
+  name: string;
   macos: MacosProfileDeclaration;
 }
 
@@ -130,7 +130,7 @@ export interface SelectedWindowsByorProfiles {
 
 export interface ValidatedLinuxByorProfile {
   root: string;
-  profile: LinuxProfile;
+  profile: string;
   contract: ByorContract;
   linux: LinuxProfileDeclaration;
   backends: ReadonlyArray<LinuxPackageBackend | "nix">;
@@ -138,7 +138,7 @@ export interface ValidatedLinuxByorProfile {
 
 export interface ValidatedMacosByorProfile {
   root: string;
-  profile: LinuxProfile;
+  profile: string;
   contract: ByorContract;
   macos: MacosProfileDeclaration;
   /** Absolute flake directory (contains flake.nix). */
@@ -328,7 +328,7 @@ export function normalizeBackups(
   }
   const profiles: Record<string, BackupProfileDeclaration> = {};
   for (const [name, profile] of Object.entries(value.profiles)) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+    if (!isProfileName(name)) {
       throw new Error(`Invalid backup profile name: ${name}.`);
     }
     if (profile.files.length === 0) {
@@ -352,9 +352,9 @@ export function normalizeBackups(
   return { ...value, profiles };
 }
 
-function profileName(value: string, label: string): LinuxProfile {
+function profileName(value: string, label: string): string {
   const profile = requiredString(value, label);
-  if (!isLinuxProfile(profile)) {
+  if (!isProfileName(profile)) {
     throw new Error(`${label} must contain only letters, numbers, ., _, and -.`);
   }
   return profile;
@@ -825,7 +825,7 @@ export function windowsPathsFromContract(
 
 async function validatePackageBackend(options: {
   root: string;
-  profile: LinuxProfile;
+  profile: string;
   backend: LinuxPackageBackend;
   declaration: LinuxPackageDeclaration;
 }): Promise<void> {

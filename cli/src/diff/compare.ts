@@ -29,7 +29,6 @@ import {
   listInstalledLinuxPackages,
   missingLinuxPackages,
   parseLinuxPackageManifest,
-  type LinuxProfile,
 } from "@/update/linux";
 import {
   prepareLinuxSource,
@@ -402,7 +401,7 @@ async function compareWindowsSection(
 function resolveLinuxDiffProfile(
   profiles: ReadonlyArray<string> | undefined,
   config: ManagerConfig,
-): LinuxProfile {
+): string {
   if (profiles !== undefined && profiles.length !== 1) {
     throw new Error("Linux diff accepts one profile at a time.");
   }

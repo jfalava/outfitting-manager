@@ -1,9 +1,6 @@
-/** Linux profile names are declared by the selected BYOR source. */
-export type LinuxProfile = string & {};
+const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-const LINUX_PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/** True when `value` is a syntactically valid repository profile name. */
-export function isLinuxProfile(value: string): value is LinuxProfile {
-  return LINUX_PROFILE_NAME.test(value);
+/** True when `value` is a syntactically valid profile name (any platform or backup profile). */
+export function isProfileName(value: string): boolean {
+  return PROFILE_NAME.test(value);
 }

@@ -138,10 +138,10 @@ test.each<[Record<string, unknown>, RegExp]>([
   ],
   ...["", "../agent", "label with space", "label\n", "a".repeat(256)].map(
     (scheduleLabel) =>
-      [{ scheduleLabel }, /Expected a string matching .*\n {2}at \["scheduleLabel"\]$/] as [
-        Record<string, unknown>,
-        RegExp,
-      ],
+      [
+        { scheduleLabel },
+        /Expected a string matching .*\n {2}at \["backups"\]\["scheduleLabel"\]$/,
+      ] as [Record<string, unknown>, RegExp],
   ),
 ])("rejects invalid native identities or schedule labels: %j", async (identities, error) => {
   const root = await tempRoot();
@@ -583,7 +583,9 @@ test("manifest re-import replaces current-platform backups, preserves other plat
     join(root, "config.toml"),
     stringify({ ...document, backups: { ...document.backups, typo: true } }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow('excess property\n  at ["typo"]');
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
+    'excess property\n  at ["backups"]["typo"]',
+  );
 });
 
 test.each([
@@ -646,16 +648,22 @@ test.each<[Record<string, unknown>, string]>([
   ],
   [
     { alertsDisabled: true, alertSender: "old@example.net" },
-    'excess property\n  at ["alertSender"]',
+    'excess property\n  at ["backups"]["alertSender"]',
   ],
-  [{ alertsDisabled: false }, 'Expected true\n  at ["alertsDisabled"]'],
-  [{ ...alertConfig, alertSender: "old@example.net" }, 'excess property\n  at ["alertSender"]'],
+  [{ alertsDisabled: false }, 'Expected true\n  at ["backups"]["alertsDisabled"]'],
+  [
+    { ...alertConfig, alertSender: "old@example.net" },
+    'excess property\n  at ["backups"]["alertSender"]',
+  ],
   [
     { ...alertConfig, alertRecipient: ["old@example.net"] },
-    'excess property\n  at ["alertRecipient"]',
+    'excess property\n  at ["backups"]["alertRecipient"]',
   ],
-  [{ ...alertConfig, severity: "error" }, 'excess property\n  at ["severity"]'],
-  [{ ...alertConfig, token: "never-store-tokens-in-toml" }, 'excess property\n  at ["token"]'],
+  [{ ...alertConfig, severity: "error" }, 'excess property\n  at ["backups"]["severity"]'],
+  [
+    { ...alertConfig, token: "never-store-tokens-in-toml" },
+    'excess property\n  at ["backups"]["token"]',
+  ],
 ])("rejects obsolete or conflicting backup alert configuration: %j", async (alerts, error) => {
   const root = await tempRoot();
   await writeFile(
@@ -703,7 +711,9 @@ test("rejects per-job alert maps rather than silently disabling alerts", async (
       },
     }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow('excess property\n  at ["alerts"]');
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
+    'excess property\n  at ["backups"]["alerts"]',
+  );
 });
 
 test("sparse refresh includes backup fragments, hashes order, and leaves the last valid source on composition failure", async () => {

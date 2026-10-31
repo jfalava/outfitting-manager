@@ -1,11 +1,10 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { Option, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
 import {
   parse as parseToml,
   type TomlTableWithoutBigInt,
-  type TomlValueWithoutBigInt,
 } from "smol-toml";
 
 import { BackupCredentials } from "@/backups/model";
@@ -29,6 +28,7 @@ import {
   BackupProfileSchema,
   type ByorContract,
 } from "@/source/contract";
+import { isProfileName } from "@/source/profile-name";
 import { isReservedSourcePath } from "@/source/reserved";
 
 const LinuxFileSchema = Schema.Struct({
@@ -78,13 +78,15 @@ const ConfigFileSchema = Schema.Struct({
   profiles: Schema.optionalKey(Schema.Record(Schema.String, Schema.MutableJson)),
 });
 
-const decodeConfigFile = Schema.decodeUnknownOption(ConfigFileSchema);
+const decodeConfigFile = Schema.decodeUnknownResult(ConfigFileSchema, {
+  onExcessProperty: "error",
+});
 const TomlObjectSchema = Schema.Record(Schema.String, Schema.MutableJson);
 const decodeTomlObject = Schema.decodeUnknownOption(TomlObjectSchema);
 
 function validateProfile(value: string, platform: string): string {
   const profile = value.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profile)) {
+  if (!isProfileName(profile)) {
     throw new Error(`config.toml has an invalid ${platform} profile: ${value}.`);
   }
   return profile;
@@ -137,47 +139,6 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
     throw new Error("backups.alertsDisabled cannot be combined with alertUrl.");
   }
   return { ...config, alertUrl: normalizeAlertUrl(backups.alertUrl) };
-}
-
-function assertTableKeys(
-  value: TomlValueWithoutBigInt,
-  allowed: ReadonlyArray<string>,
-  label: string,
-): void {
-  const decoded = decodeTomlObject(value);
-  if (Option.isNone(decoded)) {
-    throw new Error(`${label} must be a TOML table.`);
-  }
-  const unknown = Object.keys(decoded.value).filter((key) => !allowed.includes(key));
-  if (unknown.length > 0) {
-    throw new Error(`${label} contains unsupported key(s): ${unknown.join(", ")}.`);
-  }
-}
-
-function assertConfigTableKeys(parsed: TomlTableWithoutBigInt, configPath: string): void {
-  assertTableKeys(
-    parsed,
-    ["schema", "machine_id", "source", "linux", "macos", "windows", "fonts", "backups", "profiles"],
-    configPath,
-  );
-  if (parsed.source !== undefined) {
-    assertTableKeys(parsed.source, ["path", "repository", "ref"], `${configPath} [source]`);
-  }
-  if (parsed.linux !== undefined) {
-    assertTableKeys(parsed.linux, ["profile"], `${configPath} [linux]`);
-  }
-  if (parsed.macos !== undefined) {
-    assertTableKeys(parsed.macos, ["profile"], `${configPath} [macos]`);
-  }
-  if (parsed.windows !== undefined) {
-    assertTableKeys(parsed.windows, ["profiles", "shared"], `${configPath} [windows]`);
-  }
-  if (parsed.fonts !== undefined) {
-    assertTableKeys(parsed.fonts, ["bucket"], `${configPath} [fonts]`);
-  }
-  if (parsed.backups !== undefined) {
-    Schema.decodeUnknownSync(BackupsFileSchema, { onExcessProperty: "error" })(parsed.backups);
-  }
 }
 
 function normalizeSource(
@@ -327,14 +288,13 @@ function parseConfigFile(raw: string, configPath: string): ManagerConfigFile {
   } catch (cause) {
     throw new Error(`${configPath} is not valid TOML.`, { cause });
   }
-  assertConfigTableKeys(parsed, configPath);
   const decoded = decodeConfigFile(parsed);
-  if (Option.isNone(decoded)) {
+  if (Result.isFailure(decoded)) {
     throw new Error(
-      `${configPath} must set \`schema = 2\` and use only the supported TOML tables.`,
+      `${configPath} is invalid (it must set \`schema = 2\` and use only supported keys):\n${decoded.failure.message}`,
     );
   }
-  return configFileFromDecoded(decoded.value, configPath);
+  return configFileFromDecoded(decoded.success, configPath);
 }
 
 async function readConfigFile(path: string): Promise<ManagerConfigFile | undefined> {

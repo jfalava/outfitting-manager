@@ -8,13 +8,11 @@ import { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
 import { profileNames, validateLinuxByorSource } from "@/source/contract";
-import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
-
-export { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
+import { isProfileName } from "@/source/profile-name";
 
 export interface LinuxSourceOptions {
   config: ManagerConfig;
-  profile: LinuxProfile;
+  profile: string;
   refresh?: boolean;
   fetcher?: ManifestFetcher;
   run?: typeof runCommand;
@@ -30,10 +28,7 @@ export interface LinuxSource {
  * Select the Linux profile: `override`, OUTFITTING_PROFILE, `linux.profile` in config.toml,
  * or the only declared Linux profile.
  */
-export function resolveLinuxProfile(
-  config: ManagerConfig,
-  override: string | undefined,
-): LinuxProfile {
+export function resolveLinuxProfile(config: ManagerConfig, override: string | undefined): string {
   const declared = profileNames(config.declarations, "linux");
   const profile =
     configuredProfile(config, "linux", override) ??
@@ -44,7 +39,7 @@ export function resolveLinuxProfile(
       `No Linux BYOR profile is selected. Set linux.profile in config.toml or pass --profile${choices}.`,
     );
   }
-  if (!isLinuxProfile(profile)) {
+  if (!isProfileName(profile)) {
     throw new Error(
       `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
     );
@@ -96,7 +91,7 @@ export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<L
 /** Read a Linux package declaration from the selected validated TOML source. */
 export async function readLinuxManifest(
   config: ManagerConfig,
-  profile: LinuxProfile,
+  profile: string,
   sourceRoot?: string,
   packageManager?: "apt" | "pacman",
 ): Promise<string> {
