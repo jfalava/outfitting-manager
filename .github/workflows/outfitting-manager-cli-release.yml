@@ -77,6 +77,29 @@ jobs:
         working-directory: cli
         run: bun build --compile --target=${{ matrix.target }} ${{ matrix.entrypoint }} --outfile ${{ matrix.outfile }}
 
+      # A stable identity keeps macOS Keychain "Always Allow" grants valid across releases;
+      # ad-hoc signatures change with every build.
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        working-directory: cli
+        env:
+          SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="${RUNNER_TEMP}/signing.keychain-db"
+          security create-keychain -p "" "${KEYCHAIN}"
+          security set-keychain-settings "${KEYCHAIN}"
+          security unlock-keychain -p "" "${KEYCHAIN}"
+          echo "${SIGNING_P12}" | base64 --decode > "${RUNNER_TEMP}/signing.p12"
+          security import "${RUNNER_TEMP}/signing.p12" -k "${KEYCHAIN}" -P "${SIGNING_P12_PASSWORD}" -T /usr/bin/codesign
+          rm "${RUNNER_TEMP}/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "${KEYCHAIN}" >/dev/null
+          codesign --force --sign "outfitting-manager release" --identifier dev.outfitting.manager \
+            --keychain "${KEYCHAIN}" "${{ matrix.outfile }}"
+          codesign --verify --verbose=2 "${{ matrix.outfile }}"
+          codesign --display --requirements - "${{ matrix.outfile }}"
+          security delete-keychain "${KEYCHAIN}"
+
       - name: Create archive and checksum
         shell: bash
         run: |
