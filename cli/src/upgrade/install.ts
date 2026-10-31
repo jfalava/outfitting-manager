@@ -5,6 +5,7 @@ import { Effect, Result, Schedule, Schema } from "effect";
 
 import { toError } from "@/effect";
 import { CliFailure, errorMessage } from "@/errors";
+import { which } from "@/process";
 import { ui } from "@/ui";
 import { extractZipBinary } from "@/upgrade/archive";
 import type { CliRelease, Fetcher } from "@/upgrade/release";
@@ -79,6 +80,15 @@ export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function
   release: CliRelease,
   targetPath: string,
 ): Effect.fn.Return<void, DownloadError | CliFailure> {
+  // The replacement runs detached with ignored stdio, so a missing pwsh would fail silently.
+  if (
+    process.platform === "win32" &&
+    (yield* Effect.promise(() => which("pwsh.exe"))) === undefined
+  ) {
+    return yield* new CliFailure({
+      message: "PowerShell 7 (pwsh) must be on PATH to self-update.",
+    });
+  }
   const assetBytes = yield* downloadBytesEffect(release.assetUrl, "Release asset");
   const checksumBytes = yield* downloadBytesEffect(release.checksumUrl, "Release checksum");
   const expectedChecksum = yield* Effect.try({

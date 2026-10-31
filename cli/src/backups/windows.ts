@@ -47,7 +47,9 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
     });
   }
   // Resolve now: a task pointing at a missing pwsh would silently stop running backups.
-  const pwsh = yield* Effect.promise(() => findPwsh(config.environment.PATH ?? ""));
+  // Windows spells the key `Path`; the copied environment is a plain, case-sensitive object.
+  const path = Object.entries(config.environment).find(([key]) => key.toUpperCase() === "PATH");
+  const pwsh = yield* Effect.promise(() => findPwsh(path?.[1] ?? ""));
   if (pwsh === undefined) {
     return yield* new BackupError({
       message: "PowerShell 7 (pwsh) must be on PATH to generate a scheduled task.",

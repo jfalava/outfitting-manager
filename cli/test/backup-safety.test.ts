@@ -586,7 +586,9 @@ test("scheduling prints a quoted manager invocation without running processes or
   f.settings.environment.PATH = join(f.root, "no-pwsh");
   const missing = await f.run(scheduledTask(binary).pipe(Effect.flip));
   expect(missing.message).toContain("PowerShell 7 (pwsh) must be on PATH");
-  f.settings.environment.PATH = bin;
+  // Windows copies process.env with the key spelled `Path`.
+  delete f.settings.environment.PATH;
+  f.settings.environment.Path = bin;
   const task = await f.run(scheduledTask(binary));
   expect(task).toContain(`<Command>${pwsh}</Command>`);
   const encoded = task.match(/-EncodedCommand&quot; &quot;([A-Za-z0-9+/=]+)&quot;/)?.[1];
