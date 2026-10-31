@@ -32,7 +32,7 @@ binds to that bucket by physical name.
 
 ## Commands
 
-- `bun run ci:build` typechecks the stack.
+- `bun run ci:build` (from the repository root) lints, typechecks, and tests every deployed package; Workers Builds runs it before `ci:deploy`.
 - `bun run test:api` and `bun run test:router` test its request paths.
 - Root `bun run deploy`, `ci:deploy`, `plan`, and `destroy` delegate to the IaC scripts, which
   explicitly select `iac/outfitting.production.deploy.json`. The production config preserves

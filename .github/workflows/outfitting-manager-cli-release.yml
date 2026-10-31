@@ -6,7 +6,26 @@ on:
       - "cli-v*"
 
 jobs:
+  test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint, typecheck, and test the CLI
+        working-directory: cli
+        run: bun run lint && bun run typecheck && bun run test
+
   build:
+    needs: test
     permissions:
       contents: read
     strategy:

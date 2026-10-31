@@ -3,9 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run typecheck",
     "check": "oxlint --fix",
-    "ci:build": "bun run typecheck",
     "ci:deploy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy deploy --yes --adopt",
     "deploy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy deploy",
     "destroy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy destroy",
