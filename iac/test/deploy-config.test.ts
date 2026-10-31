@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_DEPLOY_CONFIG, deployConfigToEnv, loadDeployConfig } from "../src/deploy-config";
+import { deployConfigToEnv, loadDeployConfig } from "../src/deploy-config";
 
 const ENV_KEYS = [
   "OUTFITTING_STACK_NAME",
@@ -51,7 +51,7 @@ test("defaults to the Worker URL without selecting a production deployment", () 
       router: "outfitting-manager-router",
       api: "outfitting-api",
     });
-    expect(config.databaseName).toBe(DEFAULT_DEPLOY_CONFIG.databaseName);
+    expect(config.databaseName).toBe("outfitting-lockfiles");
   });
 });
 
@@ -85,8 +85,7 @@ test.each(["flag", "environment"])("rejects a missing config selected by %s", (s
 
 test("loads manager resources from the config file", () => {
   withCleanEnv(() => {
-    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
-    const path = join(dir, "outfitting.deploy.json");
+    const path = join(process.cwd(), "outfitting.deploy.json");
     writeFileSync(
       path,
       JSON.stringify({
@@ -107,7 +106,6 @@ test("loads manager resources from the config file", () => {
     expect(config.privateFontsBucket).toBe("my-fonts");
     expect(config.workers).toEqual({ router: "r1", api: "a1" });
     expect(config.configPath).toBe(path);
-    rmSync(dir, { recursive: true });
   });
 });
 
@@ -119,18 +117,15 @@ test.each([
   [{ workers: "r1" }, "workers in deploy config"],
 ])("rejects %j instead of silently using default resources", (file, message) => {
   withCleanEnv(() => {
-    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
-    const path = join(dir, "outfitting.deploy.json");
+    const path = join(process.cwd(), "outfitting.deploy.json");
     writeFileSync(path, JSON.stringify(file));
     expect(() => loadDeployConfig({ configPath: path })).toThrow(message);
-    rmSync(dir, { recursive: true });
   });
 });
 
 test("environment overrides the config file", () => {
   withCleanEnv(() => {
-    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
-    const path = join(dir, "outfitting.deploy.json");
+    const path = join(process.cwd(), "outfitting.deploy.json");
     writeFileSync(path, JSON.stringify({ stackName: "from-file", domain: "file.example.com" }));
     process.env.OUTFITTING_STACK_NAME = "from-env";
     process.env.OUTFITTING_DOMAIN = "env.example.com";
@@ -143,8 +138,7 @@ test("environment overrides the config file", () => {
 
 test("explicit overrides beat file and environment", () => {
   withCleanEnv(() => {
-    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
-    const path = join(dir, "outfitting.deploy.json");
+    const path = join(process.cwd(), "outfitting.deploy.json");
     writeFileSync(path, JSON.stringify({ domain: "file.example.com" }));
     process.env.OUTFITTING_DOMAIN = "env.example.com";
     const config = loadDeployConfig({
@@ -158,14 +152,24 @@ test("explicit overrides beat file and environment", () => {
 
 test("deployConfigToEnv includes only manager stack settings", () => {
   const env = deployConfigToEnv({
-    ...DEFAULT_DEPLOY_CONFIG,
+    stackName: "stack",
+    kvTitle: "kv",
+    databaseName: "db",
+    privateFontsBucket: "fonts",
+    workers: { router: "router", api: "api" },
     domain: "api.example.com",
-    configPath: undefined,
+    configPath: "/ignored/outfitting.deploy.json",
   });
 
-  expect(env.OUTFITTING_DOMAIN).toBe("api.example.com");
-  expect(env.OUTFITTING_ROUTER_NAME).toBe("outfitting-manager-router");
-  expect(env.OUTFITTING_API_NAME).toBe("outfitting-api");
+  expect(env).toEqual({
+    OUTFITTING_STACK_NAME: "stack",
+    OUTFITTING_KV_TITLE: "kv",
+    OUTFITTING_DB_NAME: "db",
+    OUTFITTING_PRIVATE_FONTS_BUCKET: "fonts",
+    OUTFITTING_ROUTER_NAME: "router",
+    OUTFITTING_API_NAME: "api",
+    OUTFITTING_DOMAIN: "api.example.com",
+  });
 });
 
 test("empty OUTFITTING_DOMAIN clears the custom domain", () => {
@@ -205,8 +209,7 @@ test("rejects malformed JSON selected through the environment", () => {
 
 test("rejects non-object config files", () => {
   withCleanEnv(() => {
-    const dir = mkdtempSync(join(tmpdir(), "outfitting-manager-deploy-"));
-    const path = join(dir, "bad.json");
+    const path = join(process.cwd(), "bad.json");
     writeFileSync(path, "[1,2,3]");
 
     expect(() => loadDeployConfig({ configPath: path })).toThrow(/JSON object/);

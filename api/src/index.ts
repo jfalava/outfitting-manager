@@ -45,14 +45,5 @@ app.onError((error, c) => {
   return jsonEncoded(c, ErrorBody, { error: "Internal server error" }, 500);
 });
 
-export {
-  ADVANCE_HEAD_SQL,
-  DELETE_LOCKFILE_SQL,
-  DELETE_PROMOTIONS_SQL,
-  lockfileKey,
-  parseIfMatch,
-  PROMOTE_HISTORY_SQL,
-  sha256,
-} from "@/lockfiles";
 export { app };
 export default app;

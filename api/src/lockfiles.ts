@@ -23,7 +23,7 @@ type DeleteLockfileResult = "current" | "deleted" | "not-found";
 
 export const SHA256_PATTERN = SHA256_HEX_PATTERN;
 
-export const PROMOTE_HISTORY_SQL = `INSERT INTO lockfile_promotions
+const PROMOTE_HISTORY_SQL = `INSERT INTO lockfile_promotions
   (machine, kind, hash, parent_hash)
 SELECT ?, ?, ?, ?
 WHERE ? IS NULL OR EXISTS (
@@ -31,7 +31,7 @@ WHERE ? IS NULL OR EXISTS (
   WHERE machine = ? AND kind = ? AND hash = ?
 )`;
 
-export const ADVANCE_HEAD_SQL = `INSERT INTO lockfile_heads (machine, kind, hash)
+const ADVANCE_HEAD_SQL = `INSERT INTO lockfile_heads (machine, kind, hash)
 SELECT ?, ?, ?
 WHERE ? IS NULL OR EXISTS (
   SELECT 1 FROM lockfile_heads
@@ -41,7 +41,7 @@ ON CONFLICT (machine, kind) DO UPDATE SET
   hash = excluded.hash,
   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 
-export const DELETE_PROMOTIONS_SQL = `DELETE FROM lockfile_promotions
+const DELETE_PROMOTIONS_SQL = `DELETE FROM lockfile_promotions
 WHERE machine = ? AND kind = ? AND hash = ?
   AND NOT EXISTS (
     SELECT 1
@@ -49,7 +49,7 @@ WHERE machine = ? AND kind = ? AND hash = ?
      WHERE machine = ? AND kind = ? AND hash = ?
   )`;
 
-export const DELETE_LOCKFILE_SQL = `DELETE FROM lockfiles
+const DELETE_LOCKFILE_SQL = `DELETE FROM lockfiles
 WHERE machine = ? AND kind = ? AND hash = ?
   AND NOT EXISTS (
     SELECT 1
