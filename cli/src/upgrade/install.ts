@@ -1,36 +1,36 @@
 import { spawn } from "node:child_process";
 import { chmod, rename, writeFile } from "node:fs/promises";
 
-import { Effect, Result, Schema } from "effect";
+import { Effect, Result, Schedule, Schema } from "effect";
 
 import { toError } from "@/effect";
+import { CliFailure, errorMessage } from "@/errors";
 import { ui } from "@/ui";
 import { extractZipBinary } from "@/upgrade/archive";
-import type { CliRelease } from "@/upgrade/release";
+import type { CliRelease, Fetcher } from "@/upgrade/release";
 
 const quotePowerShellLiteral = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const DOWNLOAD_ATTEMPTS = 3;
-const RETRY_DELAYS_MS = [250, 500] as const;
-
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class DownloadError extends Schema.TaggedError<DownloadError>()("DownloadError", {
   message: Schema.String,
   retryable: Schema.Boolean,
 }) {}
 
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error && cause.message ? cause.message : String(cause);
-}
-
 function isRetryableNetworkError(cause: unknown): boolean {
   return cause instanceof Error && /connection|fetch|network|socket|timeout/i.test(cause.message);
 }
 
-function retryDelay(attempt: number): number {
-  const delay = RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS.at(-1)!;
-  return delay;
+/** Map a fetch or body-read rejection, treating timeouts and network faults as retryable. */
+function downloadFailure(label: string, signal: AbortSignal) {
+  return (cause: unknown) =>
+    new DownloadError({
+      message: signal.aborted
+        ? `${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`
+        : `${label}: ${errorMessage(cause)}`,
+      retryable: signal.aborted || isRetryableNetworkError(cause),
+    });
 }
 
 const downloadAttemptEffect = Effect.fn("upgrade.downloadAttempt")(function* (
@@ -46,13 +46,7 @@ const downloadAttemptEffect = Effect.fn("upgrade.downloadAttempt")(function* (
         redirect: "follow",
         signal,
       }),
-    catch: (cause) =>
-      new DownloadError({
-        message: signal.aborted
-          ? `${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`
-          : `${label}: ${errorMessage(cause)}`,
-        retryable: signal.aborted || isRetryableNetworkError(cause),
-      }),
+    catch: downloadFailure(label, signal),
   });
   if (!response.ok) {
     return yield* new DownloadError({
@@ -62,43 +56,29 @@ const downloadAttemptEffect = Effect.fn("upgrade.downloadAttempt")(function* (
   }
   return yield* Effect.tryPromise({
     try: async () => new Uint8Array(await response.arrayBuffer()),
-    catch: (cause) =>
-      new DownloadError({
-        message: signal.aborted
-          ? `${label} timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`
-          : `${label}: ${errorMessage(cause)}`,
-        retryable: signal.aborted || isRetryableNetworkError(cause),
-      }),
+    catch: downloadFailure(label, signal),
   });
 });
 
-export const downloadBytesEffect = Effect.fn("upgrade.downloadBytes")(function* (
+/** Retry retryable failures twice, after 250ms and 500ms. */
+export const downloadBytesEffect = (
   url: string,
   label: string,
   fetcher: Fetcher = globalThis.fetch,
-): Effect.fn.Return<Uint8Array, DownloadError> {
-  let lastError: DownloadError | undefined;
-  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
-    const result = yield* Effect.result(downloadAttemptEffect(url, label, fetcher));
-    if (Result.isSuccess(result)) {
-      return result.success;
-    }
-    lastError = result.failure;
-    if (!lastError.retryable || attempt === DOWNLOAD_ATTEMPTS) {
-      return yield* lastError;
-    }
-    yield* Effect.sleep(retryDelay(attempt));
-  }
-  if (lastError === undefined) {
-    return yield* new DownloadError({ message: `${label} failed.`, retryable: false });
-  }
-  return yield* lastError;
-});
+): Effect.Effect<Uint8Array, DownloadError> =>
+  downloadAttemptEffect(url, label, fetcher).pipe(
+    Effect.retry({
+      times: DOWNLOAD_ATTEMPTS - 1,
+      while: (error) => error.retryable,
+      schedule: Schedule.exponential("250 millis"),
+    }),
+    Effect.withSpan("upgrade.downloadBytes"),
+  );
 
 export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function* (
   release: CliRelease,
   targetPath: string,
-): Effect.fn.Return<void, DownloadError | ReturnType<typeof toError>> {
+): Effect.fn.Return<void, DownloadError | CliFailure> {
   const assetBytes = yield* downloadBytesEffect(release.assetUrl, "Release asset");
   const checksumBytes = yield* downloadBytesEffect(release.checksumUrl, "Release checksum");
   const expectedChecksum = yield* Effect.try({
@@ -110,11 +90,9 @@ export const installReleaseEffect = Effect.fn("upgrade.installRelease")(function
     catch: toError,
   });
   if (actualChecksum !== expectedChecksum) {
-    return yield* toError(
-      new Error(
-        `Downloaded release asset checksum mismatch (expected ${expectedChecksum}, received ${actualChecksum}).`,
-      ),
-    );
+    return yield* new CliFailure({
+      message: `Downloaded release asset checksum mismatch (expected ${expectedChecksum}, received ${actualChecksum}).`,
+    });
   }
 
   const bytes = yield* Effect.try({

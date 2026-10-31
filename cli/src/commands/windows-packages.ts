@@ -5,14 +5,13 @@ import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { runCommand, which } from "@/process";
-import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 import { runScoopCommand } from "@/update/scoop-command";
 import {
   isWingetAlreadyInstalledExitCode,
+  publishWindowsLock,
   recordWindowsOperation,
-  WINDOWS_LOCK_KIND,
-  windowsLockPath,
+  reportPackageFailure,
   type WindowsPackageAction,
   type WindowsPackageManager,
 } from "@/update/windows-lock";
@@ -33,7 +32,7 @@ const strictFlag = Flag.Boolean("strict").pipe(
   Flag.withDescription("Stop at the first package installation failure."),
 );
 
-function commandArgs(
+export function windowsPackageCommandArgs(
   manager: WindowsPackageManager,
   action: WindowsPackageAction,
   name: string,
@@ -42,62 +41,6 @@ function commandArgs(
     return wingetPackageArgs(action, name);
   }
   return [action, name];
-}
-
-function runPackage(options: {
-  manager: WindowsPackageManager;
-  action: WindowsPackageAction;
-  name: string;
-  config: ManagerConfig;
-  strict: boolean;
-  run: typeof runCommand;
-  whichFn: typeof which;
-}) {
-  return Effect.gen(function* () {
-    const { manager, action, name, config, strict, run, whichFn } = options;
-    const executable = yield* tryPromise(() => whichFn(manager === "scoop" ? "scoop" : manager));
-    if (executable === undefined) {
-      return yield* new CliFailure({
-        message: `${manager} is not installed or not in PATH.`,
-      });
-    }
-
-    const args = commandArgs(manager, action, name);
-    const result = yield* tryPromise(() =>
-      manager === "scoop"
-        ? runScoopCommand(run, executable, args, { inherit: true })
-        : run(executable, args, { inherit: true }),
-    );
-    const alreadyInstalled =
-      manager === "winget" && action === "install" && isWingetAlreadyInstalledExitCode(result.code);
-    const status = result.code === 0 || alreadyInstalled ? "success" : "failed";
-    yield* tryPromise(() =>
-      recordWindowsOperation({
-        config,
-        manager,
-        action,
-        name,
-        args,
-        status,
-        exitCode: result.code,
-      }),
-    );
-
-    if (status === "failed") {
-      const message = `${manager} ${action} ${name} failed (exit ${result.code})`;
-      if (action === "install" && !strict) {
-        yield* Console.log(ui.warning(`${message}; continuing.`));
-        return false;
-      }
-      return yield* new CliFailure({
-        message: `${message}.`,
-      });
-    }
-    if (alreadyInstalled) {
-      yield* Console.log(ui.muted(`WinGet package already installed and up to date: ${name}`));
-    }
-    return true;
-  });
 }
 
 export interface WindowsPackageBatchOptions {
@@ -111,44 +54,66 @@ export interface WindowsPackageBatchOptions {
   which?: typeof which;
 }
 
+const runPackage = Effect.fn("runWindowsPackage")(function* (
+  options: WindowsPackageBatchOptions,
+  executable: string,
+  name: string,
+  failures: string[],
+) {
+  const { manager, action } = options;
+  const run = options.run ?? runCommand;
+  const args = windowsPackageCommandArgs(manager, action, name);
+  const result = yield* tryPromise(() =>
+    manager === "scoop"
+      ? runScoopCommand(run, executable, args, { inherit: true })
+      : run(executable, args, { inherit: true }),
+  );
+  const alreadyInstalled =
+    manager === "winget" && action === "install" && isWingetAlreadyInstalledExitCode(result.code);
+  const status = result.code === 0 || alreadyInstalled ? "success" : "failed";
+  yield* tryPromise(() =>
+    recordWindowsOperation({
+      config: options.config,
+      manager,
+      action,
+      name,
+      args,
+      status,
+      exitCode: result.code,
+    }),
+  );
+
+  if (status === "failed") {
+    // --strict exists only on install; a failed uninstall always stops the batch.
+    yield* reportPackageFailure(
+      `${manager} ${action} ${name} failed (exit ${result.code})`,
+      action !== "install" || options.strict === true,
+      failures,
+      Console.log,
+    );
+  } else if (alreadyInstalled) {
+    yield* Console.log(ui.muted(`WinGet package already installed and up to date: ${name}`));
+  }
+});
+
 export const runWindowsPackageBatch = (options: WindowsPackageBatchOptions) =>
   Effect.gen(function* () {
-    const run = options.run ?? runCommand;
-    const whichFn = options.which ?? which;
+    const executable = yield* tryPromise(() => (options.which ?? which)(options.manager));
+    if (executable === undefined) {
+      return yield* new CliFailure({
+        message: `${options.manager} is not installed or not in PATH.`,
+      });
+    }
     const failures: string[] = [];
     for (const name of options.packages) {
-      const succeeded = yield* runPackage({
-        manager: options.manager,
-        action: options.action,
-        name,
-        config: options.config,
-        strict: options.strict === true,
-        run,
-        whichFn,
-      });
-      if (!succeeded) {
-        failures.push(name);
-      }
+      yield* runPackage(options, executable, name, failures);
     }
 
-    if (options.noPush) {
-      yield* Console.log(ui.muted("Updated local tracking; skipped upload (--no-push)."));
-    } else {
-      yield* pushLockfile({
-        machine: options.config.machineId,
-        kind: WINDOWS_LOCK_KIND,
-        path: windowsLockPath({ root: options.config.stateRoot }),
-      });
-    }
+    yield* publishWindowsLock(options.config, options.noPush);
 
     if (failures.length > 0) {
-      yield* Console.log(
-        ui.muted(
-          `${options.manager} install was partial; failed packages: ${failures.join(", ")}.`,
-        ),
-      );
       return yield* new CliFailure({
-        message: `${options.manager} ${options.action} was partial; failed packages: ${failures.join(", ")}.`,
+        message: `${options.manager} ${options.action} was partial: ${failures.join("; ")}.`,
       });
     }
   });
@@ -201,11 +166,3 @@ export const windowsPackageCommands = [
     ]),
   ),
 ] as const;
-
-export function windowsPackageCommandArgs(
-  manager: WindowsPackageManager,
-  action: WindowsPackageAction,
-  name: string,
-): string[] {
-  return commandArgs(manager, action, name);
-}

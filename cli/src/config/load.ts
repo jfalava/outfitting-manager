@@ -12,14 +12,11 @@ import { BackupCredentials } from "@/backups/model";
 import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { autoMachineId } from "@/config/machine-id";
 import { configFilePath, stateRoot as resolveStateRoot } from "@/config/paths";
-import {
-  type ConfiguredSource,
-  type LinuxConfig,
-  type ManagerConfig,
-  type ManagerConfigFile,
-  type MacosConfig,
-  type BackupsConfig,
-  type WindowsConfig,
+import type {
+  BackupsConfig,
+  ConfiguredSource,
+  ManagerConfig,
+  ManagerConfigFile,
 } from "@/config/types";
 import { isNotFound, errorMessage } from "@/errors";
 import { envValue } from "@/secrets";
@@ -90,14 +87,6 @@ function validateProfile(value: string, platform: string): string {
     throw new Error(`config.toml has an invalid ${platform} profile: ${value}.`);
   }
   return profile;
-}
-
-/** Resolve the Linux profile block from a config file fragment. */
-export function resolveLinuxConfig(file: ManagerConfigFile["linux"] = {}): LinuxConfig | undefined {
-  if (file.profile === undefined) {
-    return undefined;
-  }
-  return { profile: validateProfile(file.profile, "Linux") };
 }
 
 type DecodedConfig = Schema.Schema.Type<typeof ConfigFileSchema>;
@@ -407,35 +396,8 @@ function managerConfigFromFile(
   path: string,
   machineId: ResolvedMachineId,
 ): ManagerConfig {
-  const config: ManagerConfig = {
-    configPath: path,
-    stateRoot: root,
-    machineId: machineId.machineId,
-    machineIdOverridden: machineId.machineIdOverridden,
-  };
-  const linux = resolveLinuxConfig(file.linux);
-  if (file.source !== undefined) {
-    config.source = file.source;
-  }
-  if (linux !== undefined) {
-    config.linux = linux;
-  }
-  if (file.macos !== undefined) {
-    config.macos = file.macos as MacosConfig;
-  }
-  if (file.windows !== undefined) {
-    config.windows = file.windows as WindowsConfig;
-  }
-  if (file.declarations !== undefined) {
-    config.declarations = file.declarations;
-  }
-  if (file.backups !== undefined) {
-    config.backups = file.backups;
-  }
-  if (file.fonts !== undefined) {
-    config.fonts = file.fonts;
-  }
-  return config;
+  const { schema: _schema, machineId: _machineId, ...sections } = file;
+  return { configPath: path, stateRoot: root, ...machineId, ...sections };
 }
 
 /** Create the manager state root. Does not fetch. */

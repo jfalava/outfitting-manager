@@ -3,8 +3,8 @@ import { Effect, Result, Schema } from "effect";
 import { toError } from "@/effect";
 import { CliFailure } from "@/errors";
 import { runCommand } from "@/process";
-import { isWithinSourcePath, relativeSourcePath } from "@/source/contract";
-import { isReservedSourcePath } from "@/source/reserved";
+import { relativeSourcePath } from "@/source/contract";
+import { gitModeToFileMode, selectSourceTreeEntries } from "@/source/tree";
 
 export type ManifestFetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -80,7 +80,7 @@ export function classifyGitHubRepository(value: string): GitHubRepository | unde
   return repositoryFromParts(host, owner, name);
 }
 
-export function gitHubAuthHint(host: string): string {
+function gitHubAuthHint(host: string): string {
   return `gh auth login --hostname ${host}`;
 }
 
@@ -204,41 +204,9 @@ const repositoryJson = Effect.fn("github.repositoryJson")(function* (
 
 type GitHubTreeEntry = Schema.Schema.Type<typeof GitHubTreeEntrySchema>;
 
-function selectSourceEntries(
-  entries: readonly GitHubTreeEntry[],
-  paths: readonly string[],
-): GitHubTreeEntry[] {
-  const roots = paths.map((path) => relativeSourcePath(path, "BYOR path"));
-  for (const root of roots) {
-    if (!entries.some((entry) => entry.type !== "tree" && isWithinSourcePath(entry.path, root))) {
-      throw new Error(`GitHub path \`${root}\` is missing or empty.`);
-    }
-    if (isReservedSourcePath(root)) {
-      throw new Error(
-        `GitHub path \`${root}\` is reserved for machine configuration and runtime state.`,
-      );
-    }
-  }
-  const selected = entries.filter(
-    (entry) =>
-      entry.type !== "tree" &&
-      roots.some((root) => isWithinSourcePath(entry.path, root)) &&
-      !isReservedSourcePath(entry.path),
-  );
-  for (const entry of selected) {
-    relativeSourcePath(entry.path, "GitHub tree path");
-    if (entry.type !== "blob" || !["100644", "100755"].includes(entry.mode)) {
-      throw new Error(
-        `Unsupported GitHub entry ${entry.path} (${entry.mode}). Use a local checkout for symlinks or submodules.`,
-      );
-    }
-  }
-  return selected;
-}
-
 const readSourceFile = Effect.fn("github.readSourceFile")(function* (
   options: GitHubReadOptions,
-  entry: GitHubTreeEntry,
+  entry: GitHubTreeEntry & { fileMode: number },
   commit: string,
 ): Effect.fn.Return<GitHubSourceFile, CliFailure | GitHubHttpError> {
   let body: Uint8Array;
@@ -262,7 +230,7 @@ const readSourceFile = Effect.fn("github.readSourceFile")(function* (
   return {
     path: entry.path,
     body,
-    mode: entry.mode === "100755" ? 0o755 : 0o644,
+    mode: entry.fileMode,
     revision: commit,
   };
 });
@@ -326,8 +294,7 @@ const readGitHubTree = Effect.fn("github.readGitHubTree")(function* (
   return { commit: commit.sha, entries: tree.tree, repository };
 });
 
-/** Read one repository file for setup metadata without adding it to the managed source snapshot. */
-export const readGitHubFileEffect = Effect.fn("github.readGitHubFile")(function* (
+const readGitHubFileEffect = Effect.fn("github.readGitHubFile")(function* (
   options: GitHubFileReadOptions,
 ): Effect.fn.Return<GitHubSourceFile, CliFailure | GitHubHttpError> {
   const path = yield* Effect.try({
@@ -339,21 +306,25 @@ export const readGitHubFileEffect = Effect.fn("github.readGitHubFile")(function*
   if (entry === undefined) {
     return yield* new CliFailure({ message: `GitHub file \`${path}\` is missing.` });
   }
-  if (!["100644", "100755"].includes(entry.mode)) {
+  const fileMode = gitModeToFileMode(entry.mode);
+  if (fileMode === undefined) {
     return yield* new CliFailure({
       message: `Unsupported GitHub entry ${entry.path} (${entry.mode}). Use a local checkout for symlinks or submodules.`,
     });
   }
-  return yield* readSourceFile({ ...options, repository, paths: [path] }, entry, commit);
+  return yield* readSourceFile(
+    { ...options, repository, paths: [path] },
+    { ...entry, fileMode },
+    commit,
+  );
 });
 
-/** Fetch the selected files/directories once, from one immutable repository revision. */
-export const readGitHubBlobsEffect = Effect.fn("github.readGitHubBlobs")(function* (
+const readGitHubBlobsEffect = Effect.fn("github.readGitHubBlobs")(function* (
   options: GitHubReadOptions,
 ): Effect.fn.Return<GitHubSourceFile[], CliFailure | GitHubHttpError> {
   const { commit, entries, repository } = yield* readGitHubTree(options);
   const selected = yield* Effect.try({
-    try: () => selectSourceEntries(entries, options.paths),
+    try: () => selectSourceTreeEntries(entries, options.paths, "GitHub"),
     catch: toError,
   });
   const files: GitHubSourceFile[] = [];
@@ -363,12 +334,12 @@ export const readGitHubBlobsEffect = Effect.fn("github.readGitHubBlobs")(functio
   return files;
 });
 
-/** Promise adapter for callers that have not migrated to Effect yet. */
+/** Read one repository file for setup metadata without adding it to the managed source snapshot. */
 export function readGitHubFile(options: GitHubFileReadOptions): Promise<GitHubSourceFile> {
   return Effect.runPromise(readGitHubFileEffect(options));
 }
 
-/** Promise adapter for callers that have not migrated to Effect yet. */
+/** Fetch the selected files/directories once, from one immutable repository revision. */
 export function readGitHubBlobs(options: GitHubReadOptions): Promise<GitHubSourceFile[]> {
   return Effect.runPromise(readGitHubBlobsEffect(options));
 }

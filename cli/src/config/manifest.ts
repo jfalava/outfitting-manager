@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { link, lstat, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Console, Effect, Option } from "effect";
@@ -15,17 +14,18 @@ import {
   collectWindowsShared,
   mergeByorContractDefaults,
   requiredProfileNames,
+  selectLinuxBackends,
 } from "@/config/wizard";
+import { publishFileAtomically } from "@/config/write";
 import { tryPromise } from "@/effect";
-import { isNotFound, errorMessage } from "@/errors";
-import { hostPlatform, type HostPlatform } from "@/platform";
+import { CliFailure, isNotFound, errorMessage } from "@/errors";
+import { hostPlatform, platformLabel, type HostPlatform } from "@/platform";
 import {
   BYOR_CONTRACT_PATH,
+  BYOR_CONTRACT_SCHEMA,
   parseByorContract,
   parseByorContractJson,
-  validateLinuxByorSource,
-  validateMacosByorSource,
-  validateWindowsByorSource,
+  validateByorSource,
   validateWindowsSharedArtifacts,
   type ByorContract,
   type ByorProfileDeclaration,
@@ -86,17 +86,7 @@ function collectLinuxProfiles(existing?: ByorContract) {
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
       const linux = existing?.profiles[name]?.linux;
-      const backends: string[] = yield* withTerminalInput(
-        Prompt.MultiSelect({
-          message: `Choose package sources for Linux profile ${name}`,
-          min: 1,
-          choices: [
-            { title: "APT manifest", value: "apt", selected: linux?.apt !== undefined },
-            { title: "pacman manifest", value: "pacman", selected: linux?.pacman !== undefined },
-            { title: "Nix flake", value: "nix", selected: linux?.nix !== undefined },
-          ],
-        }),
-      );
+      const backends = yield* selectLinuxBackends(name, linux);
       profiles[name] = { linux: yield* collectLinuxDeclaration(name, backends, linux) };
     }
     return parseByorContract({ schema: 1, profiles });
@@ -186,8 +176,8 @@ export function buildManifestWithPlatformEdits(
     profiles,
   };
   if (existing?.backups !== undefined) {
-    result.schema = 3;
-    result.backups = existing?.backups;
+    result.schema = BYOR_CONTRACT_SCHEMA;
+    result.backups = existing.backups;
   }
   if (windows !== undefined) {
     result.windows = windows;
@@ -199,47 +189,34 @@ async function validateManifestArtifacts(root: string, contract: ByorContract): 
   for (const [profile, declaration] of Object.entries(contract.backups?.profiles ?? {})) {
     await composeBackupProfile({ root, profile, declaration });
   }
-  for (const name of profileNames(contract, "linux")) {
-    await validateLinuxByorSource({ root, contract, profile: name });
-  }
-  for (const name of profileNames(contract, "macos")) {
-    await validateMacosByorSource({ root, contract, profile: name });
+  for (const platform of ["linux", "macos"] as const) {
+    for (const name of profileNames(contract, platform)) {
+      await validateByorSource(root, platform, name, contract);
+    }
   }
   const windowsProfiles = profileNames(contract, "windows");
   if (windowsProfiles.length > 0) {
-    await validateWindowsByorSource({ root, contract, profiles: windowsProfiles });
+    await validateByorSource(root, "windows", windowsProfiles.join(","), contract);
   } else {
     await validateWindowsSharedArtifacts(root, contract.windows);
   }
 }
 
 /** Atomically publish the reviewed repository manifest without clobbering concurrent edits. */
-export async function publishByorManifest(
+export function publishByorManifest(
   root: string,
   serialized: string,
   expectedExistingContents?: string,
 ): Promise<void> {
-  const target = join(root, BYOR_CONTRACT_PATH);
-  const temporary = join(root, `.outfitting-manifest-${randomUUID()}.json`);
-  try {
-    await writeFile(temporary, serialized, { encoding: "utf8", flag: "wx", mode: 0o644 });
-    parseByorContractJson(await readFile(temporary, "utf8"));
-
-    if (expectedExistingContents === undefined) {
-      await link(temporary, target);
-      return;
-    }
-    const targetStat = await lstat(target);
-    if (!targetStat.isFile()) {
-      throw new Error(`Refusing to replace non-regular manifest file ${target}.`);
-    }
-    if ((await readFile(target, "utf8")) !== expectedExistingContents) {
-      throw new Error("Manifest changed while the review was open. Run the command again.");
-    }
-    await rename(temporary, target);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+  return publishFileAtomically({
+    target: join(root, BYOR_CONTRACT_PATH),
+    serialized,
+    mode: 0o644,
+    expectedExistingContents,
+    validate: async (staged) => {
+      parseByorContractJson(await readFile(staged, "utf8"));
+    },
+  });
 }
 
 async function readExistingManifest(target: string): Promise<string | undefined> {
@@ -268,7 +245,9 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
     const target = join(root, BYOR_CONTRACT_PATH);
     const originalContents = yield* tryPromise(() => readExistingManifest(target));
     if (originalContents !== undefined && !force) {
-      throw new Error(`${target} already exists; pass --force to review and replace it.`);
+      return yield* new CliFailure({
+        message: `${target} already exists; pass --force to review and replace it.`,
+      });
     }
     const existing =
       originalContents === undefined
@@ -281,7 +260,7 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
         message: "Choose platforms to include in the repo manifest",
         min: 1,
         choices: (["linux", "macos", "windows"] as const).map((platform) => ({
-          title: platform === "macos" ? "macOS" : platform[0]!.toUpperCase() + platform.slice(1),
+          title: platformLabel(platform),
           value: platform,
           selected:
             profileNames(defaults, platform).length > 0 ||

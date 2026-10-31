@@ -2,7 +2,7 @@ import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { OutfittingRepo } from "@/config/repo";
+import type { NixFlakeRepo } from "@/config/repo";
 import { isNotFound } from "@/errors";
 
 async function ensureSymlink(linkPath: string, target: string): Promise<void> {
@@ -35,15 +35,11 @@ async function ensureSymlink(linkPath: string, target: string): Promise<void> {
  * macOS: ~/.nixpkgs/darwin-configuration.nix + ~/.config/home-manager → declared flake root
  * Home Manager: ~/.config/home-manager → declared flake root only
  */
-export async function ensureNixSymlinks(repo: OutfittingRepo, home = homedir()): Promise<void> {
-  if (repo.flakeKind === "none" || repo.flakePath.length === 0) {
-    return;
-  }
-
+export async function ensureNixSymlinks(repo: NixFlakeRepo, home = homedir()): Promise<void> {
   await mkdir(join(home, ".config"), { recursive: true });
   await ensureSymlink(join(home, ".config", "home-manager"), repo.flakePath);
 
-  if (repo.flakeKind === "macos" && repo.darwinNixPath.length > 0) {
+  if (repo.flakeKind === "macos") {
     await mkdir(join(home, ".nixpkgs"), { recursive: true });
     await ensureSymlink(join(home, ".nixpkgs", "darwin-configuration.nix"), repo.darwinNixPath);
   }

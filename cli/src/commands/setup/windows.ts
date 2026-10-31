@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
-import { configuredProfile, loadConfig } from "@/config";
+import { initFlags } from "@/commands/setup/flags";
 import { tryPromise } from "@/effect";
 import { resolveSetupSource, runSetup, type SetupOptions } from "@/setup/run";
 
@@ -11,23 +11,19 @@ export interface WindowsInitOptions extends SetupOptions {
 
 export const initializeWindows = (options: WindowsInitOptions = {}) =>
   Effect.gen(function* () {
-    const initialConfig = yield* tryPromise(() =>
-      loadConfig({
-        stateRoot: options.stateRoot,
-        configPath: options.configPath,
-        machineId: options.machineId,
+    const source = yield* tryPromise(() =>
+      resolveSetupSource({
+        ...options,
+        platform: "windows",
+        repoProfile: options.profiles?.join(","),
       }),
     );
-    const profiles = options.profiles ?? configuredProfile(initialConfig, "windows")?.split(",");
-    const source = yield* tryPromise(() => resolveSetupSource({ ...options, platform: "windows" }));
-
-    const validatedRepo = yield* runSetup({
+    const repo = yield* runSetup({
+      ...options,
       ...source,
-      repoProfile: profiles?.join(","),
-      refreshSource: options.refreshSource,
       nextCommand: options.nextCommand ?? "Next: outfitting-manager apply",
     });
-    return { config: source.config!, repo: validatedRepo };
+    return { config: source.config, repo };
   });
 
 /**
@@ -36,21 +32,10 @@ export const initializeWindows = (options: WindowsInitOptions = {}) =>
 export const windowsInitCommand = Command.make(
   "init",
   {
-    machineId: Flag.String("machine-id").pipe(
-      Flag.optional,
-      Flag.withDescription("Override machine id (default: auto user:arch-os)."),
-    ),
-    repo: Flag.String("repo").pipe(
-      Flag.optional,
-      Flag.withDescription("Local source path override for this invocation."),
-    ),
+    ...initFlags,
     profile: Flag.String("profile").pipe(
       Flag.optional,
       Flag.withDescription("Comma-separated Windows profiles (defaults to config.toml)."),
-    ),
-    noRefresh: Flag.Boolean("no-refresh").pipe(
-      Flag.withDefault(false),
-      Flag.withDescription("Validate and use the existing remote source cache without fetching."),
     ),
   },
   ({ machineId, noRefresh, profile, repo }) =>
@@ -59,6 +44,5 @@ export const windowsInitCommand = Command.make(
       machineId: Option.getOrUndefined(machineId),
       repo: Option.getOrUndefined(repo),
       refreshSource: !noRefresh,
-      nextCommand: "Next: outfitting-manager apply",
     }),
 ).pipe(Command.withDescription("Initialize the Windows state root from the configured source."));

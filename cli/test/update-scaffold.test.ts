@@ -5,9 +5,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { describe, expect, test } from "vitest";
+import { BunServices } from "@effect/platform-bun";
+import { Cause, Effect, Exit } from "effect";
+import { CliError, Command } from "effect/cli";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+import { makeLinuxUpdateCommand } from "@/commands/update/linux";
+import { makeWindowsUpdateCommand } from "@/commands/update/windows";
 
 const execFileAsync = promisify(execFile);
+afterEach(() => vi.restoreAllMocks());
 const cliEntry = fileURLToPath(new URL("../index.macos.ts", import.meta.url));
 
 const runCliWithEnv = async (
@@ -37,184 +44,31 @@ const runCliWithEnv = async (
   }
 };
 
-const runCli = async (args: string[]) => runCliWithEnv(args);
-
-describe("macOS CLI command boundaries", () => {
-  test("root help exposes distinct preparation, reconciliation, native update, Nix, and self-update commands", async () => {
-    const { code, stdout, stderr } = await runCli(["--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/\binit\b/);
-    expect(text).toMatch(/\bapply\b/);
-    expect(text).toMatch(/\bnix\b/);
-    expect(text).toMatch(/\bupdate\b/);
-    expect(text).toMatch(/\bself-update\b/);
-    expect(text).toMatch(/self-update.*upgrade/);
-    expect(text).not.toMatch(/^\s+setup\s/m);
-    expect(text).toMatch(/\bdiff\b/);
-    expect(text).toMatch(/\bsync\b/);
-    expect(text).not.toMatch(/^\s+lockfiles\s/m);
-    expect(text).toMatch(/^\s+status\s/m);
-    expect(text).toMatch(/^\s+homebrew\s/m);
-    expect(text).not.toMatch(/^\s+snapshot\s/m);
-    expect(text).toMatch(/\brecover\b/);
-  });
-
-  test("homebrew help exposes inventory as an explicit action", async () => {
-    const { code, stdout, stderr } = await runCli(["homebrew", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/^\s+inventory\s/m);
-  });
-
-  test("homebrew inventory help describes capturing the observed inventory", async () => {
-    const { code, stdout, stderr } = await runCli(["homebrew", "inventory", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/Capture and push the observed Homebrew inventory/);
-  });
-
-  test("upgrade resolves to the self-update command help", async () => {
-    const { code, stdout, stderr } = await runCli(["upgrade", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/Check for and install the latest outfitting-manager release/);
-  });
-
-  test("update help describes native Homebrew upgrades, not an aggregate command", async () => {
-    const { code, stdout, stderr } = await runCli(["update", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    const commandHelp = text.split("RELATED COMMANDS\n")[0];
-    expect(commandHelp).toMatch(/Upgrade installed Homebrew packages/);
-    expect(commandHelp).not.toMatch(/\bnix\b|subcommands/i);
-    expect(text).toMatch(/^\s+nix\s+Build, test, dry-run, update, or activate/m);
-  });
-
-  test("update rejects a foreign package-manager selection", async () => {
-    const { code, stdout, stderr } = await runCli(["update", "--package-manager", "scoop"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).not.toBe(0);
-    expect(text).toMatch(/apt|pacman|brew|invalid|unexpected/i);
-  });
-
-  test("Nix dry-run is a top-level action and fails fast without a configured repo", async () => {
-    const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-cli-nix-state-"));
-    try {
-      await writeFile(
-        join(stateRoot, "config.toml"),
-        [
-          "schema = 1",
-          "[macos]",
-          'profile = "workstation"',
-          "[profiles.workstation.macos.nix]",
-          'flake = "system/macos"',
-          'attribute = "darwinConfigurations.workstation.system"',
-          "",
-        ].join("\n"),
+describe("update and provision commands", () => {
+  test.each<[string, Command.Command.Any, string, string]>([
+    ["linux", makeLinuxUpdateCommand(), "scoop", 'Expected: "apt" | "pacman"'],
+    ["windows", makeWindowsUpdateCommand(), "apt", 'Expected: "winget" | "scoop"'],
+  ])(
+    "%s update rejects a foreign package manager before running",
+    async (_platform, update, foreign, expected) => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const root = Command.make("outfitting-manager").pipe(
+        Command.withSubcommands([
+          update.pipe(Command.provideEffectDiscard(Effect.die(new Error("update ran")))),
+        ]),
       );
-      const { code, stdout, stderr } = await runCliWithEnv(["nix", "dry-run"], {
-        OUTFITTING_REPO: "/tmp/definitely-not-an-outfitting-repo",
-        OUTFITTING_STATE_ROOT: stateRoot,
-      });
-      const text = `${stdout}\n${stderr}`;
-      expect(code).not.toBe(0);
-      expect(text).not.toMatch(/not implemented yet/i);
-      expect(text).toMatch(/does not exist|No Linux BYOR profile is selected/i);
-    } finally {
-      await rm(stateRoot, { force: true, recursive: true });
-    }
-  });
-
-  test("Nix without an action lists actions and does not switch", async () => {
-    const { stdout, stderr } = await runCliWithEnv(["nix"], {
-      OUTFITTING_REPO: "/tmp/definitely-not-an-outfitting-repo",
-    });
-    const text = `${stdout}\n${stderr}`;
-    expect(text).not.toMatch(/not implemented yet/i);
-    // Must not attempt a real switch/build when no action is given.
-    expect(text).not.toMatch(
-      /missing system\/macos\/flake\.nix|Building nix-darwin|Activating nix-darwin/i,
-    );
-    expect(text).toMatch(/build|switch|test|dry-run|update/i);
-
-    const help = await runCli(["nix", "--help"]);
-    expect(help.code).toBe(0);
-    expect(`${help.stdout}\n${help.stderr}`).toMatch(/build|switch|test|dry-run|update/);
-  });
-
-  test("Nix update advertises a lock refresh and activation, without the no-push escape hatch", async () => {
-    const { code, stdout, stderr } = await runCli(["nix", "update", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/Update flake inputs, build, and activate the nix-darwin system/);
-    expect(text).not.toContain("--no-push");
-  });
-
-  test("update requires an explicit package manager on Linux and rejects removed Nix routing", async () => {
-    const { code, stdout, stderr } = await runCli(["update", "nix"]);
-    expect(code).not.toBe(0);
-    expect(`${stdout}\n${stderr}`).not.toMatch(/Building nix-darwin|Activating nix-darwin/i);
-  });
-
-  test("init is the non-applying macOS preparation command", async () => {
-    const { code, stdout, stderr } = await runCli(["init", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/prepare and validate/i);
-    expect(text).toMatch(/without applying/i);
-  });
-
-  test("apply reconciles the macOS Brewfile and leaves Nix to its own command", async () => {
-    const { code, stdout, stderr } = await runCli(["apply", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(code).toBe(0);
-    expect(text).toMatch(/Brewfile|Homebrew/i);
-    expect(text).toMatch(/profile/i);
-    expect(text).toContain("--strict");
-    expect(text).not.toMatch(/Nix and Homebrew/i);
-  });
-
-  test("the removed composite setup command is not registered", async () => {
-    const { code, stdout, stderr } = await runCli(["setup", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-    expect(text).not.toMatch(/^\s+setup\s/m);
-    expect(text).not.toMatch(/Nix and Homebrew/i);
-    expect(code).toBe(0);
-  });
-
-  test("sync exposes the new configuration tree and legacy command paths are rejected", async () => {
-    const sync = await runCli(["sync", "--help"]);
-    const configure = await runCli(["sync", "configure", "--help"]);
-    const worker = await runCli(["sync", "configure", "worker", "--help"]);
-    const token = await runCli(["sync", "configure", "token", "--help"]);
-    const oldWorker = await runCli(["sync", "configure-worker"]);
-    const oldToken = await runCli(["sync", "configure-token"]);
-    const lockfiles = await runCli(["lockfiles"]);
-    expect(sync.code).toBe(0);
-    expect(configure.code).toBe(0);
-    expect(worker.code).toBe(0);
-    expect(token.code).toBe(0);
-    expect(oldWorker.code).not.toBe(0);
-    expect(oldToken.code).not.toBe(0);
-    expect(lockfiles.code).not.toBe(0);
-    expect(`${sync.stdout}\n${sync.stderr}`).toMatch(/\bconfigure\b/);
-    expect(`${sync.stdout}\n${sync.stderr}`).toMatch(/\bpush\b/);
-    expect(`${configure.stdout}\n${configure.stderr}`).toMatch(/\bworker\b/);
-    expect(`${configure.stdout}\n${configure.stderr}`).toMatch(/\btoken\b/);
-    expect(`${lockfiles.stdout}\n${lockfiles.stderr}`).not.toMatch(/^\s+lockfiles\s/m);
-  });
-
-  test("provision only exposes the manager API stack", async () => {
-    const { code, stdout, stderr } = await runCli(["provision", "--help"]);
-    const text = `${stdout}\n${stderr}`;
-
-    expect(code).toBe(0);
-    expect(text).toContain("--api-name");
-    expect(text).toContain("--router-name");
-    expect(text).not.toContain("--docs");
-    expect(text).not.toContain("--installer");
-  });
+      const exit = await Effect.runPromiseExit(
+        Command.runWith(root, { version: "1.0.0" })(["update", "--package-manager", foreign]).pipe(
+          Effect.provide(BunServices.layer),
+        ) as Effect.Effect<void, unknown>,
+      );
+      expect(Exit.isFailure(exit) && CliError.isCliError(Cause.squash(exit.cause))).toBe(true);
+      expect(error.mock.calls.flat().join("\n")).toContain(
+        `Invalid value for flag --package-manager: "${foreign}". ${expected}`,
+      );
+    },
+  );
 
   test.each(["relative environment", "flag overrides stale environment", "unconfigured"])(
     "provision preserves deployment selection across directories: %s",

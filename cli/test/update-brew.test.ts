@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { RunCommandOptions, RunCommandResult } from "@/process";
 import { pushLockfile } from "@/sync";
 import { createTerminalSession, TerminalSession } from "@/terminal-alert";
-import { applyBrew, parseBrewfileTaps, updateBrew } from "@/update/brew";
+import { applyBrew, parseBrewfileManifest, updateBrew } from "@/update/brew";
 import { captureHomebrewInventory, pushHomebrewInventory } from "@/update/snapshot";
 
 const temps: string[] = [];
@@ -20,14 +20,19 @@ afterEach(async () => {
   await Promise.all(temps.splice(0).map((path) => rm(path, { force: true, recursive: true })));
 });
 
-describe("parseBrewfileTaps", () => {
-  test("extracts tap names", () => {
-    const brewfile = `
-tap "hashicorp/tap", trusted: true
-tap 'cloudflare/cloudflare'
-cask "firefox"
-`;
-    expect(parseBrewfileTaps(brewfile)).toEqual(["hashicorp/tap", "cloudflare/cloudflare"]);
+test("Brewfile parsing reads single- and double-quoted taps and ignores unrelated records", () => {
+  const brewfile = [
+    'tap "hashicorp/tap", trusted: true',
+    "tap 'cloudflare/cloudflare'",
+    'brew "jq"',
+    'brew "jq"',
+    'cask "Firefox"',
+    'package "not-homebrew"',
+  ].join("\n");
+  expect(parseBrewfileManifest(brewfile)).toEqual({
+    taps: ["hashicorp/tap", "cloudflare/cloudflare"],
+    formulae: ["jq"],
+    casks: ["Firefox"],
   });
 });
 

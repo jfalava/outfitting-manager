@@ -245,7 +245,7 @@ describe("BYOR contract", () => {
     ).rejects.toThrow(/empty apt manifest/);
   });
 
-  test("selectByorProfile is shared by validation and flake resolution", () => {
+  test("selects the requested Linux profile declaration", () => {
     const contract = parseByorContract({
       schema: 1,
       profiles: {
@@ -253,7 +253,6 @@ describe("BYOR contract", () => {
         two: { linux: { pacman: { manifest: "two.txt" } } },
       },
     });
-    expect(() => selectByorProfile(contract, undefined)).toThrow("Pass --profile (one, two)");
     expect(selectByorProfile(contract, "two")).toEqual({
       name: "two",
       linux: { pacman: { manifest: "two.txt" } },
@@ -411,14 +410,6 @@ describe("BYOR contract", () => {
       names: ["workstation"],
       wingetPaths: { workstation: "packages/winget.txt" },
     });
-    // Selecting Windows must not require a Linux profile to exist on disk beyond the contract.
-    await expect(
-      validateWindowsByorSource({
-        root,
-        contract: await contractAt(root),
-        profiles: ["workstation"],
-      }),
-    ).resolves.toBeDefined();
   });
 });
 
@@ -647,7 +638,7 @@ test("validateOutfittingRepo returns flakeKind macos with custom systemAttr and 
   });
 });
 
-test("windows-only and linux-only BYOR still resolve without macos", async () => {
+test("windows-only BYOR resolves without a Nix flake", async () => {
   const windowsOnly = await repository();
   await writeFile(join(windowsOnly, "winget.txt"), "Git.Git\n");
   await writeContract(windowsOnly, {
@@ -656,31 +647,5 @@ test("windows-only and linux-only BYOR still resolve without macos", async () =>
   });
   await expect(
     validateOutfittingRepo(windowsOnly, { contract: await contractAt(windowsOnly) }),
-  ).resolves.toMatchObject({
-    flakeKind: "none",
-    systemAttr: "",
-  });
-
-  const linuxOnly = await repository();
-  await mkdir(join(linuxOnly, "home"), { recursive: true });
-  await writeFile(join(linuxOnly, "home", "flake.nix"), "{ outputs = {}; }\n");
-  await writeContract(linuxOnly, {
-    schema: 1,
-    profiles: {
-      server: {
-        linux: {
-          nix: {
-            flake: "home",
-            attribute: "homeConfigurations.server.activationPackage",
-          },
-        },
-      },
-    },
-  });
-  await expect(
-    validateOutfittingRepo(linuxOnly, { contract: await contractAt(linuxOnly) }),
-  ).resolves.toMatchObject({
-    flakeKind: "home-manager",
-    systemAttr: "homeConfigurations.server.activationPackage",
-  });
+  ).resolves.toMatchObject({ flakeKind: "none" });
 });

@@ -287,7 +287,9 @@ describe("Windows BYOR apply", () => {
           },
         }),
       ),
-    ).rejects.toThrow(/apply was partial/);
+    ).rejects.toThrow(
+      "Windows apply was partial; failed package operations: winget install Acme.Broken failed (exit 1). Rerun apply after fixing them. Requested pruning was skipped.",
+    );
 
     const lock = await readWindowsLock(config);
     expect(installAttempts).toEqual(["Acme.Broken", "Acme.Editor"]);
@@ -298,9 +300,9 @@ describe("Windows BYOR apply", () => {
       ["Acme.Broken", "failed", 1],
     ]);
     expect(lock.packages.winget.some((entry) => entry.name === "Acme.Broken")).toBe(false);
-    const messages = output.mock.calls.flat().join(" ");
-    expect(messages).toContain("Windows apply was partial");
-    expect(messages).not.toContain("Windows declarations applied locally.");
+    expect(output.mock.calls.flat().join(" ")).not.toContain(
+      "Windows declarations applied locally.",
+    );
   });
 
   test("warns about stale ownership and makes no changes when pruning is declined", async () => {

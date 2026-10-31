@@ -7,7 +7,7 @@ import { configuredProfile, loadConfig, resolveOutfittingRepo, type ManagerConfi
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { runCommand, which } from "@/process";
-import { selectMacosByorProfile } from "@/source/contract";
+import { selectMacosByorProfile, type ByorContract } from "@/source/contract";
 import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
@@ -75,6 +75,26 @@ function trustTaps(
   });
 }
 
+/** Select the macOS profile and the absolute path of the Brewfile it declares, if any. */
+export function declaredBrewfile(
+  root: string,
+  contract: ByorContract,
+  profile: string | undefined,
+) {
+  const selected = selectMacosByorProfile(contract, profile);
+  const brewfile = selected.macos.brewfile;
+  return {
+    profile: selected.name,
+    path: brewfile === undefined ? undefined : join(root, brewfile),
+  };
+}
+
+/** Resolve the configured source, then the Brewfile its selected macOS profile declares. */
+export async function resolveDeclaredBrewfile(config: ManagerConfig, profile: string | undefined) {
+  const repo = await resolveOutfittingRepo({ config, profile, platform: "macos" });
+  return declaredBrewfile(repo.root, repo.contract, configuredProfile(config, "macos", profile));
+}
+
 async function resolveBrewfile(
   options: Pick<UpdateBrewOptions, "brewfilePath" | "profile">,
   config: ManagerConfig,
@@ -85,14 +105,11 @@ async function resolveBrewfile(
       text: await readFile(options.brewfilePath, "utf8"),
     };
   }
-  const profile = configuredProfile(config, "macos", options.profile);
-  const repo = await resolveOutfittingRepo({ config, profile, platform: "macos" });
-  const selected = selectMacosByorProfile(repo.contract, profile);
-  if (selected.macos.brewfile === undefined) {
-    throw new Error(`BYOR macOS profile \`${selected.name}\` does not declare a Brewfile.`);
+  const brewfile = await resolveDeclaredBrewfile(config, options.profile);
+  if (brewfile.path === undefined) {
+    throw new Error(`BYOR macOS profile \`${brewfile.profile}\` does not declare a Brewfile.`);
   }
-  const path = join(repo.root, selected.macos.brewfile);
-  return { path, text: await readFile(path, "utf8") };
+  return { path: brewfile.path, text: await readFile(brewfile.path, "utf8") };
 }
 
 export interface UpdateBrewOptions {

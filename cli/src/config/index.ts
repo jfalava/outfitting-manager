@@ -1,19 +1,7 @@
-export { autoMachineId, defaultUsername, hostSystemTriple } from "@/config/machine-id";
-export { ensureStateRoot, loadConfig, resolveLinuxConfig } from "@/config/load";
+export { autoMachineId, hostSystemTriple } from "@/config/machine-id";
+export { ensureStateRoot, loadConfig } from "@/config/load";
 export { normalizeGitRepository, validateGitRef } from "@/config/git";
 export { configuredProfile } from "@/config/profile";
 export { configFilePath, defaultStateRoot, sparseSourceRoot, stateRoot } from "@/config/paths";
-export {
-  physicalPath,
-  resolveOutfittingRepo,
-  validateOutfittingRepo,
-  type OutfittingRepo,
-} from "@/config/repo";
-export {
-  type ConfiguredSource,
-  type LinuxConfig,
-  type MacosConfig,
-  type ManagerConfig,
-  type ManagerConfigFile,
-  type WindowsConfig,
-} from "@/config/types";
+export { resolveOutfittingRepo, validateOutfittingRepo, type OutfittingRepo } from "@/config/repo";
+export { type ManagerConfig } from "@/config/types";

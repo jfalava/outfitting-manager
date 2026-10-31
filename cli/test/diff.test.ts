@@ -7,7 +7,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig, type ManagerConfig } from "@/config";
 import { collectDiff, parseWingetExport } from "@/diff/compare";
 import { parseByorContract } from "@/source/contract";
-import { parseBrewfileManifest } from "@/update/brew";
 
 const roots: string[] = [];
 
@@ -48,21 +47,6 @@ async function localSource(options: {
 }
 
 describe("diff parsers", () => {
-  test("parses Homebrew entries and ignores unrelated Brewfile records", () => {
-    const brewfile = [
-      'tap "cloudflare/cloudflare", trusted: true',
-      'brew "jq"',
-      'brew "jq"',
-      'cask "Firefox"',
-      'package "not-homebrew"',
-    ].join("\n");
-    expect(parseBrewfileManifest(brewfile)).toEqual({
-      taps: ["cloudflare/cloudflare"],
-      formulae: ["jq"],
-      casks: ["Firefox"],
-    });
-  });
-
   test("parses WinGet exports through the package source schema", () => {
     expect(
       parseWingetExport(

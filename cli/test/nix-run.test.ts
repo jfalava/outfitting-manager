@@ -8,7 +8,6 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { loadConfig } from "@/config";
 import { CliFailure } from "@/errors";
-import { runSetup } from "@/setup/run";
 import { pullLockfile, pushLockfile } from "@/sync";
 import { activateHomeManager } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
@@ -93,61 +92,6 @@ async function makeLinuxSource(profile: string, withLock = false) {
   };
 }
 
-test("setup persists and validates a selected local macOS BYOR checkout", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-macos-source-state-"));
-  const repo = await mkdtemp(join(tmpdir(), "outfitting-macos-source-repo-"));
-  temporaryRoots.push(stateRoot, repo);
-  const flake = "system/macos";
-  await mkdir(join(repo, flake), { recursive: true });
-  await writeFile(join(repo, flake, "flake.nix"), "{ darwinConfigurations = {}; }\n");
-  await writeFile(join(repo, flake, "darwin.nix"), "local macOS config\n");
-  await writeFile(
-    join(stateRoot, "config.toml"),
-    [
-      "schema = 1",
-      "[source]",
-      `path = ${JSON.stringify(repo)}`,
-      "[macos]",
-      'profile = "workstation"',
-      "[profiles.workstation.macos.nix]",
-      `flake = ${JSON.stringify(flake)}`,
-      'attribute = "darwinConfigurations.work.system"',
-      "",
-    ].join("\n"),
-  );
-  const fetcher = vi.fn(async () => new Response("unexpected network source"));
-
-  await Effect.runPromise(
-    runSetup({
-      platform: "macos",
-      stateRoot,
-      repo,
-      repoProfile: "workstation",
-      skipSymlinks: true,
-      fetcher,
-    }),
-  );
-
-  expect(await readFile(join(stateRoot, "config.toml"), "utf8")).toContain(
-    `path = ${JSON.stringify(repo)}`,
-  );
-  expect(fetcher).not.toHaveBeenCalled();
-});
-
-linuxTest(
-  "Linux switch activates the selected BYOR Home Manager profile without pushing when disabled",
-  async () => {
-    const { config } = await makeLinuxSource("hm-work");
-    await Effect.runPromise(updateNix({ action: "switch", config, noPush: true }));
-
-    expect(buildNixSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ repo: expect.objectContaining({ homeManagerName: "hm-work" }) }),
-    );
-    expect(activateHomeManager).toHaveBeenCalled();
-    expect(pushLockfile).not.toHaveBeenCalled();
-  },
-);
-
 linuxTest("Linux Nix action skips profiles without a Nix declaration when requested", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-nix-skip-state-"));
   temporaryRoots.push(stateRoot);
@@ -163,25 +107,18 @@ linuxTest("Linux Nix action skips profiles without a Nix declaration when reques
     ].join("\n"),
   );
   const config = await loadConfig({ stateRoot, machineId: "test:aarch64-linux" });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-  await Effect.runPromise(updateNix({ action: "switch", config, ifConfigured: true }));
+  try {
+    // No [source] is configured, so anything past the skip would fail to prepare the source.
+    await Effect.runPromise(updateNix({ action: "switch", config, ifConfigured: true }));
 
-  expect(buildNixSystem).not.toHaveBeenCalled();
-  expect(activateHomeManager).not.toHaveBeenCalled();
-  expect(pushLockfile).not.toHaveBeenCalled();
-});
-
-linuxTest("Linux Nix actions use the selected local BYOR flake without fetching", async () => {
-  const { config, repo } = await makeLinuxSource("hm-dev");
-  const fetcher = vi.fn(async () => new Response("unexpected remote refresh"));
-  await Effect.runPromise(
-    updateNix({ action: "build", config, noPush: true, sourceFetcher: fetcher }),
-  );
-
-  expect(fetcher).not.toHaveBeenCalled();
-  expect(buildNixSystem).toHaveBeenCalledWith(
-    expect.objectContaining({ repo: expect.objectContaining({ root: repo }) }),
-  );
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "No Nix flake is declared for native-only; skipping.",
+    );
+  } finally {
+    log.mockRestore();
+  }
 });
 
 test.skipIf(process.platform !== "darwin")(
@@ -236,27 +173,32 @@ test.skipIf(process.platform !== "darwin")(
   },
 );
 
-linuxTest("publishes the selected Home Manager flake lock after a Linux action", async () => {
-  const { config, repo } = await makeLinuxSource("hm-lock", true);
-  const lockPath = join(repo, "system", "home", "flake.lock");
-  const localLock = await readFile(lockPath, "utf8");
-  let pushed: { machine?: string; kind?: string; body?: string } | undefined;
-  vi.mocked(pushLockfile).mockImplementation((options) =>
-    Effect.promise(async () => {
-      pushed = {
-        machine: options.machine,
-        kind: options.kind,
-        body: await readFile(options.path!, "utf8"),
-      };
-      return undefined;
-    }),
-  );
+linuxTest(
+  "publishes the local Home Manager flake lock after a Linux action without fetching",
+  async () => {
+    const { config, repo } = await makeLinuxSource("hm-lock", true);
+    const lockPath = join(repo, "system", "home", "flake.lock");
+    const fetcher = vi.fn(async () => new Response("unexpected remote refresh"));
+    const localLock = await readFile(lockPath, "utf8");
+    let pushed: { machine?: string; kind?: string; body?: string } | undefined;
+    vi.mocked(pushLockfile).mockImplementation((options) =>
+      Effect.promise(async () => {
+        pushed = {
+          machine: options.machine,
+          kind: options.kind,
+          body: await readFile(options.path!, "utf8"),
+        };
+        return undefined;
+      }),
+    );
 
-  await Effect.runPromise(updateNix({ action: "build", config }));
+    await Effect.runPromise(updateNix({ action: "build", config, sourceFetcher: fetcher }));
 
-  expect(pushed).toEqual({ machine: config.machineId, kind: "nix", body: localLock });
-  expect(await readFile(lockPath, "utf8")).toBe(localLock);
-});
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(pushed).toEqual({ machine: config.machineId, kind: "nix", body: localLock });
+    expect(await readFile(lockPath, "utf8")).toBe(localLock);
+  },
+);
 
 linuxTest(
   "Nix update uses the remote lock, verifies its candidate, switches, then CAS-publishes",

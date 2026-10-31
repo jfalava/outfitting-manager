@@ -3,10 +3,12 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-import { Option, Schema } from "effect";
+import { Console, Effect, Option, Schema } from "effect";
 
 import { stateRoot, type ManagerConfig } from "@/config";
-import { isNotFound } from "@/errors";
+import { CliFailure, isNotFound } from "@/errors";
+import { pushLockfile } from "@/sync";
+import { ui } from "@/ui";
 
 export const WINDOWS_LOCK_KIND = "windows";
 export const WINDOWS_LOCK_FORMAT = "outfitting-windows-lock-v2";
@@ -19,6 +21,11 @@ export function wingetSource(args: ReadonlyArray<string>): "winget" | "msstore" 
 
 export function wingetIdentity(name: string, source = "winget"): string {
   return `${source}:${name}`.toLowerCase();
+}
+
+/** Scoop tracks packages by app name; `bucket/app` specs keep only the app. */
+export function scoopPackageName(spec: string): string {
+  return spec.split("/").at(-1) ?? spec;
 }
 
 function isHresult(code: number, hresult: number): boolean {
@@ -243,8 +250,7 @@ export async function recordWindowsOperation(
   const root = options.root ?? input.config.stateRoot;
   const lock = await readWindowsLock(input.config, { root });
   lock.machine = input.config.machineId;
-  const identity =
-    input.manager === "scoop" ? (input.name.split("/").at(-1) ?? input.name) : input.name;
+  const identity = input.manager === "scoop" ? scoopPackageName(input.name) : input.name;
   const operation: WindowsOperationRecord = {
     at: new Date().toISOString(),
     manager: input.manager,
@@ -260,3 +266,27 @@ export async function recordWindowsOperation(
   updateTrackedPackage(lock, input, identity);
   return writeWindowsLock(lock, { root });
 }
+
+/** Upload the local Windows lockfile unless `--no-push` keeps the update local. */
+export const publishWindowsLock = (config: ManagerConfig, noPush: boolean | undefined) =>
+  noPush
+    ? Console.log(ui.muted("Updated local Windows state; skipped upload (--no-push)."))
+    : pushLockfile({
+        machine: config.machineId,
+        kind: WINDOWS_LOCK_KIND,
+        path: windowsLockPath({ root: config.stateRoot }),
+      });
+
+/** Stop on a failed package operation under `--strict`; otherwise warn and collect it. */
+export const reportPackageFailure = Effect.fn("reportWindowsPackageFailure")(function* (
+  failure: string,
+  strict: boolean,
+  failures: string[],
+  log: (message: string) => Effect.Effect<void>,
+) {
+  if (strict) {
+    return yield* new CliFailure({ message: `${failure}.` });
+  }
+  failures.push(failure);
+  yield* log(ui.warning(`${failure}; continuing.`));
+});

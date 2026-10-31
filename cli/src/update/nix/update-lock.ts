@@ -1,11 +1,11 @@
 import { access } from "node:fs/promises";
 
-import type { OutfittingRepo } from "@/config/repo";
+import type { NixFlakeRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
 import { nixEnv } from "@/update/nix/types";
 
 export interface UpdateNixLockOptions {
-  repo: OutfittingRepo;
+  repo: NixFlakeRepo;
   referenceLockPath?: string;
   outputLockPath: string;
   run?: typeof runCommand;
@@ -14,9 +14,6 @@ export interface UpdateNixLockOptions {
 /** Update every input in the selected flake into an isolated candidate lock. */
 export async function updateNixLock(options: UpdateNixLockOptions): Promise<void> {
   const run = options.run ?? runCommand;
-  if (options.repo.flakeKind === "none" || options.repo.flakePath.length === 0) {
-    throw new Error("No Nix flake is declared for the selected BYOR profile.");
-  }
 
   const args = ["flake", "update", "--impure"];
   if (options.referenceLockPath !== undefined) {
@@ -24,11 +21,9 @@ export async function updateNixLock(options: UpdateNixLockOptions): Promise<void
   }
   args.push("--output-lock-file", options.outputLockPath);
 
-  const env = nixEnv(options.repo.root);
-
   const result: RunCommandResult = await run("nix", args, {
     cwd: options.repo.flakePath,
-    env,
+    env: nixEnv(options.repo.root),
   });
 
   if (result.code !== 0) {

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { Console, Effect, Schema } from "effect";
 
-import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
+import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure, toCliFailure, isNotFound } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
@@ -14,15 +14,14 @@ import {
   type LinuxPackageManager,
 } from "@/platform/linux";
 import { runCommand, which, type RunCommandResult } from "@/process";
-import { selectByorProfile } from "@/source/contract";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { logCommandOutput, withProgress, type ProgressRenderer } from "@/ui/progress";
 import {
-  isLinuxProfile,
   prepareLinuxSource,
   readLinuxManifest,
+  resolveLinuxProfile,
   type LinuxProfile,
   type LinuxSource,
 } from "@/update/linux-source";
@@ -293,27 +292,6 @@ function skipUnconfiguredLinuxApply<ConfirmR>(
   ).pipe(Effect.as(true));
 }
 
-function resolveProfile(value: string | undefined, config?: ManagerConfig): LinuxProfile {
-  const profile =
-    config === undefined
-      ? value
-      : (configuredProfile(config, "linux", value) ??
-        (config.declarations === undefined
-          ? undefined
-          : selectByorProfile(config.declarations, undefined).name));
-  if (profile === undefined) {
-    throw new Error(
-      "No Linux profile is selected. Set linux.profile in config.toml or pass --profile.",
-    );
-  }
-  if (!isLinuxProfile(profile)) {
-    throw new Error(
-      `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
-    );
-  }
-  return profile;
-}
-
 async function resolveLinuxApplySource<ConfirmR>(
   options: LinuxApplyOptions<ConfirmR>,
   config: ManagerConfig,
@@ -326,13 +304,12 @@ async function resolveLinuxApplySource<ConfirmR>(
     config,
     profile,
     refresh: true,
-    offline: options.offline,
     fetcher: options.sourceFetcher,
     run: options.run,
   });
 }
 
-async function detectManager(options: LinuxUpdateOptions, config: ManagerConfig) {
+async function detectManager(options: LinuxUpdateOptions) {
   const whichFn = options.which ?? which;
   const manager = await detectLinuxPackageManager({
     requested: options.packageManager,
@@ -344,7 +321,7 @@ async function detectManager(options: LinuxUpdateOptions, config: ManagerConfig)
   if (executable === undefined) {
     throw new Error(`Linux package manager \`${manager}\` is not installed or not in PATH.`);
   }
-  return { manager, executable, run: options.run ?? runCommand, which: whichFn, config };
+  return { manager, executable, run: options.run ?? runCommand, which: whichFn };
 }
 
 function emptyOwnership(): LinuxOwnershipState {
@@ -509,21 +486,18 @@ function installMissingPackages(
           }),
         ),
       );
-      if (result.code !== 0) {
-        const failure = `${command.manager} install ${packageSpec} failed (exit ${result.code})`;
-        if (strict) {
-          return yield* new CliFailure({ message: `${failure}.` });
-        }
-        failures.push(failure);
-        progress.log(ui.warning(`${failure}; continuing.`));
-        continue;
-      }
-      const observed = yield* tryPromise(() =>
-        listInstalledLinuxPackages(command.manager, command),
-      );
-      const identity = installedIdentity(packageSpec, observed);
+      const identity =
+        result.code === 0
+          ? installedIdentity(
+              packageSpec,
+              yield* tryPromise(() => listInstalledLinuxPackages(command.manager, command)),
+            )
+          : undefined;
       if (identity === undefined) {
-        const failure = `${command.manager} install ${packageSpec} returned success but the package is not installed`;
+        const failure =
+          result.code === 0
+            ? `${command.manager} install ${packageSpec} returned success but the package is not installed`
+            : `${command.manager} install ${packageSpec} failed (exit ${result.code})`;
         if (strict) {
           return yield* new CliFailure({ message: `${failure}.` });
         }
@@ -597,8 +571,7 @@ function planLinuxPrune(
 /** Upgrade currently installed packages only; manifests and profiles are intentionally ignored. */
 export const updateLinux = (options: LinuxUpdateOptions = {}) =>
   Effect.gen(function* () {
-    const config = options.config ?? (yield* tryPromise(() => loadConfig()));
-    const command = yield* tryPromise(() => detectManager(options, config));
+    const command = yield* tryPromise(() => detectManager(options));
     if (options.offline) {
       return yield* new CliFailure({
         message: `Offline ${command.manager} upgrades are refused because network-free resolution cannot be guaranteed.`,
@@ -649,13 +622,10 @@ function executeLinuxApply(context: LinuxApplyContext, missing: string[], remova
         yield* tryPromise(() => writeOwnership(config, ownership));
         const failures = yield* installMissingPackages(context, missing, progress);
         if (failures.length > 0) {
-          progress.finish();
-          yield* Console.log(
-            ui.muted(
-              `Linux apply was partial; failed package installs: ${failures.join("; ")}. Rerun apply after fixing them. Requested pruning was skipped.`,
-            ),
-          );
-          return false;
+          const pruning = removals.length > 0 ? " Requested pruning was skipped." : "";
+          return yield* new CliFailure({
+            message: `Linux ${command.manager} apply was partial; failed package installs: ${failures.join("; ")}. Rerun apply after fixing them.${pruning}`,
+          });
         }
         if (removals.length > 0) {
           const currentInventory = yield* tryPromise(() =>
@@ -684,7 +654,6 @@ function executeLinuxApply(context: LinuxApplyContext, missing: string[], remova
           );
           yield* tryPromise(() => writeOwnership(config, ownership));
         }
-        return true;
       }),
   );
 }
@@ -694,14 +663,14 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
   Effect.gen(function* () {
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
     const profile = yield* Effect.try({
-      try: () => resolveProfile(options.profile, config),
+      try: () => resolveLinuxProfile(config, options.profile),
       catch: toCliFailure,
     });
     if (yield* skipUnconfiguredLinuxApply(options, config, profile)) {
       return;
     }
     const source = yield* tryPromise(() => resolveLinuxApplySource(options, config, profile));
-    const command = yield* tryPromise(() => detectManager(options, config));
+    const command = yield* tryPromise(() => detectManager(options));
     const declared = yield* Effect.tryPromise({
       try: async () =>
         parseLinuxPackageManifest(
@@ -745,11 +714,6 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
         return;
       }
     }
-    const complete = yield* executeLinuxApply(context, missing, removals);
-    if (!complete) {
-      return yield* new CliFailure({
-        message: `Linux ${command.manager} apply was partial; one or more package installs failed.`,
-      });
-    }
+    yield* executeLinuxApply(context, missing, removals);
     yield* Console.log(ui.success(`Linux ${command.manager} profile applied (${profile}).`));
   });

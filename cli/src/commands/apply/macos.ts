@@ -1,14 +1,11 @@
-import { join } from "node:path";
-
 import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { configuredProfile, loadConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { runSetup } from "@/setup/run";
-import { selectMacosByorProfile } from "@/source/contract";
 import { ui } from "@/ui";
-import { applyBrew } from "@/update/brew";
+import { applyBrew, declaredBrewfile } from "@/update/brew";
 
 /** Reconcile packages declared by the selected macOS Brewfile. */
 export const macosApplyCommand = Command.make(
@@ -53,13 +50,12 @@ export const macosApplyCommand = Command.make(
         skipSymlinks: true,
         nextCommand: "Applying the selected macOS Brewfile…",
       });
-      const selected = selectMacosByorProfile(config.declarations!, selectedProfile);
-      const brewfile = selected.macos.brewfile;
-      if (brewfile === undefined) {
+      const brewfile = declaredBrewfile(source.root, source.contract, selectedProfile);
+      if (brewfile.path === undefined) {
         yield* Console.log(ui.muted("No Brewfile declared; skipping Homebrew apply."));
         return;
       }
-      yield* applyBrew({ config, brewfilePath: join(source.root, brewfile), strict });
+      yield* applyBrew({ config, brewfilePath: brewfile.path, strict });
     }),
 ).pipe(
   Command.withDescription(

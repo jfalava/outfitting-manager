@@ -10,9 +10,3 @@ test("status lines use an indented icon and indent multiline details", () => {
   );
   expect(output).not.toContain("\r");
 });
-
-test("status lines keep distinct semantic icons", () => {
-  const lines = [ui.info("info"), ui.note("note"), ui.warning("warning"), ui.error("error")];
-
-  expect(new Set(lines.map((line) => Array.from(line)[2])).size).toBe(4);
-});

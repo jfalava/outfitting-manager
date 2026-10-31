@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { envValue } from "@/secrets";
 
 /** Unix state root; Windows defaults to Local AppData. */
-export const DEFAULT_STATE_ROOT_SEGMENTS = [".config", "outfitting"] as const;
+const DEFAULT_STATE_ROOT_SEGMENTS = [".config", "outfitting"] as const;
 
 export function defaultStateRoot(
   home = homedir(),

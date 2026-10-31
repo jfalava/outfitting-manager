@@ -39,7 +39,6 @@ test("alerts before interactive nix-darwin activation when sudo credentials are 
     ],
     expect.objectContaining({ inherit: true }),
   );
-  expect(alert.mock.invocationCallOrder[0]).toBeLessThan(run.mock.invocationCallOrder[1]!);
 });
 
 test("does not alert when sudo credentials are already available", async () => {

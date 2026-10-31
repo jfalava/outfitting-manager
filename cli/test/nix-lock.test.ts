@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { join } from "node:path";
 
 import { Effect } from "effect";
-import { describe, expect, test } from "vitest";
+import { assert, describe, expect, test } from "vitest";
 
 import type { ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
@@ -88,8 +88,8 @@ describe("openNixLock", () => {
       );
     const lock = await openNixLock(config, pull, { allowMissing: true });
 
-    expect(lock.lockDir).toBe("");
-    expect(lock.lockPath).toBe("");
+    expect(lock.lockDir).toBeUndefined();
+    expect(lock.lockPath).toBeUndefined();
     expect(lock.source).toBe("missing");
     expect(lock.warning).toContain("continuing with the local flake");
   });
@@ -145,8 +145,8 @@ describe("openNixLock", () => {
         allowMissing: true,
         failOnRemoteError: true,
       });
+      assert(lock.source === "fallback");
       try {
-        expect(lock.source).toBe("fallback");
         expect(await readFile(lock.lockPath, "utf8")).toContain('"inputs"');
       } finally {
         await closeNixLock(lock.lockDir);

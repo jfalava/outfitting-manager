@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-import type { OutfittingRepo } from "@/config/repo";
+import type { NixFlakeRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
 import { nixEnv } from "@/update/nix/types";
 
 export type NixBuildMode = "build" | "test" | "dry";
 
 export interface NixBuildOptions {
-  repo: OutfittingRepo;
+  repo: NixFlakeRepo;
   /** Remote lock path when available. */
   lockPath?: string;
   /** Write Nix's evaluated lock to this path instead of the source flake. */
@@ -16,7 +16,7 @@ export interface NixBuildOptions {
   run?: typeof runCommand;
 }
 
-function flakeRef(repo: OutfittingRepo): string {
+function flakeRef(repo: NixFlakeRepo): string {
   return `path:${repo.flakePath}#${repo.systemAttr}`;
 }
 
@@ -73,19 +73,14 @@ async function verifyOutputLock(options: NixBuildOptions): Promise<void> {
  */
 export async function buildNixSystem(options: NixBuildOptions): Promise<string> {
   const run = options.run ?? runCommand;
-  if (options.repo.flakePath.length === 0 || options.repo.flakeKind === "none") {
-    throw new Error("No Nix flake is declared for the selected BYOR profile.");
-  }
   const args = [
     ...baseArgs(options.mode, options.lockPath, options.outputLockPath),
     flakeRef(options.repo),
   ];
 
-  const env = nixEnv(options.repo.root);
-
   const result: RunCommandResult = await run("nix", args, {
     inherit: options.mode === "dry",
-    env,
+    env: nixEnv(options.repo.root),
   });
 
   if (result.code !== 0) {

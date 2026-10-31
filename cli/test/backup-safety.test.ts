@@ -1112,7 +1112,17 @@ test("arbitrary configured IDs run in order, persist receipts, list, accept and 
       service.restore("constructor", first[1]!.current!.id, join(f.root, "restored")),
     ),
   );
-  expect(f.calls.at(-1)?.args).toContain("restore");
+  const restoreArgs = f.calls.at(-1)!.args;
+  expect(restoreArgs.slice(restoreArgs.indexOf("restore"))).toEqual([
+    "restore",
+    first[1]!.current!.id,
+    join(await realpath(f.root), "restored"),
+    "--no-ownership",
+  ]);
+  for (const other of [first[0]!, first[2]!]) {
+    expect(restoreArgs).not.toContain(other.job);
+    expect(restoreArgs).not.toContain(other.current!.id);
+  }
   const plist = await f.run(launchAgent(join(f.root, "manager")));
   expect(plist).toContain(`<string>${f.settings.configPath}</string>`);
   expect(plist).not.toContain("PROTON_IMAGES_DIR");

@@ -101,30 +101,13 @@ function managerTools(
   };
 }
 
-test("Linux offline source resolution accepts local sources but rejects refreshing remote sources", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-offline-source-"));
+test("Linux source resolution uses a local checkout directly even when refreshing", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-local-source-"));
   const repo = await createLinuxRepo(stateRoot, { workstation: { apt: "curl\n" } });
   try {
     const config = await loadConfig({ stateRoot });
-    const local = await prepareLinuxSource({
-      config,
-      profile: "workstation",
-      refresh: true,
-      offline: true,
-    });
+    const local = await prepareLinuxSource({ config, profile: "workstation", refresh: true });
     expect(local).toMatchObject({ root: await realpath(repo), mode: "checkout" });
-
-    await expect(
-      prepareLinuxSource({
-        config: {
-          ...config,
-          source: { kind: "remote", repository: "owner/repository", ref: "main" },
-        },
-        profile: "workstation",
-        refresh: true,
-        offline: true,
-      }),
-    ).rejects.toThrow("--refresh and --offline cannot be used together");
   } finally {
     await rm(stateRoot, { force: true, recursive: true });
     await rm(repo, { force: true, recursive: true });

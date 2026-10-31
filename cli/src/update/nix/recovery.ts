@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { Schema } from "effect";
 
@@ -8,29 +8,36 @@ import { isNotFound } from "@/errors";
 import { envValue } from "@/secrets";
 import { isNixRecoveryPhase, type NixRecoveryPhase } from "@/update/nix/types";
 
-export interface NixRecoveryState {
-  dir: string;
-  lockPath: string;
-  baseHash: string;
-  phase: NixRecoveryPhase;
-  machine?: string;
-  platform?: "linux" | "macos";
-  profile?: string;
-  systemConfig?: string;
-  repoRoot?: string;
-}
-
 const NixRecoveryContextSchema = Schema.Struct({
-  machine: Schema.optionalKey(Schema.String),
-  platform: Schema.optionalKey(Schema.Literals(["linux", "macos"] as const)),
+  machine: Schema.String,
+  platform: Schema.Literals(["linux", "macos"] as const),
   profile: Schema.optionalKey(Schema.String),
-  systemConfig: Schema.optionalKey(Schema.String),
-  repoRoot: Schema.optionalKey(Schema.String),
+  /** Pinned store path built before activation; recovery never rebuilds. */
+  systemConfig: Schema.String,
+  /** Repository exposed to Home Manager activation as OUTFITTING_REPO. */
+  repoRoot: Schema.String,
 });
 const decodeNixRecoveryContext = Schema.decodeUnknownSync(NixRecoveryContextSchema);
 type NixRecoveryContext = Schema.Schema.Type<typeof NixRecoveryContextSchema>;
 
-async function readRecoveryContext(path: string): Promise<string | undefined> {
+export interface NixRecoveryState extends NixRecoveryContext {
+  dir: string;
+  lockPath: string;
+  /** SHA-256 of the remote lock the update started from; absent when none existed. */
+  baseHash?: string;
+  phase: NixRecoveryPhase;
+}
+
+const BASE_HASH = /^[0-9a-f]{64}$/;
+
+function unsupportedCheckpoint(dir: string, cause?: unknown): Error {
+  return new Error(
+    `Unsupported Nix recovery checkpoint at ${dir} (written by an older outfitting-manager or damaged); inspect it, then remove ${dir} before retrying.`,
+    { cause },
+  );
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, "utf8");
   } catch (cause) {
@@ -39,14 +46,6 @@ async function readRecoveryContext(path: string): Promise<string | undefined> {
     }
     throw cause;
   }
-}
-
-function decodeRecoveryContext(raw: string | undefined): NixRecoveryContext | undefined {
-  if (raw === undefined) {
-    return undefined;
-  }
-  const parsed: unknown = JSON.parse(raw);
-  return decodeNixRecoveryContext(parsed);
 }
 
 export function defaultNixRecoveryDir(home = homedir()): string {
@@ -70,50 +69,52 @@ export async function hasNixRecovery(dir = defaultNixRecoveryDir()): Promise<boo
 export async function readNixRecovery(
   dir = defaultNixRecoveryDir(),
 ): Promise<NixRecoveryState | undefined> {
-  try {
-    const [lockBody, baseHashRaw, phaseRaw, contextRaw] = await Promise.all([
-      readFile(join(dir, "flake.lock")),
-      readFile(join(dir, "base-hash"), "utf8"),
-      readFile(join(dir, "phase"), "utf8"),
-      readRecoveryContext(join(dir, "context.json")),
-    ]);
-    void lockBody;
-    const phase = phaseRaw.trim();
-    if (!isNixRecoveryPhase(phase)) {
-      throw new Error(`Unknown Nix recovery phase: ${phase}`);
-    }
-    const context = decodeRecoveryContext(contextRaw);
-    const state: NixRecoveryState = {
-      ...context,
-      dir,
-      lockPath: join(dir, "flake.lock"),
-      baseHash: baseHashRaw.trim(),
-      phase,
-    };
-    return state;
-  } catch (cause) {
-    if (isNotFound(cause)) {
-      return undefined;
-    }
-    throw cause;
+  const phaseRaw = await readOptionalFile(join(dir, "phase"));
+  if (phaseRaw === undefined) {
+    return undefined;
   }
+  const phase = phaseRaw.trim();
+  if (!isNixRecoveryPhase(phase)) {
+    throw new Error(`Unknown Nix recovery phase: ${phase}`);
+  }
+  const lockPath = join(dir, "flake.lock");
+  let context: NixRecoveryContext;
+  let baseHash: string | undefined;
+  try {
+    await access(lockPath);
+    const [contextRaw, baseHashRaw] = await Promise.all([
+      readFile(join(dir, "context.json"), "utf8"),
+      readOptionalFile(join(dir, "base-hash")),
+    ]);
+    context = decodeNixRecoveryContext(JSON.parse(contextRaw));
+    baseHash = baseHashRaw?.trim();
+  } catch (cause) {
+    throw unsupportedCheckpoint(dir, cause);
+  }
+  if (
+    !isAbsolute(context.systemConfig) ||
+    !isAbsolute(context.repoRoot) ||
+    (baseHash !== undefined && !BASE_HASH.test(baseHash))
+  ) {
+    throw unsupportedCheckpoint(dir);
+  }
+  return { ...context, dir, lockPath, baseHash, phase };
 }
 
 /**
  * Atomically stage a recovery checkpoint (prepared).
  * Fails if a checkpoint directory already exists.
  */
-export async function prepareNixRecovery(params: {
+export async function prepareNixRecovery({
+  lockPath,
+  baseHash,
+  recoveryDir = defaultNixRecoveryDir(),
+  ...context
+}: NixRecoveryContext & {
   lockPath: string;
-  baseHash: string;
-  machine?: string;
-  platform?: "linux" | "macos";
-  profile?: string;
-  systemConfig?: string;
-  repoRoot?: string;
+  baseHash?: string;
   recoveryDir?: string;
 }): Promise<NixRecoveryState> {
-  const recoveryDir = params.recoveryDir ?? defaultNixRecoveryDir();
   if (await hasNixRecovery(recoveryDir)) {
     throw new Error(
       `An unfinished Nix upgrade already exists at ${recoveryDir}. Recover or clear it before continuing.`,
@@ -126,31 +127,14 @@ export async function prepareNixRecovery(params: {
   await chmod(staging, 0o700);
 
   try {
-    const lockBytes = await readFile(params.lockPath);
-    await writeFile(join(staging, "flake.lock"), lockBytes, { mode: 0o600 });
-    await writeFile(join(staging, "base-hash"), `${params.baseHash}\n`, {
+    await writeFile(join(staging, "flake.lock"), await readFile(lockPath), { mode: 0o600 });
+    if (baseHash !== undefined) {
+      await writeFile(join(staging, "base-hash"), `${baseHash}\n`, { mode: 0o600 });
+    }
+    await writeFile(join(staging, "phase"), "prepared\n", { mode: 0o600 });
+    await writeFile(join(staging, "context.json"), `${JSON.stringify(context)}\n`, {
       mode: 0o600,
     });
-    await writeFile(join(staging, "phase"), "prepared\n", { mode: 0o600 });
-    if (
-      params.machine !== undefined ||
-      params.platform !== undefined ||
-      params.profile !== undefined ||
-      params.systemConfig !== undefined ||
-      params.repoRoot !== undefined
-    ) {
-      await writeFile(
-        join(staging, "context.json"),
-        `${JSON.stringify({
-          machine: params.machine,
-          platform: params.platform,
-          profile: params.profile,
-          systemConfig: params.systemConfig,
-          repoRoot: params.repoRoot,
-        })}\n`,
-        { mode: 0o600 },
-      );
-    }
     await rename(staging, recoveryDir);
   } catch (cause) {
     await rm(staging, { force: true, recursive: true });
@@ -158,15 +142,11 @@ export async function prepareNixRecovery(params: {
   }
 
   return {
+    ...context,
     dir: recoveryDir,
     lockPath: join(recoveryDir, "flake.lock"),
-    baseHash: params.baseHash,
+    baseHash,
     phase: "prepared",
-    machine: params.machine,
-    platform: params.platform,
-    profile: params.profile,
-    systemConfig: params.systemConfig,
-    repoRoot: params.repoRoot,
   };
 }
 

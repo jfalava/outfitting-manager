@@ -18,37 +18,40 @@ import {
   profileNames,
 } from "@/source/contract";
 
-/** Which Nix flake root a checkout is driving. */
-export type NixFlakeKind = "macos" | "home-manager" | "none";
-
-export interface OutfittingRepo {
+interface SourceRoot {
   /** Absolute path to the full repository or published source root. */
   root: string;
   /** Declarations loaded from the machine's authoritative config.toml. */
   contract: ByorContract;
-  /** Absolute path to the flake root declared by the selected BYOR profile. */
-  flakePath: string;
-  /** Absolute path to the declared Darwin configuration file when present; otherwise empty. */
-  darwinNixPath: string;
-  /** Active flake kind declared by the selected BYOR profile. */
-  flakeKind: NixFlakeKind;
-  /**
-   * Flake output attribute for build/switch.
-   * macOS: `darwinConfigurations.macos.system`
-   * Home Manager: `homeConfigurations.<name>.activationPackage`
-   */
-  systemAttr: string;
-  /** Home Manager configuration name when flakeKind is home-manager. */
-  homeManagerName?: string;
 }
 
-interface FlakeSelection {
+interface MacosFlakeSelection {
+  flakeKind: "macos";
+  /** Absolute path to the flake root declared by the selected BYOR profile. */
   flakePath: string;
+  /** Absolute path to the declared Darwin configuration file. */
   darwinNixPath: string;
-  flakeKind: NixFlakeKind;
+  /** Flake output attribute for build/switch, e.g. `darwinConfigurations.macos.system`. */
   systemAttr: string;
-  homeManagerName?: string;
 }
+
+interface HomeManagerFlakeSelection {
+  flakeKind: "home-manager";
+  /** Absolute path to the flake root declared by the selected BYOR profile. */
+  flakePath: string;
+  /** Flake output attribute for build/switch, e.g. `homeConfigurations.<name>.activationPackage`. */
+  systemAttr: string;
+  /** Home Manager configuration (profile) name. */
+  homeManagerName: string;
+}
+
+type FlakeSelection = MacosFlakeSelection | HomeManagerFlakeSelection | { flakeKind: "none" };
+
+/** A source root whose selected BYOR profile declares a Nix flake. */
+export type NixFlakeRepo = SourceRoot & (MacosFlakeSelection | HomeManagerFlakeSelection);
+
+/** A validated source root; `flakeKind` says whether and which Nix flake it drives. */
+export type OutfittingRepo = SourceRoot & FlakeSelection;
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -173,12 +176,7 @@ async function resolveByorFlakeSelection(
 ): Promise<FlakeSelection> {
   const kind = resolveByorPlatformKind(contract, profile);
   if (kind === "none") {
-    return {
-      flakePath: "",
-      darwinNixPath: "",
-      flakeKind: "none",
-      systemAttr: "",
-    };
+    return { flakeKind: "none" };
   }
 
   if (kind === "macos") {
@@ -200,12 +198,7 @@ async function resolveByorFlakeSelection(
 
   const selected = selectByorProfile(contract, profile);
   if (selected.linux.nix === undefined) {
-    return {
-      flakePath: "",
-      darwinNixPath: "",
-      flakeKind: "none",
-      systemAttr: "",
-    };
+    return { flakeKind: "none" };
   }
 
   const flakePath = join(absolute, selected.linux.nix.flake);
@@ -216,7 +209,6 @@ async function resolveByorFlakeSelection(
   }
   return {
     flakePath,
-    darwinNixPath: "",
     flakeKind: "home-manager",
     systemAttr: selected.linux.nix.attribute,
     homeManagerName: selected.name,
@@ -236,9 +228,9 @@ export async function validateOutfittingRepo(
     throw new Error(`Outfitting repository path does not exist: ${candidate}`);
   }
 
-  const selection =
+  const selection: FlakeSelection =
     options.platform === "windows"
-      ? { flakePath: "", darwinNixPath: "", flakeKind: "none" as const, systemAttr: "" }
+      ? { flakeKind: "none" }
       : await resolveByorFlakeSelection(absolute, options.contract, options.profile);
   return { root: absolute, contract: options.contract, ...selection };
 }

@@ -20,7 +20,6 @@ const fakeHomeManagerRepo = {
   root: "/repo",
   contract: { schema: 1 as const, profiles: {} },
   flakePath: "/repo/system/custom-linux",
-  darwinNixPath: "",
   flakeKind: "home-manager" as const,
   systemAttr: "homeConfigurations.workstation.activationPackage",
   homeManagerName: "workstation",

@@ -7,10 +7,10 @@ import { Console, Effect, Option, Schema } from "effect";
 import {
   parseWindowsPackageList,
   resolveWindowsSource,
+  windowsScoopPath,
   windowsWingetProfilePath,
 } from "@/commands/windows-apply";
 import {
-  configuredProfile,
   loadConfig,
   resolveOutfittingRepo,
   sparseSourceRoot,
@@ -23,22 +23,25 @@ import type { ManifestFetcher } from "@/fetch/github";
 import type { LinuxPackageManager } from "@/platform/linux";
 import { runCommand, which } from "@/process";
 import { envValue } from "@/secrets";
-import { selectByorProfile, selectMacosByorProfile } from "@/source/contract";
 import { pullLockfile } from "@/sync";
-import { parseBrewfileManifest } from "@/update/brew";
+import { parseBrewfileManifest, resolveDeclaredBrewfile } from "@/update/brew";
 import {
-  isLinuxProfile,
   listInstalledLinuxPackages,
   missingLinuxPackages,
   parseLinuxPackageManifest,
   type LinuxProfile,
 } from "@/update/linux";
-import { prepareLinuxSource, readLinuxManifest, type LinuxSource } from "@/update/linux-source";
+import {
+  prepareLinuxSource,
+  readLinuxManifest,
+  resolveLinuxProfile,
+  type LinuxSource,
+} from "@/update/linux-source";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
 import { nixEnv } from "@/update/nix/types";
-import { parseScoopManifest, type ScoopManifest } from "@/update/scoop";
-import { runScoopCommand } from "@/update/scoop-command";
-import { parseScoopExport, type ScoopExportState } from "@/update/scoop-export";
+import { parseScoopManifest, scoopExport, type ScoopManifest } from "@/update/scoop";
+import type { ScoopExportState } from "@/update/scoop-export";
+import { scoopPackageName } from "@/update/windows-lock";
 
 const MACOS_MANAGERS = ["brew", "nix"] as const satisfies ReadonlyArray<DiffManager>;
 const WINDOWS_MANAGERS = ["winget", "scoop"] as const satisfies ReadonlyArray<DiffManager>;
@@ -109,6 +112,16 @@ function unavailableSection(manager: DiffManager, message: string): DiffSection 
     changed: [],
     message,
   };
+}
+
+/** A manager the selected profile does not declare counts as in sync. */
+function skippedSection(manager: DiffManager, message: string): DiffSection {
+  return { manager, status: "same", missing: [], extra: [], changed: [], message };
+}
+
+/** Keep `msstore:` so a winget-source package cannot satisfy a Store requirement. */
+function wingetDiffName(name: string, source: string | undefined): string {
+  return source?.toLowerCase() === "msstore" ? `msstore:${name}` : name;
 }
 
 function compareSets(
@@ -197,7 +210,7 @@ function compareScoop(
     value: bucket.Source,
   }));
   const desiredPackages = desired.packages.map((spec) => ({
-    name: `package: ${packageName(spec)}`,
+    name: `package: ${scoopPackageName(spec)}`,
   }));
   const declaredNames = new Set(desiredPackages.map((entry) => entry.name.toLowerCase()));
   const actualPackages = actual.apps
@@ -213,10 +226,6 @@ function compareScoop(
     [...actualBuckets, ...actualPackages],
     onItem,
   );
-}
-
-function packageName(value: string): string {
-  return value.split("/").at(-1) ?? value;
 }
 
 const WingetPackageSchema = Schema.Struct({
@@ -250,9 +259,7 @@ export function parseWingetExport(content: string): string[] {
     ...new Set(
       decoded.value.Sources.flatMap((source) =>
         source.Packages.map((pkg) =>
-          source.SourceDetails?.Name.toLowerCase() === "msstore"
-            ? `msstore:${pkg.PackageIdentifier}`
-            : pkg.PackageIdentifier,
+          wingetDiffName(pkg.PackageIdentifier, source.SourceDetails?.Name),
         ),
       ),
     ),
@@ -331,29 +338,18 @@ async function compareBrewSection(
   if (profiles !== undefined && profiles.length !== 1) {
     throw new Error("macOS diff accepts one profile at a time.");
   }
-  const profile = configuredProfile(context.config, "macos", profiles?.[0]);
-  const repo = await resolveOutfittingRepo({
-    config: context.config,
-    profile,
-    platform: "macos",
-  });
-  const selected = selectMacosByorProfile(repo.contract, profile);
-  if (selected.macos.brewfile === undefined) {
-    return {
-      manager: "brew",
-      status: "same",
-      missing: [],
-      extra: [],
-      changed: [],
-      message: `BYOR profile \`${selected.name}\` declares no Brewfile; skipping Homebrew comparison.`,
-    };
+  const brewfile = await resolveDeclaredBrewfile(context.config, profiles?.[0]);
+  if (brewfile.path === undefined) {
+    return skippedSection(
+      "brew",
+      `BYOR profile \`${brewfile.profile}\` declares no Brewfile; skipping Homebrew comparison.`,
+    );
   }
   const executable = await context.which("brew");
   if (executable === undefined) {
     return unavailableSection("brew", "Homebrew is not installed or not in PATH.");
   }
-  const brewfilePath = join(repo.root, selected.macos.brewfile);
-  const desired = parseBrewfileManifest(await readFile(brewfilePath, "utf8"));
+  const desired = parseBrewfileManifest(await readFile(brewfile.path, "utf8"));
   const actual = await captureBrew(executable, context.run, desired.formulae);
   return compareBrew(desired, actual, context.reportItem);
 }
@@ -375,8 +371,7 @@ async function compareWindowsSection(
       const path = windowsWingetProfilePath(profile, source);
       desired.push(
         ...parseWindowsPackageList(await readFile(join(source.root, path), "utf8"), path).map(
-          (packageInfo) =>
-            packageInfo.source === "msstore" ? `msstore:${packageInfo.name}` : packageInfo.name,
+          (packageInfo) => wingetDiffName(packageInfo.name, packageInfo.source),
         ),
       );
     }
@@ -389,35 +384,19 @@ async function compareWindowsSection(
     );
   }
 
-  if (options.manager === "scoop") {
-    const scoopPath = source.byor.shared?.scoop?.manifest;
-    if (scoopPath === undefined) {
-      return {
-        manager: "scoop",
-        status: "same",
-        missing: [],
-        extra: [],
-        changed: [],
-        message: "No Scoop manifest declared by BYOR; skipping Scoop comparison.",
-      };
-    }
-    const executable = await context.which("scoop");
-    if (executable === undefined) {
-      return unavailableSection("scoop", "Scoop is not installed or not in PATH.");
-    }
-    const desired = parseScoopManifest(await readFile(join(source.root, scoopPath), "utf8"));
-    const actualResult = await runScoopCommand(context.run, executable, ["export"], {
-      inherit: false,
-    });
-    if (actualResult.code !== 0) {
-      throw new Error(
-        `scoop export failed (exit ${actualResult.code}): ${actualResult.stderr || actualResult.stdout}`.trim(),
-      );
-    }
-    return compareScoop(desired, parseScoopExport(actualResult.stdout), context.reportItem);
+  const scoopPath = windowsScoopPath(source);
+  if (scoopPath === undefined) {
+    return skippedSection(
+      "scoop",
+      "No Scoop manifest declared by BYOR; skipping Scoop comparison.",
+    );
   }
-
-  throw new Error(`Unsupported Windows diff manager: ${options.manager}`);
+  const executable = await context.which("scoop");
+  if (executable === undefined) {
+    return unavailableSection("scoop", "Scoop is not installed or not in PATH.");
+  }
+  const desired = parseScoopManifest(await readFile(join(source.root, scoopPath), "utf8"));
+  return compareScoop(desired, await scoopExport(context.run, executable), context.reportItem);
 }
 
 function resolveLinuxDiffProfile(
@@ -427,20 +406,7 @@ function resolveLinuxDiffProfile(
   if (profiles !== undefined && profiles.length !== 1) {
     throw new Error("Linux diff accepts one profile at a time.");
   }
-  const profile =
-    configuredProfile(config, "linux", profiles?.[0]) ??
-    (config.declarations === undefined
-      ? undefined
-      : selectByorProfile(config.declarations, undefined).name);
-  if (profile === undefined) {
-    throw new Error(
-      "No Linux profile is selected. Set linux.profile in config.toml or pass --profile.",
-    );
-  }
-  if (!isLinuxProfile(profile)) {
-    throw new Error(`Invalid Linux profile \`${profile}\`.`);
-  }
-  return profile;
+  return resolveLinuxProfile(config, profiles?.[0]);
 }
 
 async function compareLinuxSection(
@@ -505,6 +471,12 @@ async function compareNixSection(
     });
   } catch (cause) {
     return unavailableSection("nix", errorMessage(cause));
+  }
+  if (repo.flakeKind === "none") {
+    return skippedSection(
+      "nix",
+      "The selected BYOR profile declares no Nix flake; skipping Nix comparison.",
+    );
   }
 
   const lock = await openNixLock(context.config, (options) =>
@@ -600,7 +572,6 @@ async function resolveLinuxDiffSource(
     config,
     profile,
     refresh: true,
-    offline: options.offline,
     fetcher: options.fetcher,
   });
 }

@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import type { OutfittingRepo } from "@/config/repo";
+import type { NixFlakeRepo } from "@/config/repo";
 import { ensureNixSymlinks } from "@/update/nix/symlinks";
 
 const temps: string[] = [];
@@ -24,7 +24,7 @@ afterEach(async () => {
 
 async function fixture(
   kind: "macos" | "home-manager" = "macos",
-): Promise<{ home: string; repo: OutfittingRepo }> {
+): Promise<{ home: string; repo: NixFlakeRepo }> {
   const root = await mkdtemp(join(tmpdir(), "outfitting-nix-links-"));
   temps.push(root);
   const home = join(root, "home");
@@ -39,7 +39,6 @@ async function fixture(
         root: repoRoot,
         contract: { schema: 1, profiles: {} },
         flakePath,
-        darwinNixPath: "",
         flakeKind: "home-manager",
         systemAttr: "homeConfigurations.oci-agents.activationPackage",
         homeManagerName: "oci-agents",
@@ -71,7 +70,7 @@ describe("ensureNixSymlinks", () => {
 
     await ensureNixSymlinks(repo, home);
     await ensureNixSymlinks(repo, home);
-    expect(await readlink(darwinLink)).toBe(repo.darwinNixPath);
+    expect(await readlink(darwinLink)).toBe(join(repo.flakePath, "darwin.nix"));
     expect(await readlink(homeManagerLink)).toBe(repo.flakePath);
 
     await rm(homeManagerLink);

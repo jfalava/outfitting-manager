@@ -6,19 +6,15 @@ import { deflateRawSync } from "node:zlib";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { normalizeCommandAlias } from "@/arguments";
+import { extractZipBinary } from "@/upgrade/archive";
 import {
-  assetNameFor,
   checksumFromFile,
   downloadBytesEffect,
-  executableNameFor,
-  executablePath,
-  extractZipBinary,
-  isNewerVersion,
-  latestCliReleaseEffect,
-  parseCliVersion,
-} from "@/upgrade";
-import { scheduleWindowsReplacement } from "@/upgrade/install";
+  scheduleWindowsReplacement,
+} from "@/upgrade/install";
+import { executablePath, releaseAssetFor } from "@/upgrade/platform";
+import { latestCliReleaseEffect } from "@/upgrade/release";
+import { isNewerVersion, parseCliVersion } from "@/upgrade/version";
 
 function appendBytes(parts: ReadonlyArray<Uint8Array>): Uint8Array {
   const result = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
@@ -67,11 +63,6 @@ function makeZip(fileName: string, contents: string): Uint8Array {
 }
 
 describe("self-update command helpers", () => {
-  test("does not normalize retired CLI command names", () => {
-    expect(normalizeCommandAlias(["ugprade"])).toEqual(["ugprade"]);
-    expect(normalizeCommandAlias(["upgrade", "--help"])).toEqual(["upgrade", "--help"]);
-  });
-
   test("compares stable CLI versions", () => {
     expect(parseCliVersion("cli-v1.2.3")).toEqual([1, 2, 3]);
     expect(isNewerVersion("1.3.0", "1.2.9")).toBe(true);
@@ -80,11 +71,15 @@ describe("self-update command helpers", () => {
   });
 
   test("maps supported release assets", () => {
-    expect(assetNameFor("darwin", "arm64")).toBe("outfitting-manager-darwin-arm64.zip");
-    expect(executableNameFor("darwin", "arm64")).toBe("outfitting-manager");
-    expect(assetNameFor("win32", "x64")).toBe("outfitting-manager-windows-x64.zip");
-    expect(executableNameFor("win32", "x64")).toBe("outfitting-manager.exe");
-    expect(() => assetNameFor("win32", "arm64")).toThrow("not supported");
+    expect(releaseAssetFor("darwin", "arm64")).toEqual({
+      archive: "outfitting-manager-darwin-arm64.zip",
+      executable: "outfitting-manager",
+    });
+    expect(releaseAssetFor("win32", "x64")).toEqual({
+      archive: "outfitting-manager-windows-x64.zip",
+      executable: "outfitting-manager.exe",
+    });
+    expect(() => releaseAssetFor("win32", "arm64")).toThrow("not supported");
   });
 
   test("only accepts the compiled executable as its replacement target", () => {

@@ -11,7 +11,6 @@ const repo = {
   root: "/repo",
   contract: { schema: 1 as const, profiles: {} },
   flakePath: "/repo/system/home",
-  darwinNixPath: "",
   flakeKind: "home-manager" as const,
   systemAttr: "homeConfigurations.work.activationPackage",
   homeManagerName: "work",

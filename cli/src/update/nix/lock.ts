@@ -12,18 +12,29 @@ import { pullLockfile } from "@/sync";
 import { WorkerResponseError } from "@/sync/request";
 import { NIX_LOCK_KIND } from "@/update/nix/types";
 
-export interface OpenNixLockResult {
-  /** Physical temp directory holding flake.lock. */
+export interface OpenedNixLock {
+  /** Physical temp directory holding flake.lock; release it with `closeNixLock`. */
   lockDir: string;
-  /** Path to the pulled or fallback flake.lock; empty when no lock exists yet. */
+  /** Path to the pulled or fallback flake.lock. */
   lockPath: string;
   /** Where the selected lock came from. */
-  source: "remote" | "fallback" | "missing";
+  source: "remote" | "fallback";
   /** SHA-256 of the remote lock, for compare-and-swap publication. */
   baseHash?: string;
   /** Warning emitted when the remote lock was unavailable. */
   warning?: string;
 }
+
+/** Neither a remote nor a local lock exists yet (only with `allowMissing`). */
+export interface MissingNixLock {
+  lockDir?: undefined;
+  lockPath?: undefined;
+  source: "missing";
+  baseHash?: undefined;
+  warning: string;
+}
+
+export type NixLock = OpenedNixLock | MissingNixLock;
 
 export interface OpenNixLockOptions {
   /** Local lock to stage when the remote head does not exist. */
@@ -57,11 +68,21 @@ function responseStatus(cause: unknown): number | undefined {
  * Pull the remote nix lock into a physical temp path.
  * Caller must invoke `closeNixLock` when done.
  */
+export function openNixLock(
+  config: ManagerConfig,
+  pull?: typeof pullLockfile,
+  options?: OpenNixLockOptions & { allowMissing?: false },
+): Promise<OpenedNixLock>;
+export function openNixLock(
+  config: ManagerConfig,
+  pull: typeof pullLockfile,
+  options: OpenNixLockOptions,
+): Promise<NixLock>;
 export async function openNixLock(
   config: ManagerConfig,
   pull: typeof pullLockfile = pullLockfile,
   options: OpenNixLockOptions = {},
-): Promise<OpenNixLockResult> {
+): Promise<NixLock> {
   const displayDir = await mkdtemp(join(tmpdir(), "outfitting-nix-lock-"));
   let lockDir: string;
   try {
@@ -117,8 +138,6 @@ export async function openNixLock(
     if (options.allowMissing) {
       await closeNixLock(lockDir);
       return {
-        lockDir: "",
-        lockPath: "",
         source: "missing",
         warning: `Remote Nix lock unavailable (${message}); continuing with the local flake and will publish its lock after success.`,
       };
@@ -133,10 +152,5 @@ export async function openNixLock(
 }
 
 export async function closeNixLock(lockDir: string): Promise<void> {
-  if (lockDir.length === 0) {
-    return;
-  }
-  await rm(join(lockDir, "flake.lock"), { force: true });
-  await rm(join(lockDir, "updated-flake.lock"), { force: true });
   await rm(lockDir, { force: true, recursive: true });
 }

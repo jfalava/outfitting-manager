@@ -3,8 +3,8 @@ import { Command, Flag, Prompt } from "effect/cli";
 
 import {
   linuxApplyOfflineFlag,
-  linuxOptionalProfileFlag,
   linuxPackageManagerFlag,
+  linuxProfileFlag,
 } from "@/commands/linux-flags";
 import { withTerminalInput } from "@/terminal-alert";
 import { applyLinux } from "@/update/linux";
@@ -40,7 +40,7 @@ export const makeLinuxApplyCommand = () =>
   Command.make(
     "apply",
     {
-      profile: linuxOptionalProfileFlag,
+      profile: linuxProfileFlag,
       packageManager: linuxPackageManagerFlag,
       prune: pruneFlag,
       offline: linuxApplyOfflineFlag,

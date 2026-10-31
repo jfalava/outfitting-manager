@@ -35,7 +35,7 @@ export function hostSystemTriple(
   return `${cpu}-${os}`;
 }
 
-export function defaultUsername(): string {
+function defaultUsername(): string {
   const fromEnv = envValue("USER") ?? envValue("USERNAME");
   if (fromEnv) {
     return fromEnv;

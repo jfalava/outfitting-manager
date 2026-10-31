@@ -24,29 +24,24 @@ const ifConfiguredFlag = Flag.Boolean("if-configured").pipe(
   Flag.withDescription("On Linux, skip when the selected profile declares no Nix flake."),
 );
 
-const linuxFlags = {
-  noPush: noPushFlag,
-  noRefresh: noRefreshFlag,
-  profile: profileFlag,
-  ifConfigured: ifConfiguredFlag,
-};
+const macosUpdateFlags = { noRefresh: noRefreshFlag, profile: profileFlag };
+const linuxUpdateFlags = { ...macosUpdateFlags, ifConfigured: ifConfiguredFlag };
 
-const macosFlags = {
-  noPush: noPushFlag,
-  noRefresh: noRefreshFlag,
-  profile: profileFlag,
-};
+interface NixFlagValues {
+  readonly noRefresh: boolean;
+  readonly profile: Option.Option<string>;
+  readonly ifConfigured?: boolean;
+  readonly noPush?: boolean;
+}
 
-const linuxUpdateFlags = {
-  noRefresh: noRefreshFlag,
-  profile: profileFlag,
-  ifConfigured: ifConfiguredFlag,
-};
-
-const macosUpdateFlags = {
-  noRefresh: noRefreshFlag,
-  profile: profileFlag,
-};
+const runNix = (action: NixAction, values: NixFlagValues) =>
+  updateNix({
+    action,
+    noPush: values.noPush,
+    noRefresh: values.noRefresh,
+    profile: Option.getOrUndefined(values.profile),
+    ifConfigured: values.ifConfigured,
+  });
 
 const actionDescriptions = {
   build: {
@@ -73,28 +68,17 @@ const actionDescriptions = {
 
 /** Build, test, dry-run, update, or activate the configured Nix profile. */
 export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux">) {
-  const flags = platform === "linux" ? linuxFlags : macosFlags;
   const updateFlags = platform === "linux" ? linuxUpdateFlags : macosUpdateFlags;
+  const actionFlags = { ...updateFlags, noPush: noPushFlag };
   const actions = NIX_ACTIONS.filter(
     (action): action is Exclude<NixAction, "update"> => action !== "update",
   ).map((action) =>
-    Command.make(action, flags, (values) =>
-      updateNix({
-        action,
-        noPush: values.noPush,
-        noRefresh: values.noRefresh,
-        profile: Option.getOrUndefined(values.profile),
-        ifConfigured: "ifConfigured" in values && values.ifConfigured === true,
-      }),
-    ).pipe(Command.withDescription(actionDescriptions[action][platform])),
+    Command.make(action, actionFlags, (values) => runNix(action, values)).pipe(
+      Command.withDescription(actionDescriptions[action][platform]),
+    ),
   );
   const updateCommand = Command.make("update", updateFlags, (values) =>
-    updateNix({
-      action: "update",
-      noRefresh: values.noRefresh,
-      profile: Option.getOrUndefined(values.profile),
-      ifConfigured: "ifConfigured" in values && values.ifConfigured === true,
-    }),
+    runNix("update", values),
   ).pipe(Command.withDescription(actionDescriptions.update[platform]));
 
   return Command.make("nix").pipe(

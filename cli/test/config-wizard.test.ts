@@ -412,6 +412,6 @@ test("replaces an existing config only if it still matches the reviewed contents
   await expect(readFile(target, "utf8")).resolves.toBe(edited);
   await expect(
     publishValidatedConfig(root, target, original, { expectedExistingContents: original }),
-  ).rejects.toThrow(/changed while the wizard was open/);
+  ).rejects.toThrow(/changed while it was under review/);
   await expect(readFile(target, "utf8")).resolves.toBe(edited);
 });

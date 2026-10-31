@@ -3,28 +3,21 @@ import { Console, Effect } from "effect";
 import { toError } from "@/effect";
 import { ui } from "@/ui";
 import { installReleaseEffect } from "@/upgrade/install";
-import { assetNameFor, executableNameFor, executablePath } from "@/upgrade/platform";
+import { executablePath, releaseAssetFor } from "@/upgrade/platform";
 import { latestCliReleaseEffect } from "@/upgrade/release";
 import { isNewerVersion } from "@/upgrade/version";
 
-export { checksumFromFile } from "@/upgrade/install";
-export { downloadBytesEffect, installReleaseEffect } from "@/upgrade/install";
-export { assetNameFor, executableNameFor, executablePath } from "@/upgrade/platform";
-export { extractZipBinary } from "@/upgrade/archive";
-export { latestCliReleaseEffect } from "@/upgrade/release";
-export { isNewerVersion, parseCliVersion } from "@/upgrade/version";
-
 export const upgrade = (currentVersion: string) =>
   Effect.gen(function* () {
-    const targetPath = yield* Effect.try({
-      try: executablePath,
+    const targetPath = yield* Effect.try({ try: executablePath, catch: toError });
+    const asset = yield* Effect.try({ try: releaseAssetFor, catch: toError });
+    const release = yield* latestCliReleaseEffect(asset.archive, asset.executable);
+    const newer = yield* Effect.try({
+      try: () => isNewerVersion(release.version, currentVersion),
       catch: toError,
     });
-    const assetName = yield* Effect.try({ try: assetNameFor, catch: toError });
-    const executableName = yield* Effect.try({ try: executableNameFor, catch: toError });
-    const release = yield* latestCliReleaseEffect(assetName, executableName);
 
-    if (!isNewerVersion(release.version, currentVersion)) {
+    if (!newer) {
       yield* Console.log(ui.success(`outfitting-manager ${currentVersion} is already up to date.`));
       return;
     }

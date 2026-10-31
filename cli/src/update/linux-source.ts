@@ -7,8 +7,8 @@ import type { ManifestFetcher } from "@/fetch/github";
 import { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
-import { validateLinuxByorSource } from "@/source/contract";
-import type { LinuxProfile } from "@/source/linux-profile";
+import { profileNames, validateLinuxByorSource } from "@/source/contract";
+import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 
 export { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 
@@ -16,7 +16,6 @@ export interface LinuxSourceOptions {
   config: ManagerConfig;
   profile: LinuxProfile;
   refresh?: boolean;
-  offline?: boolean;
   fetcher?: ManifestFetcher;
   run?: typeof runCommand;
 }
@@ -27,7 +26,33 @@ export interface LinuxSource {
   repo: OutfittingRepo;
 }
 
-async function selectedLocalRoot(config: ManagerConfig): Promise<string | undefined> {
+/**
+ * Select the Linux profile: `override`, OUTFITTING_PROFILE, `linux.profile` in config.toml,
+ * or the only declared Linux profile.
+ */
+export function resolveLinuxProfile(
+  config: ManagerConfig,
+  override: string | undefined,
+): LinuxProfile {
+  const declared = profileNames(config.declarations, "linux");
+  const profile =
+    configuredProfile(config, "linux", override) ??
+    (declared.length === 1 ? declared[0] : undefined);
+  if (profile === undefined) {
+    const choices = declared.length > 1 ? ` (${declared.join(", ")})` : "";
+    throw new Error(
+      `No Linux BYOR profile is selected. Set linux.profile in config.toml or pass --profile${choices}.`,
+    );
+  }
+  if (!isLinuxProfile(profile)) {
+    throw new Error(
+      `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
+    );
+  }
+  return profile;
+}
+
+function selectedLocalRoot(config: ManagerConfig): string | undefined {
   return (
     envValue("OUTFITTING_REPO") ??
     (config.source?.kind === "local" ? config.source.path : undefined)
@@ -36,7 +61,7 @@ async function selectedLocalRoot(config: ManagerConfig): Promise<string | undefi
 
 /** Use local checkouts directly; otherwise fetch the TOML-declared remote source. */
 export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<LinuxSource> {
-  const localRoot = await selectedLocalRoot(options.config);
+  const localRoot = selectedLocalRoot(options.config);
   if (localRoot !== undefined) {
     if (options.config.declarations === undefined) {
       throw new Error(`No profile declarations are configured in ${options.config.configPath}.`);
@@ -53,17 +78,13 @@ export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<L
     return { root: repo.root, mode: "checkout", repo };
   }
 
-  if (options.refresh === true && options.offline === true) {
-    throw new Error("--refresh and --offline cannot be used together.");
-  }
-
   const source = await syncByorSparseSource({
     config: options.config,
     platform: "linux",
     profile: options.profile,
     fetcher: options.fetcher,
     run: options.run,
-    offline: options.offline === true || options.refresh !== true,
+    offline: options.refresh !== true,
   });
   const repo = await validateOutfittingRepo(source.root, {
     profile: options.profile,
@@ -79,16 +100,15 @@ export async function readLinuxManifest(
   sourceRoot?: string,
   packageManager?: "apt" | "pacman",
 ): Promise<string> {
-  const selectedProfile = configuredProfile(config, "linux", profile) ?? profile;
   if (config.declarations === undefined) {
     throw new Error(`No profile declarations are configured in ${config.configPath}.`);
   }
-  let root = sourceRoot ?? (await selectedLocalRoot(config));
+  let root = sourceRoot ?? selectedLocalRoot(config);
   if (root === undefined) {
     const source = await syncByorSparseSource({
       config,
       platform: "linux",
-      profile: selectedProfile,
+      profile,
       offline: true,
     });
     root = source.root;
@@ -96,7 +116,7 @@ export async function readLinuxManifest(
   const absolute = await realpath(isAbsolute(root) ? root : resolve(root));
   const validated = await validateLinuxByorSource({
     root: absolute,
-    profile: selectedProfile,
+    profile,
     contract: config.declarations,
   });
   const manager =

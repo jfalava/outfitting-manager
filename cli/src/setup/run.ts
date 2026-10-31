@@ -7,14 +7,14 @@ import {
   validateOutfittingRepo,
   type OutfittingRepo,
 } from "@/config";
-import { type ManagerConfig } from "@/config/types";
+import type { ManagerConfig } from "@/config/types";
 import { tryPromise } from "@/effect";
 import type { ManifestFetcher } from "@/fetch/github";
 import { hostPlatform, type HostPlatform } from "@/platform";
 import type { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource, validateBackups } from "@/setup/source";
-import { validateByorSource } from "@/source/contract";
+import { validateByorSource, type ByorContract } from "@/source/contract";
 import { ui } from "@/ui";
 
 export interface SetupOptions {
@@ -51,8 +51,17 @@ function setupRepo(config: ManagerConfig, options: SetupOptions): string | undef
   return config.source?.kind === "local" ? config.source.path : undefined;
 }
 
+export interface ResolvedSetupSource {
+  config: ManagerConfig;
+  contract: ByorContract;
+  platform: HostPlatform;
+  /** Local checkout (override or `[source] path`); undefined selects the remote source cache. */
+  repo: string | undefined;
+  repoProfile: string | undefined;
+}
+
 /** Resolve an invocation-local checkout override or the configured TOML source. */
-export async function resolveSetupSource(options: SetupOptions): Promise<SetupOptions> {
+export async function resolveSetupSource(options: SetupOptions): Promise<ResolvedSetupSource> {
   const config =
     options.config ??
     (await loadConfig({
@@ -62,7 +71,6 @@ export async function resolveSetupSource(options: SetupOptions): Promise<SetupOp
     }));
   const repo = setupRepo(config, options);
   const platform = setupPlatform(options);
-  const selectedProfile = configuredProfile(config, platform, options.repoProfile);
 
   if (config.declarations === undefined) {
     throw new Error(`No profile declarations are configured in ${config.configPath}.`);
@@ -72,80 +80,75 @@ export async function resolveSetupSource(options: SetupOptions): Promise<SetupOp
       `No source is configured. Set [source] in ${config.configPath} or pass --repo/OUTFITTING_REPO for a local checkout.`,
     );
   }
-  return { ...options, repo, platform, repoProfile: selectedProfile, config };
+  return {
+    config,
+    contract: config.declarations,
+    platform,
+    repo,
+    repoProfile: configuredProfile(config, platform, options.repoProfile),
+  };
+}
+
+/** Refresh (or, offline, revalidate) the configured remote source cache and return its root. */
+function syncRemoteSource(options: SetupOptions, source: ResolvedSetupSource) {
+  return Effect.gen(function* () {
+    const offline = options.offline === true || options.refreshSource === false;
+    yield* Console.log(
+      ui.heading(offline ? "Validating cached source…" : "Refreshing remote source…"),
+    );
+    const synced = yield* tryPromise(() =>
+      syncByorSparseSource({
+        config: source.config,
+        platform: source.platform,
+        profile: source.repoProfile,
+        sourceRoot: options.sourceRoot,
+        fetcher: options.fetcher,
+        run: options.run,
+        offline,
+      }),
+    );
+    for (const item of synced.files) {
+      yield* Console.log(ui.success(`${item.path} (${item.source}) → ${synced.root}`));
+    }
+    return synced.root;
+  });
+}
+
+/** Validate a local checkout; a synced remote source is validated by syncByorSparseSource. */
+function validateLocalSource(root: string, source: ResolvedSetupSource) {
+  return tryPromise(async () => {
+    await validateBackups(root, { config: source.config, platform: source.platform });
+    await validateByorSource(root, source.platform, source.repoProfile, source.contract);
+    return root;
+  });
 }
 
 /** Materialize the selected source, state root, config, and optional nix symlinks. */
-export const runSetup = (input: SetupOptions = {}) =>
+export const runSetup = (options: SetupOptions = {}) =>
   Effect.gen(function* () {
-    const options = yield* tryPromise(() => resolveSetupSource(input));
-    const root = yield* tryPromise(() =>
-      options.stateRoot === undefined ? ensureStateRoot() : ensureStateRoot(options.stateRoot),
-    );
-    const config =
-      options.config ??
-      (yield* tryPromise(() =>
-        loadConfig({
-          stateRoot: root,
-          configPath: options.configPath,
-          machineId: options.machineId,
-        }),
-      ));
+    const source = yield* tryPromise(() => resolveSetupSource(options));
+    const { config } = source;
+    yield* tryPromise(() => ensureStateRoot(config.stateRoot));
     yield* Console.log(ui.success(`State root ready: ${config.stateRoot}`));
     yield* Console.log(ui.muted(`machine id: ${config.machineId}`));
     yield* Console.log(ui.muted(`config: ${config.configPath}`));
 
-    let selectedRepo = options.repo;
-    if (selectedRepo === undefined) {
-      yield* Console.log(
-        ui.heading(
-          options.refreshSource === false || options.offline === true
-            ? "Validating cached source…"
-            : "Refreshing remote source…",
-        ),
-      );
-      const source = yield* tryPromise(() =>
-        syncByorSparseSource({
-          config,
-          platform: options.platform!,
-          profile: options.repoProfile,
-          sourceRoot: options.sourceRoot,
-          fetcher: options.fetcher,
-          run: options.run,
-          offline: options.offline || options.refreshSource === false,
-        }),
-      );
-      selectedRepo = source.root;
-      for (const item of source.files) {
-        yield* Console.log(ui.success(`${item.path} (${item.source}) → ${source.root}`));
-      }
-    }
-
-    const platform = options.platform!;
-    if (options.repo !== undefined) {
-      // A synced remote source was already validated by syncByorSparseSource.
-      yield* tryPromise(async () => {
-        await validateBackups(selectedRepo!, { config, platform });
-        await validateByorSource(
-          selectedRepo!,
-          platform,
-          options.repoProfile,
-          config.declarations!,
-        );
-      });
-    }
-
+    const root =
+      source.repo === undefined
+        ? yield* syncRemoteSource(options, source)
+        : yield* validateLocalSource(source.repo, source);
     const selected = yield* tryPromise(() =>
-      validateOutfittingRepo(selectedRepo!, {
-        contract: config.declarations!,
-        profile: options.repoProfile,
-        platform,
+      validateOutfittingRepo(root, {
+        contract: source.contract,
+        profile: source.repoProfile,
+        platform: source.platform,
       }),
     );
     yield* Console.log(ui.success(`Source path: ${selected.root}`));
 
-    if (options.ensureSymlinks !== undefined && options.skipSymlinks !== true) {
-      yield* tryPromise(() => options.ensureSymlinks!(selected));
+    const { ensureSymlinks } = options;
+    if (ensureSymlinks !== undefined && options.skipSymlinks !== true) {
+      yield* tryPromise(() => ensureSymlinks(selected));
       yield* Console.log(ui.success(`nix-darwin symlinks ensured for ${selected.root}`));
     }
 

@@ -9,8 +9,13 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { initializeWindows } from "@/commands/setup/windows";
 import { configFilePath, loadConfig, normalizeGitRepository, sparseSourceRoot } from "@/config";
-import type { ManifestFetcher } from "@/fetch";
-import { classifyGitHubRepository, readGitHubBlobs, readGitHubFile } from "@/fetch/github";
+import type { CliFailure } from "@/errors";
+import {
+  classifyGitHubRepository,
+  readGitHubBlobs,
+  readGitHubFile,
+  type ManifestFetcher,
+} from "@/fetch/github";
 import { runCommand as executeCommand } from "@/process";
 import type { runCommand } from "@/process";
 import { runLinuxInit } from "@/setup/linux";
@@ -276,7 +281,7 @@ describe.each(["github.com", "pepito.ghe.com"])("remote BYOR on %s", (host) => {
         `schema = 1\n[source]\nrepository = "https://${host}/org/machine-config"\nref = "feature/desk"\n[${platform}]\n${platform === "windows" ? 'profiles = ["desk"]' : 'profile = "desk"'}\n[profiles.desk.${platform}.${platform === "windows" ? "winget" : platform === "macos" ? "nix" : "apt"}]\n${platform === "windows" ? 'manifest = "packages/windows.txt"' : platform === "macos" ? 'flake = "nix"\nattribute = "darwinConfigurations.desk.system"' : 'manifest = "packages/apt.txt"'}\n[profiles.unselected.linux.nix]\nflake = "absent"\nattribute = "homeConfigurations.other.activationPackage"\n`,
       );
       const options = { stateRoot, ...remote };
-      const init =
+      const init: Effect.Effect<unknown, CliFailure> =
         platform === "linux"
           ? runLinuxInit({ ...options, profile: "desk" })
           : platform === "windows"

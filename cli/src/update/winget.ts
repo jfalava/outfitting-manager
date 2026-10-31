@@ -3,15 +3,20 @@ import { Console, Effect } from "effect";
 import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
-import { runCommand, which, type RunCommandResult } from "@/process";
-import { pushLockfile } from "@/sync";
+import { runCommand, which } from "@/process";
 import { ui } from "@/ui";
 import {
+  publishWindowsLock,
   recordWindowsOperation,
-  WINDOWS_LOCK_KIND,
-  windowsLockPath,
   type WindowsPackageAction,
 } from "@/update/windows-lock";
+
+const UPGRADE_ALL_ARGS = [
+  "upgrade",
+  "--all",
+  "--accept-source-agreements",
+  "--accept-package-agreements",
+];
 
 export function wingetPackageArgs(
   action: WindowsPackageAction,
@@ -36,19 +41,6 @@ export interface UpdateWingetOptions {
   which?: typeof which;
 }
 
-async function requireWingetCommand(
-  run: typeof runCommand,
-  args: ReadonlyArray<string>,
-): Promise<RunCommandResult> {
-  const result = await run("winget", args, { inherit: true });
-  if (result.code !== 0) {
-    throw new Error(
-      `winget ${args.join(" ")} failed (exit ${result.code}): ${result.stderr || result.stdout}`.trim(),
-    );
-  }
-  return result;
-}
-
 /** Upgrade every installed WinGet package and optionally record the operation. */
 export const updateWinget = (options: UpdateWingetOptions = {}) =>
   Effect.gen(function* () {
@@ -61,14 +53,13 @@ export const updateWinget = (options: UpdateWingetOptions = {}) =>
 
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
     yield* Console.log(ui.heading("Updating WinGet packages…"));
-    yield* tryPromise(() =>
-      requireWingetCommand(run, [
-        "upgrade",
-        "--all",
-        "--accept-source-agreements",
-        "--accept-package-agreements",
-      ]),
-    );
+    const result = yield* tryPromise(() => run("winget", UPGRADE_ALL_ARGS, { inherit: true }));
+    if (result.code !== 0) {
+      return yield* new CliFailure({
+        message:
+          `winget ${UPGRADE_ALL_ARGS.join(" ")} failed (exit ${result.code}): ${result.stderr || result.stdout}`.trim(),
+      });
+    }
 
     yield* tryPromise(() =>
       recordWindowsOperation({
@@ -76,19 +67,11 @@ export const updateWinget = (options: UpdateWingetOptions = {}) =>
         manager: "winget",
         action: "upgrade",
         name: "*",
-        args: ["upgrade", "--all", "--accept-source-agreements", "--accept-package-agreements"],
+        args: UPGRADE_ALL_ARGS,
         status: "success",
         exitCode: 0,
       }),
     );
-    if (options.noPush) {
-      yield* Console.log(ui.muted("Updated local Windows state; skipped upload (--no-push)."));
-    } else {
-      yield* pushLockfile({
-        machine: config.machineId,
-        kind: WINDOWS_LOCK_KIND,
-        path: windowsLockPath({ root: config.stateRoot }),
-      });
-    }
+    yield* publishWindowsLock(config, options.noPush);
     yield* Console.log(ui.success("WinGet update complete."));
   });

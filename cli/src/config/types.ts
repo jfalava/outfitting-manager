@@ -45,9 +45,9 @@ export interface ManagerConfigFile {
   /** Optional override; when omitted, auto `user:arch-os` is used. */
   machineId?: string;
   source?: ConfiguredSource;
-  linux?: Partial<LinuxConfig>;
-  macos?: Partial<MacosConfig>;
-  windows?: Partial<WindowsConfig>;
+  linux?: LinuxConfig;
+  macos?: MacosConfig;
+  windows?: WindowsConfig;
   fonts?: FontsConfig;
   backups?: BackupsConfig;
   declarations?: ByorContract;

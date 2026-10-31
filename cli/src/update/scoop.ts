@@ -1,17 +1,17 @@
-import { Console, Data, Effect } from "effect";
+import { Console, Effect } from "effect";
 
 import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
+import { CliFailure } from "@/errors";
 import { runCommand, which } from "@/process";
-import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 import { runScoopCommand } from "@/update/scoop-command";
-import { recordWindowsOperation, WINDOWS_LOCK_KIND, windowsLockPath } from "@/update/windows-lock";
-
-class ScoopUpdateError extends Data.TaggedError("ScoopUpdateError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+import { parseScoopExport, type ScoopExportState } from "@/update/scoop-export";
+import {
+  publishWindowsLock,
+  recordWindowsOperation,
+  scoopPackageName,
+} from "@/update/windows-lock";
 
 export interface ScoopBucket {
   name: string;
@@ -23,12 +23,18 @@ export interface ScoopManifest {
   packages: string[];
 }
 
-function bucketNameFromUrl(value: string): string | undefined {
-  const normalized = value
+/** Compare bucket sources without trailing slashes or a `.git` suffix. */
+export function normalizeBucketUrl(value: string): string {
+  return value
     .trim()
     .replace(/\/+$/, "")
     .replace(/\.git$/i, "");
-  const segments = normalized.split("/").filter((segment) => segment.length > 0);
+}
+
+function bucketNameFromUrl(value: string): string | undefined {
+  const segments = normalizeBucketUrl(value)
+    .split("/")
+    .filter((segment) => segment.length > 0);
   const last = segments.at(-1);
   if (last === undefined) {
     return undefined;
@@ -67,8 +73,8 @@ export function parseScoopManifest(content: string): ScoopManifest {
     const packageMatch = /^package\s+"([^"\r\n]*\S[^"\r\n]*)"$/i.exec(entry);
     if (packageMatch?.[1] !== undefined) {
       const packageSpec = packageMatch[1].trim();
-      const name = packageSpec.split("/").at(-1);
-      if (name === undefined || packageNames.has(name.toLowerCase())) {
+      const name = scoopPackageName(packageSpec);
+      if (packageNames.has(name.toLowerCase())) {
         invalid.push(`line ${index + 1}: invalid or duplicate package '${packageSpec}'`);
         return;
       }
@@ -86,6 +92,21 @@ export function parseScoopManifest(content: string): ScoopManifest {
   return { buckets, packages };
 }
 
+/** Read installed Scoop apps and buckets from `scoop export`. */
+export async function scoopExport(
+  run: typeof runCommand,
+  scoopPath: string,
+): Promise<ScoopExportState> {
+  const result = await runScoopCommand(run, scoopPath, ["export"], { inherit: false });
+  if (result.code !== 0) {
+    throw new CliFailure({
+      message:
+        `scoop export failed (exit ${result.code}): ${result.stderr || result.stdout}`.trim(),
+    });
+  }
+  return parseScoopExport(result.stdout);
+}
+
 const requireScoopCommand = Effect.fn("requireScoopCommand")(function* (
   run: typeof runCommand,
   scoopPath: string,
@@ -94,7 +115,7 @@ const requireScoopCommand = Effect.fn("requireScoopCommand")(function* (
 ) {
   const result = yield* tryPromise(() => runScoopCommand(run, scoopPath, args, { inherit: true }));
   if (result.code !== 0) {
-    return yield* new ScoopUpdateError({
+    return yield* new CliFailure({
       message: `${label} failed (exit ${result.code}): ${result.stderr || result.stdout}`.trim(),
     });
   }
@@ -125,7 +146,7 @@ export const updateScoop = (options: UpdateScoopOptions = {}) =>
     const whichFn = options.which ?? which;
     const scoopPath = options.scoopPath ?? (yield* tryPromise(() => whichFn("scoop")));
     if (scoopPath === undefined) {
-      return yield* new ScoopUpdateError({ message: "Scoop is not installed or not in PATH." });
+      return yield* new CliFailure({ message: "Scoop is not installed or not in PATH." });
     }
 
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
@@ -142,14 +163,6 @@ export const updateScoop = (options: UpdateScoopOptions = {}) =>
         exitCode: 0,
       }),
     );
-    if (options.noPush) {
-      yield* Console.log(ui.muted("Updated local Windows state; skipped upload (--no-push)."));
-    } else {
-      yield* pushLockfile({
-        machine: config.machineId,
-        kind: WINDOWS_LOCK_KIND,
-        path: windowsLockPath({ root: config.stateRoot }),
-      });
-    }
+    yield* publishWindowsLock(config, options.noPush);
     yield* Console.log(ui.success("Installed Scoop packages updated."));
   });

@@ -20,7 +20,12 @@ import { sparseSourceRoot } from "@/config/paths";
 import { configuredProfile } from "@/config/profile";
 import type { ManagerConfig } from "@/config/types";
 import { isNotFound, errorMessage } from "@/errors";
-import { classifyGitHubRepository, readGitHubBlobs, type ManifestFetcher } from "@/fetch/github";
+import {
+  classifyGitHubRepository,
+  readGitHubBlobs,
+  type GitHubRepository,
+  type ManifestFetcher,
+} from "@/fetch/github";
 import type { HostPlatform } from "@/platform";
 import { runCommand } from "@/process";
 import {
@@ -32,10 +37,10 @@ import {
   windowsPathsFromContract,
   type ByorContract,
   relativeSourcePath,
-  isWithinSourcePath,
   validateByorSource,
+  windowsSharedArtifacts,
 } from "@/source/contract";
-import { isReservedSourcePath } from "@/source/reserved";
+import { gitModeToFileMode, selectSourceTreeEntries, type SourceTreeEntry } from "@/source/tree";
 
 export interface ByorSourceFile {
   path: string;
@@ -97,16 +102,9 @@ export interface ByorSparseSourceOptions {
   offline?: boolean;
 }
 
-interface GitTreeEntry {
-  mode: string;
-  type: string;
-  path: string;
-}
-
-interface GitSourceFile {
-  path: string;
-  mode: number;
+interface StagedFiles {
   revision: string;
+  paths: string[];
 }
 
 interface ByorSourceMetadata {
@@ -209,7 +207,7 @@ async function runGit(
   return result.stdout;
 }
 
-function parseGitTree(output: string): GitTreeEntry[] {
+function parseGitTree(output: string): SourceTreeEntry[] {
   return output
     .split("\0")
     .filter(Boolean)
@@ -226,6 +224,28 @@ function parseGitTree(output: string): GitTreeEntry[] {
     });
 }
 
+/** Shallow-fetch `ref` into an empty repository at `checkout` and list its pinned tree. */
+async function fetchPinnedTree(
+  run: typeof runCommand,
+  checkout: string,
+  repository: string,
+  ref: string,
+): Promise<{ revision: string; entries: SourceTreeEntry[] }> {
+  await runGit(run, checkout, ["init", "--quiet"]);
+  await runGit(run, checkout, ["remote", "add", "origin", repository]);
+  await runGit(run, checkout, ["fetch", "--depth=1", "--no-tags", "origin", ref]);
+  const revision = (
+    await runGit(run, checkout, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])
+  ).trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
+    throw new Error("Git returned an invalid fetched revision.");
+  }
+  const entries = parseGitTree(
+    await runGit(run, checkout, ["ls-tree", "--full-tree", "-rz", "-r", revision]),
+  );
+  return { revision, entries };
+}
+
 /** Read one file from a Git remote at a pinned fetched revision without materializing a checkout. */
 export async function readGitFile(options: {
   repository: string;
@@ -237,22 +257,17 @@ export async function readGitFile(options: {
   const checkout = await mkdtemp(join(tmpdir(), ".outfitting-git-manifest-"));
   const run = options.run ?? runCommand;
   try {
-    await runGit(run, checkout, ["init", "--quiet"]);
-    await runGit(run, checkout, ["remote", "add", "origin", options.repository]);
-    await runGit(run, checkout, ["fetch", "--depth=1", "--no-tags", "origin", options.ref]);
-    const revision = (
-      await runGit(run, checkout, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])
-    ).trim();
-    if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
-      throw new Error("Git returned an invalid fetched revision.");
-    }
-    const entry = parseGitTree(
-      await runGit(run, checkout, ["ls-tree", "--full-tree", "-rz", "-r", revision]),
-    ).find((candidate) => candidate.path === path);
+    const { revision, entries } = await fetchPinnedTree(
+      run,
+      checkout,
+      options.repository,
+      options.ref,
+    );
+    const entry = entries.find((candidate) => candidate.path === path);
     if (entry === undefined || entry.type !== "blob") {
       throw new Error(`Git manifest \`${path}\` is missing or is not a file.`);
     }
-    if (!["100644", "100755"].includes(entry.mode)) {
+    if (gitModeToFileMode(entry.mode) === undefined) {
       throw new Error(`Git manifest \`${path}\` uses unsupported mode ${entry.mode}.`);
     }
     return await runGit(run, checkout, ["show", `${revision}:${path}`]);
@@ -261,61 +276,22 @@ export async function readGitFile(options: {
   }
 }
 
-function selectGitTreeEntries(
-  entries: readonly GitTreeEntry[],
-  paths: ReadonlyArray<string>,
-): GitTreeEntry[] {
-  const roots = paths.map((path) => relativeSourcePath(path, "BYOR path"));
-  for (const root of roots) {
-    if (!entries.some((entry) => isWithinSourcePath(entry.path, root))) {
-      throw new Error(`Git path \`${root}\` is missing or empty.`);
-    }
-  }
-  for (const root of roots) {
-    if (isReservedSourcePath(root)) {
-      throw new Error(
-        `Git path \`${root}\` is reserved for machine configuration and runtime state.`,
-      );
-    }
-  }
-  const selected = entries.filter(
-    (entry) =>
-      roots.some((root) => isWithinSourcePath(entry.path, root)) &&
-      !isReservedSourcePath(entry.path),
-  );
-  for (const entry of selected) {
-    relativeSourcePath(entry.path, "Git tree path");
-    if (entry.type !== "blob" || !["100644", "100755"].includes(entry.mode)) {
-      throw new Error(
-        `Unsupported Git entry ${entry.path} (${entry.mode}). Remote BYOR sources cannot contain symlinks or submodules in selected paths.`,
-      );
-    }
-  }
-  return selected;
-}
-
 async function copyGitSourceFiles(options: {
   repository: string;
   ref: string;
   paths: ReadonlyArray<string>;
   run: typeof runCommand;
   staged: string;
-}): Promise<GitSourceFile[]> {
+}): Promise<StagedFiles> {
   const checkout = await mkdtemp(join(dirname(options.staged), ".outfitting-git-"));
   try {
-    await runGit(options.run, checkout, ["init", "--quiet"]);
-    await runGit(options.run, checkout, ["remote", "add", "origin", options.repository]);
-    await runGit(options.run, checkout, ["fetch", "--depth=1", "--no-tags", "origin", options.ref]);
-    const revision = (
-      await runGit(options.run, checkout, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])
-    ).trim();
-    if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
-      throw new Error("Git returned an invalid fetched revision.");
-    }
-    const tree = parseGitTree(
-      await runGit(options.run, checkout, ["ls-tree", "--full-tree", "-rz", "-r", revision]),
+    const { revision, entries } = await fetchPinnedTree(
+      options.run,
+      checkout,
+      options.repository,
+      options.ref,
     );
-    const selected = selectGitTreeEntries(tree, options.paths);
+    const selected = selectSourceTreeEntries(entries, options.paths, "Git");
     const roots = [...new Set(options.paths.map((path) => relativeSourcePath(path, "BYOR path")))];
     await runGit(options.run, checkout, ["checkout", revision, "--", ...roots]);
 
@@ -328,13 +304,9 @@ async function copyGitSourceFiles(options: {
       const destination = join(options.staged, entry.path);
       await mkdir(dirname(destination), { recursive: true });
       await copyFile(sourcePath, destination);
-      await chmod(destination, entry.mode === "100755" ? 0o755 : 0o644);
+      await chmod(destination, entry.fileMode);
     }
-    return selected.map((entry) => ({
-      path: entry.path,
-      mode: entry.mode === "100755" ? 0o755 : 0o644,
-      revision,
-    }));
+    return { revision, paths: selected.map((entry) => entry.path) };
   } finally {
     await rm(checkout, { force: true, recursive: true });
   }
@@ -352,14 +324,14 @@ function selectedContract(contract: ByorContract, options: ByorSparseSourceOptio
     }
     case "windows": {
       const selected = selectWindowsByorProfiles(contract, options.profile?.split(","));
-      const { defaultProfiles: _defaultProfiles, ...shared } = contract.windows ?? {};
+      const shared = windowsSharedArtifacts(contract.windows);
       const narrowedContract: ByorContract = {
         schema: 1,
         profiles: Object.fromEntries(
           selected.names.map((name) => [name, { windows: contract.profiles[name]!.windows! }]),
         ),
       };
-      if (Object.keys(shared).length > 0) {
+      if (shared !== undefined) {
         narrowedContract.windows = shared;
       }
       return narrowedContract;
@@ -367,69 +339,58 @@ function selectedContract(contract: ByorContract, options: ByorSparseSourceOptio
   }
 }
 
+async function stageGitHubFiles(options: {
+  repository: GitHubRepository;
+  ref: string;
+  paths: ReadonlyArray<string>;
+  run: typeof runCommand;
+  fetcher: ManifestFetcher | undefined;
+  staged: string;
+}): Promise<StagedFiles> {
+  const files = await readGitHubBlobs(options);
+  for (const file of files) {
+    const destination = join(options.staged, file.path);
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFile(destination, file.body, { mode: file.mode });
+  }
+  const revision = files[0]?.revision;
+  if (revision === undefined) {
+    throw new Error("The selected profile declarations do not resolve to any repository files.");
+  }
+  return { revision, paths: files.map((file) => file.path) };
+}
+
 async function stageByorFiles(args: {
   staged: string;
   options: ByorSparseSourceOptions;
+  source: { repository: string; ref: string };
   contract: ByorContract;
   paths: ReadonlyArray<string>;
 }): Promise<ByorSourceFile[]> {
   const { staged, options, contract, paths } = args;
-  if (options.config.source?.kind !== "remote") {
-    throw new Error("Remote source is not configured in config.toml.");
-  }
-  const { repository, ref } = options.config.source;
+  const { repository, ref } = args.source;
   const run = options.run ?? runCommand;
   const githubRepository = classifyGitHubRepository(repository);
-  let files: GitSourceFile[];
-  if (githubRepository !== undefined) {
-    const githubFiles = await readGitHubBlobs({
-      repository: githubRepository,
-      ref,
-      paths,
-      run,
-      fetcher: options.fetcher,
-    });
-    for (const file of githubFiles) {
-      if (isReservedSourcePath(file.path)) {
-        continue;
-      }
-      const destination = join(staged, file.path);
-      await mkdir(dirname(destination), { recursive: true });
-      await writeFile(destination, file.body, { mode: file.mode });
-    }
-    files = githubFiles.map((file) => ({
-      path: file.path,
-      mode: file.mode,
-      revision: file.revision,
-    }));
-  } else {
-    const source = options.config.source;
-    if (source?.kind !== "remote") {
-      throw new Error("Remote source is not configured in config.toml.");
-    }
-    files = await copyGitSourceFiles({
-      repository: source.repository,
-      ref: source.ref,
-      paths,
-      run,
-      staged,
-    });
-  }
-  const revision = files.find((file) => !isReservedSourcePath(file.path))?.revision;
-  if (revision === undefined) {
-    throw new Error("The selected profile declarations do not resolve to any repository files.");
-  }
+  const files =
+    githubRepository === undefined
+      ? await copyGitSourceFiles({ repository, ref, paths, run, staged })
+      : await stageGitHubFiles({
+          repository: githubRepository,
+          ref,
+          paths,
+          run,
+          fetcher: options.fetcher,
+          staged,
+        });
   const metadata: ByorSourceMetadata = {
     format: "outfitting-source-v1",
     repository,
     ref,
-    revision,
+    revision: files.revision,
     declarationHash: declarationHash(options, contract),
   };
   await writeFile(join(staged, SOURCE_METADATA_PATH), `${JSON.stringify(metadata, null, 2)}\n`);
-  return files
-    .filter((file) => !isReservedSourcePath(file.path))
-    .map((file) => ({ path: file.path, source: "network" }));
+  return files.paths.map((path) => ({ path, source: "network" }));
 }
 
 async function readSourceMetadata(root: string): Promise<ByorSourceMetadata> {
@@ -485,7 +446,13 @@ export async function syncByorSparseSource(
   await mkdir(dirname(target), { recursive: true });
   const staged = await mkdtemp(join(dirname(target), ".outfitting-source-"));
   try {
-    const files = await stageByorFiles({ staged, options: selectedOptions, contract, paths });
+    const files = await stageByorFiles({
+      staged,
+      options: selectedOptions,
+      source: options.config.source,
+      contract,
+      paths,
+    });
     await validateByorSource(staged, options.platform, profile, contract);
     await validateBackups(staged, selectedOptions);
     await replaceSourceTree(staged, target);

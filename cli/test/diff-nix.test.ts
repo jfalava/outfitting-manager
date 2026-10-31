@@ -6,7 +6,7 @@ import { resolveOutfittingRepo } from "@/config";
 import { collectDiff } from "@/diff/compare";
 import type { runCommand } from "@/process";
 import { parseByorContract } from "@/source/contract";
-import { closeNixLock, openNixLock } from "@/update/nix/lock";
+import { openNixLock } from "@/update/nix/lock";
 
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
@@ -90,7 +90,6 @@ describe("Nix active-system comparison", () => {
       });
       expect(result.unavailable).toBe(false);
       expect(result.differences).toBe(status === "different");
-      expect(realpath).toHaveBeenCalledExactlyOnceWith("/run/current-system");
       expect(run).toHaveBeenCalledExactlyOnceWith(
         "/bin/nix",
         [
@@ -108,7 +107,6 @@ describe("Nix active-system comparison", () => {
         }),
       );
       expect(run.mock.calls[0]?.[2]?.env).not.toHaveProperty("NIX_PATH");
-      expect(closeNixLock).toHaveBeenCalledExactlyOnceWith("/lock");
     },
   );
 
@@ -125,10 +123,9 @@ describe("Nix active-system comparison", () => {
     });
     expect(result.unavailable).toBe(true);
     expect(result.sections[0]?.status).toBe("unavailable");
-    expect(closeNixLock).toHaveBeenCalledExactlyOnceWith("/lock");
   });
 
-  test("reports a missing active system as unavailable and releases the lock", async () => {
+  test("reports a missing active system as unavailable without evaluating", async () => {
     vi.mocked(realpath).mockRejectedValue(new Error("missing /run/current-system"));
     const run = vi.fn<typeof runCommand>();
     const result = await collectDiff({
@@ -143,7 +140,6 @@ describe("Nix active-system comparison", () => {
       message: "missing /run/current-system",
     });
     expect(run).not.toHaveBeenCalled();
-    expect(closeNixLock).toHaveBeenCalledExactlyOnceWith("/lock");
   });
 
   test("does not pull the lock or evaluate when offline", async () => {

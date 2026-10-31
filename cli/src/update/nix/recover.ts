@@ -1,5 +1,4 @@
 import { stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
 
 import { Console, Effect } from "effect";
 
@@ -27,29 +26,14 @@ export interface RecoverNixOptions {
   push?: typeof pushLockfile;
 }
 
-function recoveryIfMatch(baseHash: string): string | undefined {
-  return /^[0-9a-f]{64}$/i.test(baseHash) ? baseHash : undefined;
-}
-
 function activatePreparedNix(
   options: RecoverNixOptions,
   state: NixRecoveryState,
   recoveryDir: string,
 ) {
   return Effect.gen(function* () {
-    if (
-      state.platform === undefined ||
-      state.systemConfig === undefined ||
-      !isAbsolute(state.systemConfig) ||
-      (state.platform === "linux" && (state.repoRoot === undefined || !isAbsolute(state.repoRoot)))
-    ) {
-      return yield* new CliFailure({
-        message:
-          "Legacy prepared Nix checkpoint has no pinned build and cannot safely activate. Inspect the checkpoint before recovering it manually.",
-      });
-    }
     const available = yield* Effect.promise(async () =>
-      stat(state.systemConfig!).then(
+      stat(state.systemConfig).then(
         (info) => info.isDirectory(),
         () => false,
       ),
@@ -59,23 +43,23 @@ function activatePreparedNix(
         message: `Pinned Nix build no longer exists: ${state.systemConfig}. Checkpoint retained; refusing to rebuild from a changed source.`,
       });
     }
-    const activate = options.activate ?? activateNixSystem;
     yield* setTerminalPhase("Activating recovered profile");
     if (state.platform === "linux") {
       const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
       yield* Console.log(ui.heading("Activating the recovered Home Manager profile…"));
       yield* tryPromise(() =>
         activateHomeManagerFn({
-          activationPackage: state.systemConfig!,
-          repoRoot: state.repoRoot!,
+          activationPackage: state.systemConfig,
+          repoRoot: state.repoRoot,
         }),
       );
     } else {
+      const activate = options.activate ?? activateNixSystem;
       const session = yield* TerminalSession;
       yield* Console.log(ui.heading("Activating the recovered nix-darwin system…"));
       yield* tryPromise(() =>
         activate({
-          systemConfig: state.systemConfig!,
+          systemConfig: state.systemConfig,
           alert: session.alert,
           resume: session.resume,
         }),
@@ -98,12 +82,12 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
 
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
     const platform = process.platform === "darwin" ? "macos" : "linux";
-    if (state.platform !== undefined && state.platform !== platform) {
+    if (state.platform !== platform) {
       return yield* new CliFailure({
         message: `Nix recovery checkpoint belongs to ${state.platform}, not ${platform}.`,
       });
     }
-    if (state.machine !== undefined && state.machine !== config.machineId) {
+    if (state.machine !== config.machineId) {
       return yield* new CliFailure({
         message: `Nix recovery checkpoint belongs to ${state.machine}; current machine is ${config.machineId}.`,
       });
@@ -120,7 +104,7 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
       machine: config.machineId,
       kind: NIX_LOCK_KIND,
       path: state.lockPath,
-      ifMatch: recoveryIfMatch(state.baseHash),
+      ifMatch: state.baseHash,
     });
     yield* tryPromise(() => clearNixRecovery(recoveryDir));
     yield* Console.log(ui.success("Nix recovery completed successfully."));

@@ -2,12 +2,9 @@ import { Flag } from "effect/cli";
 
 export const linuxProfileFlag = Flag.String("profile").pipe(
   Flag.optional,
-  Flag.withDescription("Profile declared in config.toml (defaults to its Linux selection)."),
-);
-
-export const linuxOptionalProfileFlag = Flag.String("profile").pipe(
-  Flag.optional,
-  Flag.withDescription("Linux profile; defaults to config.toml or OUTFITTING_PROFILE."),
+  Flag.withDescription(
+    "Linux profile declared in config.toml; defaults to OUTFITTING_PROFILE or its Linux selection.",
+  ),
 );
 
 export const linuxPackageManagerFlag = Flag.Literals("package-manager", ["apt", "pacman"]).pipe(

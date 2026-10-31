@@ -1,6 +1,7 @@
 import { Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
+import { initFlags } from "@/commands/setup/flags";
 import { runSetup } from "@/setup/run";
 
 /**
@@ -10,21 +11,10 @@ import { runSetup } from "@/setup/run";
 export const macosInitCommand = Command.make(
   "init",
   {
-    machineId: Flag.String("machine-id").pipe(
-      Flag.optional,
-      Flag.withDescription("Override machine id (default: auto user:arch-os)."),
-    ),
-    repo: Flag.String("repo").pipe(
-      Flag.optional,
-      Flag.withDescription("Local source path override for this invocation."),
-    ),
+    ...initFlags,
     profile: Flag.String("profile").pipe(
       Flag.optional,
       Flag.withDescription("macOS profile declared in config.toml (defaults to its selection)."),
-    ),
-    noRefresh: Flag.Boolean("no-refresh").pipe(
-      Flag.withDefault(false),
-      Flag.withDescription("Validate and use the published source without refreshing it."),
     ),
   },
   ({ machineId, repo, profile, noRefresh }) =>

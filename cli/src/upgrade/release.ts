@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 
 import { toError } from "@/effect";
+import { CliFailure } from "@/errors";
 import { isNewerVersion } from "@/upgrade/version";
 
 const RELEASES_URL = "https://api.github.com/repos/jfalava/outfitting-manager/releases?per_page=30";
@@ -35,7 +36,7 @@ export interface CliRelease {
   executableName: string;
 }
 
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 function selectReleaseAsset(
   release: GitHubRelease,
@@ -49,17 +50,12 @@ function selectReleaseAsset(
   return checksum ? { asset: archive, checksum } : undefined;
 }
 
-function releaseVersion(tagName: string): string {
-  return tagName.replace(/^cli-/, "").replace(/^v/, "");
-}
-
-function isNewerRelease(candidate: GitHubRelease, current: GitHubRelease): boolean {
-  return isNewerVersion(releaseVersion(candidate.tag_name), releaseVersion(current.tag_name));
-}
+const CLI_TAG_PREFIX = "cli-v";
 
 function newestRelease(releases: ReadonlyArray<GitHubRelease>): GitHubRelease | undefined {
   return releases.reduce<GitHubRelease | undefined>(
-    (newest, candidate) => (!newest || isNewerRelease(candidate, newest) ? candidate : newest),
+    (newest, candidate) =>
+      !newest || isNewerVersion(candidate.tag_name, newest.tag_name) ? candidate : newest,
     undefined,
   );
 }
@@ -68,7 +64,7 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
   assetName: string,
   executableName: string,
   fetcher: Fetcher = fetch,
-): Effect.fn.Return<CliRelease, ReturnType<typeof toError>> {
+): Effect.fn.Return<CliRelease, CliFailure> {
   const response = yield* Effect.tryPromise({
     try: () =>
       fetcher(RELEASES_URL, {
@@ -82,13 +78,15 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
     catch: toError,
   });
   if (!response.ok) {
-    return yield* toError(new Error(`GitHub release check failed with HTTP ${response.status}.`));
+    return yield* new CliFailure({
+      message: `GitHub release check failed with HTTP ${response.status}.`,
+    });
   }
 
   const raw: unknown = yield* Effect.tryPromise({ try: () => response.json(), catch: toError });
   const body = decodeReleaseList(raw);
   if (Option.isNone(body)) {
-    return yield* toError(new Error("GitHub returned an invalid releases response."));
+    return yield* new CliFailure({ message: "GitHub returned an invalid releases response." });
   }
 
   const releases = body.value.flatMap((candidate) => {
@@ -104,18 +102,20 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
   );
   const release = newestRelease(stableReleases);
   if (!release) {
-    return yield* toError(new Error("No stable outfitting-manager CLI release was found."));
+    return yield* new CliFailure({
+      message: "No stable outfitting-manager CLI release was found.",
+    });
   }
 
   const assets = selectReleaseAsset(release, assetName);
   if (!assets) {
-    return yield* toError(
-      new Error(`Release ${release.tag_name} does not contain ${assetName} and its checksum.`),
-    );
+    return yield* new CliFailure({
+      message: `Release ${release.tag_name} does not contain ${assetName} and its checksum.`,
+    });
   }
 
   return {
-    version: releaseVersion(release.tag_name),
+    version: release.tag_name.slice(CLI_TAG_PREFIX.length),
     assetUrl: assets.asset.browser_download_url,
     checksumUrl: assets.checksum.browser_download_url,
     executableName,

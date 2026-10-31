@@ -22,6 +22,14 @@ afterEach(async () => {
   await Promise.all(temps.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
+const hostPlatform = process.platform === "darwin" ? "macos" : "linux";
+const checkpointContext = {
+  machine: "test:aarch64-linux",
+  platform: "linux" as const,
+  systemConfig: "/nix/store/built-system",
+  repoRoot: "/repo",
+};
+
 async function tempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "outfitting-nix-rec-"));
   temps.push(dir);
@@ -38,10 +46,9 @@ describe("nix recovery checkpoint", () => {
     expect(await hasNixRecovery(recoveryDir)).toBe(false);
 
     const state = await prepareNixRecovery({
+      ...checkpointContext,
       lockPath: lockSource,
-      baseHash: "abc123",
-      machine: "test:aarch64-linux",
-      platform: "linux",
+      baseHash: "c".repeat(64),
       profile: "workstation",
       recoveryDir,
     });
@@ -50,7 +57,7 @@ describe("nix recovery checkpoint", () => {
     expect(await readFile(state.lockPath, "utf8")).toContain("lock");
 
     const loaded = await readNixRecovery(recoveryDir);
-    expect(loaded?.baseHash).toBe("abc123");
+    expect(loaded?.baseHash).toBe("c".repeat(64));
     expect(loaded?.phase).toBe("prepared");
     expect(loaded).toMatchObject({
       machine: "test:aarch64-linux",
@@ -63,11 +70,7 @@ describe("nix recovery checkpoint", () => {
     expect(after?.phase).toBe("activated");
 
     await expect(
-      prepareNixRecovery({
-        lockPath: lockSource,
-        baseHash: "other",
-        recoveryDir,
-      }),
+      prepareNixRecovery({ ...checkpointContext, lockPath: lockSource, recoveryDir }),
     ).rejects.toThrow(/already exists/);
 
     await clearNixRecovery(recoveryDir);
@@ -84,7 +87,7 @@ describe("nix recovery checkpoint", () => {
 
     await expect(hasNixRecovery(recoveryDir)).rejects.toMatchObject({ code: "EISDIR" });
     await expect(
-      prepareNixRecovery({ lockPath: lockSource, baseHash: "abc123", recoveryDir }),
+      prepareNixRecovery({ ...checkpointContext, lockPath: lockSource, recoveryDir }),
     ).rejects.toMatchObject({ code: "EISDIR" });
     expect(await readdir(recoveryDir)).toEqual(["phase"]);
     expect(await readdir(join(recoveryDir, "phase"))).toEqual([]);
@@ -102,11 +105,10 @@ describe("recoverNix", () => {
       await mkdir(systemConfig);
       await writeFile(lockSource, '{ "lock": true }\n', "utf8");
       await prepareNixRecovery({
+        ...checkpointContext,
         lockPath: lockSource,
         baseHash: "a".repeat(64),
         systemConfig,
-        repoRoot: "/repo",
-        platform: "linux",
         recoveryDir,
       });
 
@@ -151,7 +153,7 @@ describe("recoverNix", () => {
   );
 
   test.skipIf(process.platform === "darwin")(
-    "keeps legacy and garbage-collected prepared checkpoints without activating or publishing",
+    "keeps a garbage-collected prepared checkpoint without activating or publishing",
     async () => {
       const parent = await tempDir();
       const config: ManagerConfig = {
@@ -162,41 +164,74 @@ describe("recoverNix", () => {
       };
       const lockSource = join(parent, "source.lock");
       await writeFile(lockSource, '{"version":7}\n');
+      const recoveryDir = join(parent, "collected");
+      await prepareNixRecovery({
+        ...checkpointContext,
+        lockPath: lockSource,
+        baseHash: "a".repeat(64),
+        systemConfig: join(parent, "missing-system"),
+        recoveryDir,
+      });
       const calls: string[] = [];
-      for (const [label, systemConfig] of [
-        ["legacy", undefined],
-        ["collected", join(parent, "missing-system")],
-      ] as const) {
-        const recoveryDir = join(parent, label);
-        await prepareNixRecovery({
-          lockPath: lockSource,
-          baseHash: "a".repeat(64),
-          platform: "linux",
-          repoRoot: parent,
-          systemConfig,
-          recoveryDir,
-        });
-        await expect(
-          Effect.runPromise(
-            recoverNix({
-              config,
-              recoveryDir,
-              activateHomeManager: async () => {
-                calls.push("activate");
-              },
-              push: () =>
-                Effect.sync(() => {
-                  calls.push("push");
-                  return undefined;
-                }),
-            }),
-          ),
-        ).rejects.toThrow(/pinned build|no longer exists/);
-        expect((await readNixRecovery(recoveryDir))?.phase).toBe("prepared");
-      }
+      await expect(
+        Effect.runPromise(
+          recoverNix({
+            config,
+            recoveryDir,
+            activateHomeManager: async () => {
+              calls.push("activate");
+            },
+            push: () =>
+              Effect.sync(() => {
+                calls.push("push");
+                return undefined;
+              }),
+          }),
+        ),
+      ).rejects.toThrow(/no longer exists/);
+      expect((await readNixRecovery(recoveryDir))?.phase).toBe("prepared");
       expect(calls).toEqual([]);
     },
   );
+
+  test("rejects a checkpoint from an older outfitting-manager and keeps it for inspection", async () => {
+    const parent = await tempDir();
+    const recoveryDir = join(parent, "nix-lock-recovery");
+    await mkdir(recoveryDir);
+    await writeFile(join(recoveryDir, "flake.lock"), '{"version":7}\n');
+    await writeFile(join(recoveryDir, "base-hash"), `${"a".repeat(64)}\n`);
+    await writeFile(join(recoveryDir, "phase"), "prepared\n");
+    const calls: string[] = [];
+
+    await expect(
+      Effect.runPromise(
+        recoverNix({
+          config: {
+            configPath: join(parent, "config.toml"),
+            stateRoot: parent,
+            machineId: "test:aarch64-linux",
+            machineIdOverridden: true,
+          },
+          recoveryDir,
+          activate: async () => {
+            calls.push("activate");
+          },
+          activateHomeManager: async () => {
+            calls.push("activate");
+          },
+          push: () =>
+            Effect.sync(() => {
+              calls.push("push");
+              return undefined;
+            }),
+        }),
+      ),
+    ).rejects.toThrow(
+      `older outfitting-manager or damaged); inspect it, then remove ${recoveryDir}`,
+    );
+    expect(calls).toEqual([]);
+    expect((await readdir(recoveryDir)).toSorted()).toEqual(["base-hash", "flake.lock", "phase"]);
+  });
 
   test("retains the checkpoint when publishing fails", async () => {
     const parent = await tempDir();
@@ -204,8 +239,9 @@ describe("recoverNix", () => {
     const lockSource = join(parent, "source.lock");
     await writeFile(lockSource, '{ "lock": true }\n', "utf8");
     await prepareNixRecovery({
+      ...checkpointContext,
+      platform: hostPlatform,
       lockPath: lockSource,
-      baseHash: "local",
       recoveryDir,
     });
     await setNixRecoveryPhase("activated", recoveryDir);
@@ -213,11 +249,14 @@ describe("recoverNix", () => {
     const config: ManagerConfig = {
       configPath: join(parent, "state", "config.toml"),
       stateRoot: join(parent, "state"),
-      machineId: "test:aarch64-darwin",
+      machineId: checkpointContext.machine,
       machineIdOverridden: true,
     };
-    const push: NonNullable<RecoverNixOptions["push"]> = () =>
-      Effect.fail(new CliFailure({ message: "stale remote lock" }));
+    let pushed: Parameters<NonNullable<RecoverNixOptions["push"]>>[0] | undefined;
+    const push: NonNullable<RecoverNixOptions["push"]> = (options) => {
+      pushed = options;
+      return Effect.fail(new CliFailure({ message: "stale remote lock" }));
+    };
 
     await expect(
       Effect.runPromise(
@@ -228,6 +267,7 @@ describe("recoverNix", () => {
         }),
       ),
     ).rejects.toThrow("stale remote lock");
+    expect(pushed).toMatchObject({ path: join(recoveryDir, "flake.lock"), ifMatch: undefined });
     expect(await hasNixRecovery(recoveryDir)).toBe(true);
     expect((await readNixRecovery(recoveryDir))?.phase).toBe("activated");
   });
@@ -243,13 +283,11 @@ describe("recoverNix", () => {
       await mkdir(systemConfig);
       await writeFile(lockSource, '{"version":7}\n', "utf8");
       await prepareNixRecovery({
+        ...checkpointContext,
         lockPath: lockSource,
         baseHash,
-        machine: "test:aarch64-linux",
-        platform: "linux",
         profile: "workstation",
         systemConfig,
-        repoRoot: "/repo",
         recoveryDir,
       });
 

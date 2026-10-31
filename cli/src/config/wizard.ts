@@ -11,10 +11,10 @@ import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { loadConfig } from "@/config/load";
 import { configFilePath, stateRoot } from "@/config/paths";
 import type { OutfittingRepo } from "@/config/repo";
-import type { BackupsConfig, FontsConfig } from "@/config/types";
+import type { BackupsConfig, FontsConfig, ManagerConfig } from "@/config/types";
 import { publishValidatedConfig } from "@/config/write";
-import { tryPromise } from "@/effect";
-import { isNotFound, errorMessage } from "@/errors";
+import { toError, tryPromise } from "@/effect";
+import { CliFailure, isNotFound, errorMessage } from "@/errors";
 import { classifyGitHubRepository, readGitHubFile } from "@/fetch/github";
 import { hostPlatform, type HostPlatform } from "@/platform";
 import { envValue } from "@/secrets";
@@ -38,6 +38,7 @@ import {
   profileNames,
   isWithinSourcePath,
   validateByorSource,
+  windowsSharedArtifacts,
 } from "@/source/contract";
 import { discoverNixSourcePaths, missingSourcePathFromNixError } from "@/source/nix-dependencies";
 import { TerminalSession, withTerminalInput } from "@/terminal-alert";
@@ -52,7 +53,7 @@ type WizardSource = { path: string } | { repository: string; ref: string };
 
 interface WizardConfigDocument {
   schema: 1 | 2;
-  backups?: import("@/config/types").BackupsConfig;
+  backups?: BackupsConfig;
   fonts?: FontsConfig;
   machine_id?: string;
   source: WizardSource;
@@ -64,7 +65,7 @@ interface WizardConfigDocument {
 
 interface ExistingWizardConfigDocument {
   schema?: 1 | 2;
-  backups?: import("@/config/types").BackupsConfig;
+  backups?: BackupsConfig;
   fonts?: FontsConfig;
   machine_id?: string;
   source?: WizardSource;
@@ -147,21 +148,25 @@ function localSourcePathPrompt(configDirectory: string, defaultPath = process.cw
   );
 }
 
-function normalizedTextPrompt(
+/**
+ * Prompt for a non-empty trimmed value. `normalize` validates and rewrites the answer; with
+ * `keepDefault`, accepting the unchanged default skips normalization so it is kept verbatim.
+ */
+function requiredTextPrompt(
   message: string,
-  normalize: (value: string) => string,
   defaultValue?: string,
-  preserveDefault = false,
+  options: { normalize?: (value: string) => string; keepDefault?: boolean } = {},
 ) {
   const validate = (value: string) => {
-    if (value.trim().length === 0) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
       return Effect.fail("This value is required.");
     }
+    if (options.normalize === undefined || (options.keepDefault && trimmed === defaultValue)) {
+      return Effect.succeed(trimmed);
+    }
     try {
-      const trimmed = value.trim();
-      return Effect.succeed(
-        preserveDefault && trimmed === defaultValue ? defaultValue : normalize(trimmed),
-      );
+      return Effect.succeed(options.normalize(trimmed));
     } catch (cause) {
       return Effect.fail(errorMessage(cause));
     }
@@ -179,6 +184,20 @@ function optionalTextPrompt(message: string, defaultValue?: string) {
     "question",
     message,
   ).pipe(Effect.map((value) => value.trim() || undefined));
+}
+
+/** Optional `{ manifest }` declaration; a blank answer skips it. */
+function optionalManifestPrompt(label: string, existing?: { manifest: string }) {
+  return optionalTextPrompt(`${label} (blank to skip)`, existing?.manifest).pipe(
+    Effect.map((manifest) => (manifest === undefined ? undefined : { manifest })),
+  );
+}
+
+/** Optional `{ path }` declaration; a blank answer skips it. */
+function optionalPathPrompt(label: string, existing?: { path: string }) {
+  return optionalTextPrompt(`${label} (blank to skip)`, existing?.path).pipe(
+    Effect.map((path) => (path === undefined ? undefined : { path })),
+  );
 }
 
 function commaSeparatedPaths(value: string | undefined): string[] {
@@ -213,21 +232,15 @@ function profileNamePrompt(message: string, defaultName: string | undefined, can
     ).pipe(
       Effect.filterOrElse(
         (name) => name !== enterProfileSentinel,
-        () => normalizedTextPrompt(message, (value) => value),
+        () => requiredTextPrompt(message),
       ),
     );
   }
-  return normalizedTextPrompt(message, (value) => value, defaultName ?? candidates[0]);
+  return requiredTextPrompt(message, defaultName ?? candidates[0]);
 }
 
-function collectLinuxApt(existing?: NonNullable<ByorProfileDeclaration["linux"]>["apt"]) {
-  return normalizedTextPrompt("APT manifest path", (value) => value, existing?.manifest).pipe(
-    Effect.map((manifest) => ({ manifest })),
-  );
-}
-
-function collectLinuxPacman(existing?: NonNullable<ByorProfileDeclaration["linux"]>["pacman"]) {
-  return normalizedTextPrompt("pacman manifest path", (value) => value, existing?.manifest).pipe(
+function collectLinuxManifest(label: string, existing?: { manifest: string }) {
+  return requiredTextPrompt(`${label} manifest path`, existing?.manifest).pipe(
     Effect.map((manifest) => ({ manifest })),
   );
 }
@@ -237,14 +250,9 @@ function collectLinuxNix(
   existing?: NonNullable<ByorProfileDeclaration["linux"]>["nix"],
 ) {
   return Effect.gen(function* () {
-    const flake = yield* normalizedTextPrompt(
-      "Nix flake directory",
-      (value) => value,
-      existing?.flake,
-    );
-    const attribute = yield* normalizedTextPrompt(
+    const flake = yield* requiredTextPrompt("Nix flake directory", existing?.flake);
+    const attribute = yield* requiredTextPrompt(
       "Nix output derivation attribute (Home Manager example: homeConfigurations.<name>.activationPackage)",
-      (value) => value,
       existing?.attribute ?? `homeConfigurations.${profileName}.activationPackage`,
     );
     return { flake, attribute };
@@ -273,10 +281,13 @@ function collectLinuxPaths(existing?: ReadonlyArray<string>) {
   });
 }
 
-function selectLinuxBackends(existing?: ByorProfileDeclaration["linux"]) {
+export function selectLinuxBackends(
+  profileName: string,
+  existing?: ByorProfileDeclaration["linux"],
+) {
   return withTerminalInput(
     Prompt.MultiSelect({
-      message: "Choose the package sources this Linux profile declares",
+      message: `Choose package sources for Linux profile ${profileName}`,
       min: 1,
       choices: [
         { title: "APT manifest", value: "apt", selected: existing?.apt !== undefined },
@@ -295,17 +306,14 @@ export function collectLinuxDeclaration(
   return Effect.gen(function* () {
     const linux: LinuxProfileDeclaration = {};
     if (backends.includes("apt")) {
-      linux.apt = yield* collectLinuxApt(existing?.apt);
+      linux.apt = yield* collectLinuxManifest("APT", existing?.apt);
     }
     if (backends.includes("pacman")) {
-      linux.pacman = yield* collectLinuxPacman(existing?.pacman);
+      linux.pacman = yield* collectLinuxManifest("pacman", existing?.pacman);
     }
     if (backends.includes("nix")) {
       linux.nix = yield* collectLinuxNix(profileName, existing?.nix);
-    }
-    if (backends.includes("nix")) {
-      const paths = yield* collectLinuxPaths(existing?.paths);
-      linux.paths = paths;
+      linux.paths = yield* collectLinuxPaths(existing?.paths);
     }
     return linux;
   });
@@ -319,7 +327,7 @@ function collectLinuxProfile(
   return Effect.gen(function* () {
     const name = yield* profileNamePrompt("Linux profile name", defaultName, candidates);
     const declaration = existing?.profiles[name]?.linux;
-    const backends = yield* selectLinuxBackends(declaration);
+    const backends = yield* selectLinuxBackends(name, declaration);
     const linux = yield* collectLinuxDeclaration(name, backends, declaration);
     const contract = parseByorContract({ schema: 1, profiles: { [name]: { linux } } });
     return { contract, profiles: [name] };
@@ -328,16 +336,8 @@ function collectLinuxProfile(
 
 export function collectMacosNix(existing?: MacosProfileDeclaration["nix"]) {
   return Effect.gen(function* () {
-    const flake = yield* normalizedTextPrompt(
-      "Nix flake directory",
-      (value) => value,
-      existing?.flake,
-    );
-    const attribute = yield* normalizedTextPrompt(
-      "Nix output attribute",
-      (value) => value,
-      existing?.attribute,
-    );
+    const flake = yield* requiredTextPrompt("Nix flake directory", existing?.flake);
+    const attribute = yield* requiredTextPrompt("Nix output attribute", existing?.attribute);
     const nix: MacosProfileDeclaration["nix"] = { flake, attribute };
     const darwin = yield* optionalTextPrompt(
       `Darwin configuration path (blank for ${nix.flake}/darwin.nix)`,
@@ -360,12 +360,9 @@ export function collectMacosExtras(existing?: ByorProfileDeclaration["macos"]) {
     if (brewfile !== undefined) {
       macos.brewfile = brewfile;
     }
-    const fonts = yield* optionalTextPrompt(
-      "Fonts manifest path (blank to skip)",
-      existing?.fonts?.manifest,
-    );
+    const fonts = yield* optionalManifestPrompt("Fonts manifest path", existing?.fonts);
     if (fonts !== undefined) {
-      macos.fonts = { manifest: fonts };
+      macos.fonts = fonts;
     }
     const paths = yield* optionalTextPrompt(
       "Extra repository paths (comma-separated, blank if none)",
@@ -401,35 +398,13 @@ export function collectWindowsProfileDeclarations(
   return Effect.gen(function* () {
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
-      const manifest = yield* normalizedTextPrompt(
+      const manifest = yield* requiredTextPrompt(
         `WinGet manifest path for ${name}`,
-        (value) => value,
         existing?.profiles[name]?.windows?.winget.manifest,
       );
       profiles[name] = { windows: { winget: { manifest } } };
     }
     return profiles;
-  });
-}
-
-function collectWindowsFontsAndRegistry(existing?: ByorContract["windows"]) {
-  return Effect.gen(function* () {
-    const extra: Pick<ByorWindowsShared, "fonts" | "registry"> = {};
-    const fonts = yield* optionalTextPrompt(
-      "Windows fonts manifest path (blank to skip)",
-      existing?.fonts?.manifest,
-    );
-    if (fonts !== undefined) {
-      extra.fonts = { manifest: fonts };
-    }
-    const registry = yield* optionalTextPrompt(
-      "Registry file path (blank to skip)",
-      existing?.registry?.path,
-    );
-    if (registry !== undefined) {
-      extra.registry = { path: registry };
-    }
-    return extra;
   });
 }
 
@@ -440,21 +415,22 @@ export function collectWindowsShared(
 ) {
   return Effect.gen(function* () {
     const windows: ByorWindowsShared = { defaultProfiles: [...defaultProfiles] };
-    const scoop = yield* optionalTextPrompt(
-      "Scoop manifest path (blank to skip)",
-      existing?.scoop?.manifest,
-    );
+    const scoop = yield* optionalManifestPrompt("Scoop manifest path", existing?.scoop);
     if (scoop !== undefined) {
-      windows.scoop = { manifest: scoop };
+      windows.scoop = scoop;
     }
-    const powershell = yield* optionalTextPrompt(
-      "PowerShell script path (blank to skip)",
-      existing?.powershell?.path,
-    );
+    const powershell = yield* optionalPathPrompt("PowerShell script path", existing?.powershell);
     if (powershell !== undefined) {
-      windows.powershell = { path: powershell };
+      windows.powershell = powershell;
     }
-    Object.assign(windows, yield* collectWindowsFontsAndRegistry(existing));
+    const fonts = yield* optionalManifestPrompt("Windows fonts manifest path", existing?.fonts);
+    if (fonts !== undefined) {
+      windows.fonts = fonts;
+    }
+    const registry = yield* optionalPathPrompt("Registry file path", existing?.registry);
+    if (registry !== undefined) {
+      windows.registry = registry;
+    }
     return windows;
   });
 }
@@ -464,10 +440,10 @@ export function collectWindowsProfiles(
   existing?: ByorContract,
 ) {
   return Effect.gen(function* () {
-    const namesInput = yield* normalizedTextPrompt(
+    const namesInput = yield* requiredTextPrompt(
       "Windows profile names (comma-separated)",
-      requiredProfileNames,
       defaultProfiles.join(", ") || undefined,
+      { normalize: requiredProfileNames },
     );
     const names = namesInput.split(",");
     const profiles = yield* collectWindowsProfileDeclarations(names, existing);
@@ -488,10 +464,7 @@ export function mergeByorContractDefaults(
     return manifest;
   }
 
-  const profiles = { ...manifest.profiles } satisfies ByorContract["profiles"];
-  for (const [name, profile] of Object.entries(toml.profiles)) {
-    profiles[name] = { ...profiles[name], ...profile };
-  }
+  const profiles = mergeProfiles(manifest.profiles, toml.profiles);
   const windows = { ...manifest.windows, ...toml.windows };
   const merged: ByorContract = {
     schema: 1,
@@ -633,8 +606,8 @@ function selectWindowsConfig(
 ): void {
   document.windows ??= {};
   document.windows.profiles = [...profiles];
-  const { defaultProfiles: _defaultProfiles, ...shared } = contract.windows ?? {};
-  if (Object.keys(shared).length > 0) {
+  const shared = windowsSharedArtifacts(contract.windows);
+  if (shared !== undefined) {
     document.windows.shared = shared;
   } else {
     delete document.windows.shared;
@@ -647,14 +620,13 @@ export function buildWizardConfigDocument(
   options: WizardDocumentOptions,
 ): WizardConfigDocument {
   const { platform, profiles, manifest, existing } = options;
-  const manifestWindows = manifest?.windows;
-  const { defaultProfiles: _manifestDefaults, ...manifestShared } = manifestWindows ?? {};
+  const manifestShared = windowsSharedArtifacts(manifest?.windows);
   const document: WizardConfigDocument = {
     schema: 1,
     source,
     profiles: mergeProfiles(manifest?.profiles, existing?.profiles, contract.profiles),
   };
-  if (Object.keys(manifestShared).length > 0) {
+  if (manifestShared !== undefined) {
     document.windows = { shared: manifestShared };
   }
 
@@ -737,19 +709,20 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
       (name) => profiles[name]?.platform === platform,
     );
     const name = yield* profileNamePrompt("Backup profile", current?.profile, candidates);
-    const files = yield* normalizedTextPrompt(
+    const files = yield* requiredTextPrompt(
       "Backup TOML files, comma-separated in composition order",
-      (value) => value.split(",").map(normalizeBackupPath).join(", "),
       profiles[name]?.files.join(", "),
+      { normalize: (value) => value.split(",").map(normalizeBackupPath).join(", ") },
     );
     profiles[name] = {
       ...profiles[name],
       platform,
       files: files.split(",").map((file) => file.trim()),
     };
-    const validated = yield* tryPromise(async () =>
-      normalizeBackups({ defaultProfile: name, profiles })!,
-    );
+    const validated = yield* Effect.try({
+      try: () => normalizeBackups({ defaultProfile: name, profiles })!,
+      catch: toError,
+    });
     if (root !== undefined) {
       for (const [profile, declaration] of Object.entries(validated.profiles)) {
         if (declaration.platform === platform) {
@@ -840,17 +813,17 @@ function remoteSourceSetupPrompt(existingSource?: WizardSource) {
   return Effect.gen(function* () {
     const existingRemote =
       existingSource !== undefined && "repository" in existingSource ? existingSource : undefined;
-    const repository = yield* normalizedTextPrompt(
-      "Git repository URL",
-      normalizeGitRepository,
-      existingRemote?.repository,
-      true,
-    );
-    const ref = yield* normalizedTextPrompt(
+    const repository = yield* requiredTextPrompt("Git repository URL", existingRemote?.repository, {
+      normalize: normalizeGitRepository,
+      keepDefault: true,
+    });
+    const ref = yield* requiredTextPrompt(
       "Git branch, tag, or ref",
-      validateGitRef,
       existingRemote?.ref ?? "main",
-      existingRemote?.ref !== undefined,
+      {
+        normalize: validateGitRef,
+        keepDefault: existingRemote?.ref !== undefined,
+      },
     );
     return { source: { repository, ref }, localRoot: undefined };
   });
@@ -881,11 +854,9 @@ function manifestPathPrompt(explicitPath?: string) {
   ).pipe(
     Effect.flatMap((importManifest) =>
       importManifest
-        ? normalizedTextPrompt(
-            "Repo-relative manifest path",
-            (value) => relativeSourcePath(value, "BYOR manifest path"),
-            BYOR_CONTRACT_PATH,
-          )
+        ? requiredTextPrompt("Repo-relative manifest path", BYOR_CONTRACT_PATH, {
+            normalize: (value) => relativeSourcePath(value, "BYOR manifest path"),
+          })
         : Effect.void,
     ),
   );
@@ -943,6 +914,12 @@ function interview(platform: HostPlatform, explicitManifestPath?: string) {
   );
 }
 
+const confirmPackagePlan = withTerminalInput(
+  Prompt.Confirm({ message: "Apply the displayed package plan?", initial: false }),
+  "permission",
+  "Apply the displayed package plan?",
+).pipe(Effect.orDie);
+
 function confirm(message: string) {
   return withTerminalInput(Prompt.Confirm({ message, initial: false }), "permission", message).pipe(
     Effect.catchTag("QuitError", () => Effect.succeed(false)),
@@ -960,7 +937,7 @@ function commandPrefix(configPath: string, platform: HostPlatform): string {
 }
 
 function selectedNixDeclaration(
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: ManagerConfig,
   platform: HostPlatform,
   profiles: ReadonlyArray<string>,
 ): boolean {
@@ -974,12 +951,10 @@ function selectedNixDeclaration(
   return false;
 }
 
-type LoadedWizardConfig = Awaited<ReturnType<typeof loadConfig>>;
-
 interface LinuxNixWizardState {
   document: WizardConfigDocument;
   serialized: string;
-  config: LoadedWizardConfig;
+  config: ManagerConfig;
   repo: OutfittingRepo;
 }
 
@@ -1163,12 +1138,19 @@ function prepareLinuxNixSetup(answers: WizardAnswers, initial: LinuxNixWizardSta
         }
       }
 
+      const { repo } = state;
       const build = yield* Effect.result(
-        withActivity(
-          `Checking Nix source (attempt ${attempt + 1})`,
-          tryPromise(() => buildNixSystem({ repo: state.repo, mode: "dry" })),
-          { announceNonTTY: false },
-        ),
+        repo.flakeKind === "none"
+          ? Effect.fail(
+              new CliFailure({
+                message: `Linux profile \`${profile}\` does not declare a Nix flake.`,
+              }),
+            )
+          : withActivity(
+              `Checking Nix source (attempt ${attempt + 1})`,
+              tryPromise(() => buildNixSystem({ repo, mode: "dry" })),
+              { announceNonTTY: false },
+            ),
       );
       if (Result.isSuccess(build)) {
         yield* Console.log(ui.success("Nix dry-run passed."));
@@ -1220,7 +1202,7 @@ function displayNextCommands(commands: ReadonlyArray<string>) {
 }
 
 function continueLinuxSetup(
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: ManagerConfig,
   profiles: ReadonlyArray<string>,
   prefix: string,
   strict: boolean,
@@ -1238,11 +1220,7 @@ function continueLinuxSetup(
         strict,
         noRefresh: true,
         ifConfigured: true,
-        confirm: withTerminalInput(
-          Prompt.Confirm({ message: "Apply the displayed package plan?", initial: false }),
-          "permission",
-          "Apply the displayed package plan?",
-        ).pipe(Effect.orDie),
+        confirm: confirmPackagePlan,
       });
       return [];
     }
@@ -1251,7 +1229,7 @@ function continueLinuxSetup(
 }
 
 function continueMacosSetup(
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: ManagerConfig,
   profiles: ReadonlyArray<string>,
   prefix: string,
   strict: boolean,
@@ -1275,7 +1253,7 @@ function continueMacosSetup(
 }
 
 function continueWindowsSetup(
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: ManagerConfig,
   profiles: ReadonlyArray<string>,
   prefix: string,
   strict: boolean,
@@ -1286,11 +1264,7 @@ function continueWindowsSetup(
         config,
         profiles,
         strict,
-        confirm: withTerminalInput(
-          Prompt.Confirm({ message: "Apply the displayed package plan?", initial: false }),
-          "permission",
-          "Apply the displayed package plan?",
-        ).pipe(Effect.orDie),
+        confirm: confirmPackagePlan,
       });
       return [];
     }
@@ -1299,7 +1273,7 @@ function continueWindowsSetup(
 }
 
 function continueNixSetup(
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: ManagerConfig,
   platform: HostPlatform,
   profiles: ReadonlyArray<string>,
   nixReady: boolean,
@@ -1338,7 +1312,7 @@ function continueNixSetup(
 }
 
 function continueSetup(options: {
-  config: Awaited<ReturnType<typeof loadConfig>>;
+  config: ManagerConfig;
   platform: HostPlatform;
   profiles: ReadonlyArray<string>;
   nixReady: boolean;

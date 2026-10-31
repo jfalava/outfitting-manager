@@ -110,18 +110,40 @@ test.each([
   );
 });
 
-test.each([
-  { credentials: {} },
-  { credentials: { ...credentials, "alert-token": undefined } },
-  { credentials: { ...credentials, typo: "unknown" } },
-  { credentials: { ...credentials, "access-key": "   " } },
-  { credentials: { ...credentials, "secret-key": "bad\nname" } },
-  { credentials: { ...credentials, "repository-password": "bad\0name" } },
-  { credentials: { ...credentials, "alert-token": credentials["secret-key"] } },
-  ...["", "../agent", "label with space", "label\n", "a".repeat(256)].map((scheduleLabel) => ({
-    scheduleLabel,
-  })),
-])("rejects invalid native identities or schedule labels: %j", async (identities) => {
+test.each<[Record<string, unknown>, RegExp]>([
+  [{ credentials: {} }, /Missing key\n {2}at .*\["credentials"\]\["access-key"\]$/],
+  [
+    { credentials: { ...credentials, "alert-token": undefined } },
+    /Missing key\n {2}at .*\["credentials"\]\["alert-token"\]$/,
+  ],
+  [
+    { credentials: { ...credentials, typo: "unknown" } },
+    /excess property\n {2}at .*\["credentials"\]\["typo"\]$/,
+  ],
+  [
+    { credentials: { ...credentials, "access-key": "   " } },
+    /Expected <filter>\n {2}at .*\["credentials"\]\["access-key"\]$/,
+  ],
+  [
+    { credentials: { ...credentials, "secret-key": "bad\nname" } },
+    /Expected a string matching .*\n {2}at .*\["credentials"\]\["secret-key"\]$/,
+  ],
+  [
+    { credentials: { ...credentials, "repository-password": "bad\0name" } },
+    /Expected a string matching .*\n {2}at .*\["credentials"\]\["repository-password"\]$/,
+  ],
+  [
+    { credentials: { ...credentials, "alert-token": credentials["secret-key"] } },
+    /Expected <filter>\n {2}at .*\["credentials"\]$/,
+  ],
+  ...["", "../agent", "label with space", "label\n", "a".repeat(256)].map(
+    (scheduleLabel) =>
+      [{ scheduleLabel }, /Expected a string matching .*\n {2}at \["scheduleLabel"\]$/] as [
+        Record<string, unknown>,
+        RegExp,
+      ],
+  ),
+])("rejects invalid native identities or schedule labels: %j", async (identities, error) => {
   const root = await tempRoot();
   await writeFile(
     join(root, "config.toml"),
@@ -134,7 +156,7 @@ test.each([
       },
     }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(error);
   if ("credentials" in identities) {
     expect(() =>
       parseByorContractJson(
@@ -148,7 +170,7 @@ test.each([
           },
         }),
       ),
-    ).toThrow();
+    ).toThrow(error);
   }
 });
 
@@ -275,19 +297,19 @@ test.each(["macos", "windows"] as const)(
   },
 );
 
-test.each<Readonly<Record<string, string>>>([
-  { HOME: "/override" },
-  { APPDATA: "/override" },
-  { photos: "/photos" },
-  { PHOTOS: "" },
-  { PHOTOS: "   " },
-  { PHOTOS: "/photos\0" },
-  { PHOTOS: "${PHOTOS}" },
-  { PHOTOS: "${OTHER}", OTHER: "/photos" },
-  { PHOTOS: "${APPDATA}/photos" },
-  { PHOTOS: "${HOME:-/tmp}/photos" },
-  { PHOTOS: "${HOME/photos" },
-])("rejects invalid or recursive path bindings %j", (paths) => {
+test.each<[Readonly<Record<string, string>>, string]>([
+  [{ HOME: "/override" }, "Invalid or reserved backup path binding: HOME."],
+  [{ APPDATA: "/override" }, "Invalid or reserved backup path binding: APPDATA."],
+  [{ photos: "/photos" }, "Invalid or reserved backup path binding: photos."],
+  [{ PHOTOS: "" }, "Backup path binding PHOTOS must not be empty"],
+  [{ PHOTOS: "   " }, "Backup path binding PHOTOS must not be empty"],
+  [{ PHOTOS: "/photos\0" }, "Backup path binding PHOTOS must not be empty or contain NUL"],
+  [{ PHOTOS: "${PHOTOS}" }, "Unsupported backup substitution: PHOTOS."],
+  [{ PHOTOS: "${OTHER}", OTHER: "/photos" }, "Unsupported backup substitution: OTHER."],
+  [{ PHOTOS: "${APPDATA}/photos" }, "Unsupported backup substitution: APPDATA."],
+  [{ PHOTOS: "${HOME:-/tmp}/photos" }, "Unsupported backup substitution: HOME:-/tmp."],
+  [{ PHOTOS: "${HOME/photos" }, "Malformed backup substitution: ${HOME/photos."],
+])("rejects invalid or recursive path bindings %j", (paths, error) => {
   expect(() =>
     normalizeBackups({
       defaultProfile: "mac",
@@ -295,7 +317,7 @@ test.each<Readonly<Record<string, string>>>([
         mac: { platform: "macos", files: ["jobs.toml"], paths },
       },
     }),
-  ).toThrow();
+  ).toThrow(error);
 });
 
 test.each([
@@ -389,31 +411,37 @@ test("rejects duplicate snapshot names and composes files in declaration order",
 });
 
 test.each([
-  "/absolute.toml",
-  "../escape.toml",
-  "C:relative.toml",
-  "a/../b.toml",
-  "config.toml",
-  "Config.toml",
-  "con.toml",
-  "unsafe./file.toml",
-  ".git/config.toml",
-  "a.txt",
-  "a//b.toml",
-])("rejects unsafe backup path %s", (file) => {
+  ["/absolute.toml", "Backup TOML paths must be non-empty repository-relative paths."],
+  ["../escape.toml", "Unsafe backup TOML path: ../escape.toml."],
+  ["C:relative.toml", "Backup TOML paths must be non-empty repository-relative paths."],
+  ["a/../b.toml", "Unsafe backup TOML path: a/../b.toml."],
+  ["config.toml", "Backup path must name a non-reserved TOML file: config.toml."],
+  ["Config.toml", "Backup path must name a non-reserved TOML file: Config.toml."],
+  ["con.toml", "Unsafe backup TOML path: con.toml."],
+  ["unsafe./file.toml", "Unsafe backup TOML path: unsafe./file.toml."],
+  [".git/config.toml", "Backup path must name a non-reserved TOML file: .git/config.toml."],
+  ["a.txt", "Backup path must name a non-reserved TOML file: a.txt."],
+  ["a//b.toml", "Unsafe backup TOML path: a//b.toml."],
+])("rejects unsafe backup path %s", (file, error) => {
   expect(() =>
     normalizeBackups({
       defaultProfile: "mac",
       profiles: { mac: { platform: "macos", files: [file] } },
     }),
-  ).toThrow();
+  ).toThrow(error);
 });
 
 test("rejects empty, duplicate, and unknown declarations", () => {
-  for (const files of [[], ["a.toml", "a.toml"]]) {
+  for (const [files, error] of [
+    [[], "Backup profile mac must declare files."],
+    [["a.toml", "a.toml"], "Backup profile mac contains duplicate files."],
+  ] as const) {
     expect(() =>
-      normalizeBackups({ defaultProfile: "mac", profiles: { mac: { platform: "macos", files } } }),
-    ).toThrow();
+      normalizeBackups({
+        defaultProfile: "mac",
+        profiles: { mac: { platform: "macos", files: [...files] } },
+      }),
+    ).toThrow(error);
   }
   const profiles = { desk: { windows: { winget: { manifest: "packages.txt" } } } };
   const backups = {
@@ -425,8 +453,10 @@ test("rejects empty, duplicate, and unknown declarations", () => {
   }
   expect(() =>
     parseByorContract({ schema: 3, profiles, backups: { ...backups, typo: true } } as never),
-  ).toThrow();
-  expect(() => normalizeBackups({ ...backups, defaultProfile: "absent" })).toThrow();
+  ).toThrow('excess property\n  at ["backups"]["typo"]');
+  expect(() => normalizeBackups({ ...backups, defaultProfile: "absent" })).toThrow(
+    "backups.defaultProfile must name a declared backup profile.",
+  );
 });
 
 test("rejects external symlinks, unsupported substitutions, and unknown Rustic keys before execution", async () => {
@@ -451,7 +481,7 @@ test("rejects external symlinks, unsupported substitutions, and unknown Rustic k
     join(root, "profile.toml"),
     stringify({ ...base, typo: true, backup: { snapshots: [documents, images] } }),
   );
-  await expect(compose()).rejects.toThrow();
+  await expect(compose()).rejects.toThrow('excess property\n  at ["typo"]');
   await writeFile(
     join(root, "profile.toml"),
     stringify({
@@ -556,7 +586,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
     join(root, "config.toml"),
     stringify({ ...document, backups: { ...document.backups, typo: true } }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow('excess property\n  at ["typo"]');
 });
 
 test.each([
@@ -576,7 +606,6 @@ test.each([
   "https://alerts.invalid/v1/alerts/",
   "https://alerts.invalid/v1/%61lerts",
   "https://alerts.invalid/v1/other/../alerts",
-  "not a URL",
 ])("rejects an unsafe or noncanonical alert URL: %s", async (alertUrl) => {
   const root = await tempRoot();
   await writeFile(
@@ -591,18 +620,46 @@ test.each([
       },
     }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
+    "backups.alertUrl must be a canonical HTTPS /v1/alerts endpoint",
+  );
 });
 
-test.each([
-  { alertsDisabled: true, ...alertConfig },
-  { alertsDisabled: true, alertSender: "old@example.net" },
-  { alertsDisabled: false },
-  { ...alertConfig, alertSender: "old@example.net" },
-  { ...alertConfig, alertRecipient: ["old@example.net"] },
-  { ...alertConfig, severity: "error" },
-  { ...alertConfig, token: "never-store-tokens-in-toml" },
-])("rejects obsolete or conflicting backup alert configuration: %j", async (alerts) => {
+test("rejects an alert URL that does not parse", async () => {
+  const root = await tempRoot();
+  await writeFile(
+    join(root, "config.toml"),
+    stringify({
+      schema: 2,
+      backups: {
+        profile: "mac",
+        ...alertConfig,
+        alertUrl: "not a URL",
+        profiles: { mac: { platform: "macos", files: ["mac.toml"] } },
+      },
+    }),
+  );
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow("Invalid URL");
+});
+
+test.each<[Record<string, unknown>, string]>([
+  [
+    { alertsDisabled: true, ...alertConfig },
+    "backups.alertsDisabled cannot be combined with alertUrl.",
+  ],
+  [
+    { alertsDisabled: true, alertSender: "old@example.net" },
+    'excess property\n  at ["alertSender"]',
+  ],
+  [{ alertsDisabled: false }, 'Expected true\n  at ["alertsDisabled"]'],
+  [{ ...alertConfig, alertSender: "old@example.net" }, 'excess property\n  at ["alertSender"]'],
+  [
+    { ...alertConfig, alertRecipient: ["old@example.net"] },
+    'excess property\n  at ["alertRecipient"]',
+  ],
+  [{ ...alertConfig, severity: "error" }, 'excess property\n  at ["severity"]'],
+  [{ ...alertConfig, token: "never-store-tokens-in-toml" }, 'excess property\n  at ["token"]'],
+])("rejects obsolete or conflicting backup alert configuration: %j", async (alerts, error) => {
   const root = await tempRoot();
   await writeFile(
     join(root, "config.toml"),
@@ -615,7 +672,7 @@ test.each([
       },
     }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(error);
 });
 
 test("accepts a generic alert endpoint without caller-selected email policy", async () => {
@@ -649,7 +706,7 @@ test("rejects per-job alert maps rather than silently disabling alerts", async (
       },
     }),
   );
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow();
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow('excess property\n  at ["alerts"]');
 });
 
 test("sparse refresh includes backup fragments, hashes order, and leaves the last valid source on composition failure", async () => {
@@ -936,17 +993,44 @@ test("paths and policies round-trip through import and local config; re-import r
   );
 });
 
-test.each([
-  { photos: { typo: true } },
-  { photos: { retention: { "keep-id": ["anchor"] } } },
-  { photos: { retention: { "keep-monthly": -2 } } },
-  { photos: { retention: { "keep-monthly": 2_147_483_648 } } },
-  { photos: { skipIfProcessesRunning: ["Editor", "editor"] } },
-  { photos: { skipIfProcessesRunning: ["Editor.exe"] } },
-  { photos: { skipIfProcessesRunning: ["Editor;exit"] } },
-  { photos: { skipIfProcessesRunning: ["Edit*"] } },
-  { "../escape": {} },
-])("rejects invalid job policy %j", (jobs) => {
+test.each<[Record<string, unknown>, string]>([
+  [
+    { photos: { typo: true } },
+    'excess property\n  at ["backups"]["profiles"]["desk"]["jobs"]["photos"]["typo"]',
+  ],
+  [
+    { photos: { retention: { "keep-id": ["anchor"] } } },
+    'excess property\n  at ["backups"]["profiles"]["desk"]["jobs"]["photos"]["retention"]["keep-id"]',
+  ],
+  [
+    { photos: { retention: { "keep-monthly": -2 } } },
+    "Expected a value greater than or equal to -1",
+  ],
+  [
+    { photos: { retention: { "keep-monthly": 2_147_483_648 } } },
+    "Expected a value less than or equal to 2147483647",
+  ],
+  [
+    { photos: { skipIfProcessesRunning: ["Editor", "editor"] } },
+    "Process names for photos must be unique basenames without .exe.",
+  ],
+  [
+    { photos: { skipIfProcessesRunning: ["Editor.exe"] } },
+    "Process names for photos must be unique basenames without .exe.",
+  ],
+  [
+    { photos: { skipIfProcessesRunning: ["Editor;exit"] } },
+    'Expected a string matching the RegExp ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$\n  at ["backups"]["profiles"]["desk"]["jobs"]["photos"]["skipIfProcessesRunning"][0]',
+  ],
+  [
+    { photos: { skipIfProcessesRunning: ["Edit*"] } },
+    'Expected a string matching the RegExp ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$\n  at ["backups"]["profiles"]["desk"]["jobs"]["photos"]["skipIfProcessesRunning"][0]',
+  ],
+  [
+    { "../escape": {} },
+    'excess property\n  at ["backups"]["profiles"]["desk"]["jobs"]["../escape"]',
+  ],
+])("rejects invalid job policy %j", (jobs, error) => {
   expect(() =>
     parseByorContract({
       schema: 3,
@@ -956,7 +1040,7 @@ test.each([
         profiles: { desk: { platform: "windows", files: ["jobs.toml"], jobs } },
       },
     } as never),
-  ).toThrow();
+  ).toThrow(error);
 });
 
 test("composition rejects dangling policies, overlapping tags, empty jobs and disabled retention", async () => {
@@ -988,12 +1072,16 @@ test("composition rejects dangling policies, overlapping tags, empty jobs and di
     await expect(compose()).rejects.toThrow("identity tag");
   }
   await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots: [] } }));
-  await expect(compose()).rejects.toThrow();
+  await expect(compose()).rejects.toThrow(
+    'Expected a value with a length of at least 1\n  at ["backup"]["snapshots"]',
+  );
   await writeFile(join(root, "jobs.toml"), stringify({ ...base, backup: { snapshots: [photos] } }));
   await expect(compose({ photos: { retention: { "keep-daily": 0 } } })).rejects.toThrow(
     "enabled retention",
   );
-  await expect(compose({ photos: { retention: { "keep-daily": -1 } } })).resolves.toBeDefined();
+  await expect(compose({ photos: { retention: { "keep-daily": -1 } } })).resolves.toMatchObject({
+    jobs: { photos: { retention: { "keep-daily": -1 } } },
+  });
 });
 
 test("process guards are explicitly Windows-only and enforce the process-count boundary", () => {
@@ -1012,5 +1100,7 @@ test("process guards are explicitly Windows-only and enforce the process-count b
     normalizeBackups(declaration("windows", processes))?.profiles.desk?.jobs?.photos
       ?.skipIfProcessesRunning,
   ).toHaveLength(32);
-  expect(() => normalizeBackups(declaration("windows", [...processes, "OneTooMany"]))).toThrow();
+  expect(() => normalizeBackups(declaration("windows", [...processes, "OneTooMany"]))).toThrow(
+    'Expected a value with a length of at most 32\n  at ["photos"]["skipIfProcessesRunning"]',
+  );
 });
