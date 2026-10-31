@@ -14,11 +14,7 @@ import { hostPlatform, type HostPlatform } from "@/platform";
 import type { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource, validateBackups } from "@/setup/source";
-import {
-  validateLinuxByorSource,
-  validateMacosByorSource,
-  validateWindowsByorSource,
-} from "@/source/contract";
+import { validateByorSource } from "@/source/contract";
 import { ui } from "@/ui";
 
 export interface SetupOptions {
@@ -126,28 +122,18 @@ export const runSetup = (input: SetupOptions = {}) =>
     }
 
     const platform = options.platform!;
-    yield* tryPromise(async () => {
-      await validateBackups(selectedRepo!, { config, platform });
-      if (platform === "macos") {
-        await validateMacosByorSource({
-          root: selectedRepo!,
-          profile: options.repoProfile,
-          contract: config.declarations!,
-        });
-      } else if (platform === "linux") {
-        await validateLinuxByorSource({
-          root: selectedRepo!,
-          profile: options.repoProfile,
-          contract: config.declarations!,
-        });
-      } else {
-        await validateWindowsByorSource({
-          root: selectedRepo!,
-          profiles: options.repoProfile?.split(","),
-          contract: config.declarations!,
-        });
-      }
-    });
+    if (options.repo !== undefined) {
+      // A synced remote source was already validated by syncByorSparseSource.
+      yield* tryPromise(async () => {
+        await validateBackups(selectedRepo!, { config, platform });
+        await validateByorSource(
+          selectedRepo!,
+          platform,
+          options.repoProfile,
+          config.declarations!,
+        );
+      });
+    }
 
     const selected = yield* tryPromise(() =>
       validateOutfittingRepo(selectedRepo!, {

@@ -1204,3 +1204,30 @@ export async function validateMacosByorSource(options: {
     systemAttr: selected.macos.nix.attribute,
   };
 }
+
+/**
+ * Validate the selected platform profile in a source root. Windows accepts a
+ * comma-separated profile list; the other platforms take one profile name.
+ */
+export async function validateByorSource(
+  root: string,
+  platform: HostPlatform,
+  profile: string | undefined,
+  contract: ByorContract,
+): Promise<void> {
+  switch (platform) {
+    case "linux":
+      await validateLinuxByorSource({ root, profile, contract });
+      return;
+    case "macos":
+      await validateMacosByorSource({ root, profile, contract });
+      return;
+    case "windows":
+      await validateWindowsByorSource({ root, profiles: profile?.split(","), contract });
+      return;
+    default: {
+      const exhaustive: never = platform;
+      return exhaustive;
+    }
+  }
+}

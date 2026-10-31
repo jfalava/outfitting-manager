@@ -30,12 +30,10 @@ import {
   selectMacosByorProfile,
   selectWindowsByorProfiles,
   windowsPathsFromContract,
-  validateLinuxByorSource,
-  validateMacosByorSource,
-  validateWindowsByorSource,
   type ByorContract,
   relativeSourcePath,
   isWithinSourcePath,
+  validateByorSource,
 } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";
 
@@ -451,25 +449,6 @@ async function readSourceMetadata(root: string): Promise<ByorSourceMetadata> {
   }
 }
 
-async function validateByorSource(
-  root: string,
-  options: ByorSparseSourceOptions,
-  contract: ByorContract,
-): Promise<void> {
-  const profile = configuredProfile(options.config, options.platform, options.profile);
-  switch (options.platform) {
-    case "linux":
-      await validateLinuxByorSource({ root, profile, contract });
-      break;
-    case "macos":
-      await validateMacosByorSource({ root, profile, contract });
-      break;
-    case "windows":
-      await validateWindowsByorSource({ root, profiles: profile?.split(","), contract });
-      break;
-  }
-}
-
 /**
  * Fetch and validate the local map's selected remote closure before replacing the managed tree.
  * Offline mode validates and reuses the existing snapshot only for the selected Git repository/ref.
@@ -496,7 +475,7 @@ export async function syncByorSparseSource(
         `The cached source does not match the current repository, ref, and profile declarations in ${options.config.configPath}. Refresh it before using offline mode.`,
       );
     }
-    await validateByorSource(target, selectedOptions, contract);
+    await validateByorSource(target, options.platform, profile, contract);
     await validateBackups(target, selectedOptions);
     const paths = byorClosure(contract, options.platform, profile, backupFiles(selectedOptions));
     return { root: target, files: paths.map((path) => ({ path, source: "cache" })) };
@@ -507,7 +486,7 @@ export async function syncByorSparseSource(
   const staged = await mkdtemp(join(dirname(target), ".outfitting-source-"));
   try {
     const files = await stageByorFiles({ staged, options: selectedOptions, contract, paths });
-    await validateByorSource(staged, selectedOptions, contract);
+    await validateByorSource(staged, options.platform, profile, contract);
     await validateBackups(staged, selectedOptions);
     await replaceSourceTree(staged, target);
     return { root: target, files };

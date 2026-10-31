@@ -29,9 +29,6 @@ import {
   parseByorContractJson,
   readByorContractFile,
   relativeSourcePath,
-  validateLinuxByorSource,
-  validateMacosByorSource,
-  validateWindowsByorSource,
   type ByorBackupsDeclaration,
   type ByorContract,
   type ByorProfileDeclaration,
@@ -40,6 +37,7 @@ import {
   type MacosProfileDeclaration,
   profileNames,
   isWithinSourcePath,
+  validateByorSource,
 } from "@/source/contract";
 import { discoverNixSourcePaths, missingSourcePathFromNixError } from "@/source/nix-dependencies";
 import { TerminalSession, withTerminalInput } from "@/terminal-alert";
@@ -790,28 +788,7 @@ async function validateLocalProfile(answers: WizardAnswers): Promise<void> {
   if (root === undefined) {
     return;
   }
-  const profile = answers.profiles.join(",");
-  const validate = {
-    linux: () =>
-      validateLinuxByorSource({
-        root,
-        profile,
-        contract: answers.contract,
-      }),
-    macos: () =>
-      validateMacosByorSource({
-        root,
-        profile,
-        contract: answers.contract,
-      }),
-    windows: () =>
-      validateWindowsByorSource({
-        root,
-        profiles: answers.profiles,
-        contract: answers.contract,
-      }),
-  }[answers.platform];
-  await validate();
+  await validateByorSource(root, answers.platform, answers.profiles.join(","), answers.contract);
 }
 
 function configLocationPrompt() {
