@@ -94,7 +94,9 @@ jobs:
           security import "${RUNNER_TEMP}/signing.p12" -k "${KEYCHAIN}" -P "${SIGNING_P12_PASSWORD}" -T /usr/bin/codesign
           rm "${RUNNER_TEMP}/signing.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "${KEYCHAIN}" >/dev/null
-          codesign --force --sign "outfitting-manager release" --identifier dev.outfitting.manager \
+          security list-keychains -d user -s "${KEYCHAIN}" $(security list-keychains -d user | tr -d '"')
+          # Self-signed and untrusted, so select the identity by certificate SHA-1, not by name.
+          codesign --force --sign AE7EE5A6786769DF8E9EDB6B78872A3C95B7B8AA --identifier dev.outfitting.manager \
             --keychain "${KEYCHAIN}" "${{ matrix.outfile }}"
           codesign --verify --verbose=2 "${{ matrix.outfile }}"
           codesign --display --requirements - "${{ matrix.outfile }}"
