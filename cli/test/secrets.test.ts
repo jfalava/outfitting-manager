@@ -298,7 +298,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_SYNC_TOKEN: "  orb-token  ",
       OUTFITTING_SYNC_URL: "https://example.workers.dev/api/",
     });
-    expect(await apiToken()).toBe("orb-token");
+    expect(await Effect.runPromise(apiToken)).toBe("orb-token");
     expect(await baseUrl()).toBe("https://example.workers.dev/api");
   });
 
@@ -308,7 +308,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_SYNC_TOKEN: "  host-token  ",
       OUTFITTING_SYNC_URL: "https://example.workers.dev/api/",
     });
-    expect(await apiToken()).toBe("host-token");
+    expect(await Effect.runPromise(apiToken)).toBe("host-token");
     expect(await baseUrl()).toBe("https://example.workers.dev/api");
   });
 
@@ -365,7 +365,7 @@ describe("orb environment credentials", () => {
       AMP_ORB: "1",
       OUTFITTING_SYNC_TOKEN: undefined,
     });
-    await expect(apiToken()).rejects.toThrow(
+    await expect(Effect.runPromise(apiToken)).rejects.toThrow(
       "OUTFITTING_SYNC_TOKEN is required in a headless environment.",
     );
   });
@@ -384,7 +384,7 @@ describe("orb environment credentials", () => {
         },
       },
     });
-    expect(await r2Credentials()).toEqual({
+    expect(await Effect.runPromise(r2Credentials)).toEqual({
       endpoint: "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
       accessKeyId: "access",
       secretAccessKey: "secret",
@@ -412,7 +412,7 @@ describe("orb environment credentials", () => {
           },
         },
       });
-      await expect(r2Credentials()).rejects.toThrow("must both be non-empty");
+      await expect(Effect.runPromise(r2Credentials)).rejects.toThrow("must both be non-empty");
     },
   );
 
@@ -428,7 +428,7 @@ describe("orb environment credentials", () => {
       ["outfitting-fonts/r2-access-key-id", "native-access"],
       ["outfitting-fonts/r2-secret-access-key", "native-secret"],
     ]);
-    expect(await r2Credentials()).toEqual({
+    expect(await Effect.runPromise(r2Credentials)).toEqual({
       endpoint: "https://native.r2.cloudflarestorage.com",
       accessKeyId: "native-access",
       secretAccessKey: "native-secret",
@@ -439,7 +439,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_ACCESS_KEY: undefined,
       OUTFITTING_S3_SECRET_KEY: undefined,
     });
-    expect(await r2Credentials()).toEqual({
+    expect(await Effect.runPromise(r2Credentials)).toEqual({
       endpoint: "https://override.r2.cloudflarestorage.com",
       accessKeyId: "native-access",
       secretAccessKey: "native-secret",
@@ -453,7 +453,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_ACCESS_KEY: "access",
       OUTFITTING_S3_SECRET_KEY: "secret",
     });
-    await expect(r2Credentials()).rejects.toThrow(
+    await expect(Effect.runPromise(r2Credentials)).rejects.toThrow(
       "OUTFITTING_S3_ENDPOINT is required in a headless environment.",
     );
 
@@ -463,7 +463,7 @@ describe("orb environment credentials", () => {
       OUTFITTING_S3_ACCESS_KEY: undefined,
       OUTFITTING_S3_SECRET_KEY: "secret",
     });
-    await expect(r2Credentials()).rejects.toThrow(
+    await expect(Effect.runPromise(r2Credentials)).rejects.toThrow(
       "OUTFITTING_S3_ACCESS_KEY and OUTFITTING_S3_SECRET_KEY must both be non-empty when using environment credentials.",
     );
   });

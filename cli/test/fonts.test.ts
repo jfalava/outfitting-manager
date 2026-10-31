@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Effect } from "effect";
 import { describe, expect, test, vi } from "vitest";
 
 import { emptyFontArchive, packFontArchive, unpackFontArchive } from "@/fonts/archive";
@@ -300,8 +301,8 @@ describe("pullInventory", () => {
       ),
     );
     try {
-      await expect(pullInventory()).resolves.toBeUndefined();
-      await expect(pullInventory()).rejects.toThrow("Worker returned 500");
+      await expect(Effect.runPromise(pullInventory)).resolves.toBeUndefined();
+      await expect(Effect.runPromise(pullInventory)).rejects.toThrow("Worker returned 500");
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();

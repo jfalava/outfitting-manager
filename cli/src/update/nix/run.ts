@@ -329,7 +329,7 @@ function runNixUpdate(
         }),
       );
 
-      const credentials = yield* tryPromise(() => resolveLockfileCredentials());
+      const credentials = yield* resolveLockfileCredentials;
       const platform = process.platform === "darwin" ? "macos" : "linux";
       const checkpoint = yield* tryPromise(() =>
         prepareNixRecovery({

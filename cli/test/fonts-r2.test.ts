@@ -29,7 +29,9 @@ vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
   };
 });
 
-vi.mock("@/fonts/keychain", () => ({ r2Credentials: credentialsMock }));
+vi.mock("@/fonts/keychain", () => ({
+  r2Credentials: Effect.suspend(() => Effect.promise(() => credentialsMock())),
+}));
 
 let root: string;
 let configPath: string;
@@ -76,7 +78,7 @@ describe("R2 font archive writes", () => {
       });
       sendMock.mockResolvedValue({});
 
-      const store = await createR2ObjectStore();
+      const store = await Effect.runPromise(createR2ObjectStore());
       await store.putArchive(archive, checksum, expectedEtag);
 
       expect(sendMock).toHaveBeenCalledTimes(2);
@@ -102,7 +104,7 @@ describe("R2 font archive writes", () => {
   test("environment overrides runtime TOML without consulting deployment config", async () => {
     vi.stubEnv("OUTFITTING_PRIVATE_FONTS_BUCKET", " alternate-font-library ");
     sendMock.mockResolvedValue({ Body: { transformToByteArray: async () => new Uint8Array() } });
-    const store = await createR2ObjectStore();
+    const store = await Effect.runPromise(createR2ObjectStore());
     await store.getChecksum();
     expect(store.bucket).toBe("alternate-font-library");
     expect(sendMock.mock.calls[0]?.[0]).toBeInstanceOf(GetObjectCommand);
@@ -114,7 +116,9 @@ describe("R2 font archive writes", () => {
 
   test("requires an explicit runtime bucket before credential or object access", async () => {
     await writeFile(configPath, "schema = 2\n");
-    await expect(createR2ObjectStore()).rejects.toThrow("Configure [fonts].bucket");
+    await expect(Effect.runPromise(createR2ObjectStore())).rejects.toThrow(
+      "Configure [fonts].bucket",
+    );
     expect(credentialsMock).not.toHaveBeenCalled();
     expect(sendMock).not.toHaveBeenCalled();
   });

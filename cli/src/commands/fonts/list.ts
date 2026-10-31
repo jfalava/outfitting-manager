@@ -1,7 +1,6 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/cli";
 
-import { tryPromise } from "@/effect";
 import { printInventoryFaces } from "@/fonts/display";
 import { pullInventory } from "@/fonts/inventory";
 import { repopulateInventory } from "@/fonts/repopulate";
@@ -21,7 +20,7 @@ export const listCommand = Command.make(
         yield* repopulateInventory(false);
         return;
       }
-      const snapshot = yield* tryPromise(() => pullInventory());
+      const snapshot = yield* pullInventory;
       if (snapshot === undefined) {
         yield* Console.log(ui.muted("No private-fonts inventory is stored yet."));
         return;

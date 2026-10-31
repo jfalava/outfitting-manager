@@ -1,21 +1,19 @@
 import { Console, Effect } from "effect";
 
 import { tryPromise } from "@/effect";
-import { CliFailure } from "@/errors";
+import { promptCredential } from "@/secrets";
 import { promptAndStoreApiToken, storeWorkerUrl } from "@/sync/keychain";
-import { terminalPrompt } from "@/terminal-alert";
 import { ui } from "@/ui";
 
 export const configureWorker = (requestedUrl?: string) =>
   Effect.gen(function* () {
     const value =
       requestedUrl ??
-      (yield* tryPromise(async () =>
-        (await terminalPrompt("Sync Worker URL (stored in your OS keychain):")).trim(),
+      (yield* promptCredential(
+        "Sync Worker URL (stored in your OS keychain)",
+        false,
+        "A Worker URL is required.",
       ));
-    if (!value) {
-      return yield* new CliFailure({ message: "A Worker URL is required." });
-    }
 
     const url = yield* tryPromise(() => storeWorkerUrl(value));
     yield* Console.log(ui.success(`Stored Worker URL: ${ui.key(url)}`));
@@ -23,6 +21,6 @@ export const configureWorker = (requestedUrl?: string) =>
   });
 
 export const configureToken = Effect.gen(function* () {
-  yield* tryPromise(promptAndStoreApiToken);
+  yield* promptAndStoreApiToken;
   yield* Console.log(ui.success("Stored API token in your OS keychain."));
 });

@@ -1,9 +1,12 @@
 import { GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Effect } from "effect";
 
 import { loadConfig } from "@/config/load";
+import { tryPromise } from "@/effect";
+import { CliFailure } from "@/errors";
 import { emptyFontArchive, sha256Hex, unpackFontArchive, type FontArchive } from "@/fonts/archive";
 import { FONT_ARCHIVE_KEY, FONT_CHECKSUM_KEY } from "@/fonts/constants";
-import { r2Credentials } from "@/fonts/keychain";
+import { r2Credentials, type R2Credentials } from "@/fonts/keychain";
 import { envValue } from "@/secrets";
 
 export interface FontObjectStore {
@@ -22,15 +25,20 @@ async function bodyBytes(
   return body.transformToByteArray();
 }
 
-export async function createR2ObjectStore(): Promise<FontObjectStore> {
-  const config = await loadConfig();
+export const createR2ObjectStore = Effect.fnUntraced(function* () {
+  const config = yield* tryPromise(() => loadConfig());
   const bucket = envValue("OUTFITTING_PRIVATE_FONTS_BUCKET") ?? config.fonts?.bucket;
   if (bucket === undefined) {
-    throw new Error(
-      "Configure [fonts].bucket in config.toml or OUTFITTING_PRIVATE_FONTS_BUCKET before accessing the font archive.",
-    );
+    return yield* new CliFailure({
+      message:
+        "Configure [fonts].bucket in config.toml or OUTFITTING_PRIVATE_FONTS_BUCKET before accessing the font archive.",
+    });
   }
-  const credentials = await r2Credentials();
+  const credentials = yield* r2Credentials;
+  return objectStore(bucket, credentials);
+});
+
+function objectStore(bucket: string, credentials: R2Credentials): FontObjectStore {
   const client = new S3Client({
     region: "auto",
     endpoint: credentials.endpoint,

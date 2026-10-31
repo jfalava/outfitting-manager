@@ -31,7 +31,7 @@ export const removeCommand = Command.make(
   },
   ({ names, family, dryRun, yes }) =>
     Effect.gen(function* () {
-      const store = yield* tryPromise(() => createR2ObjectStore());
+      const store = yield* createR2ObjectStore();
       yield* printFontTarget(store.bucket);
       const remote = yield* tryPromise(() => loadRemoteArchiveState(store));
       const plan = planRemove(remote.archive, names, family);

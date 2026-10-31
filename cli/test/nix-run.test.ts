@@ -9,12 +9,15 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { loadConfig } from "@/config";
 import { CliFailure } from "@/errors";
 import { runSetup } from "@/setup/run";
-import { pullLockfile, pushLockfile, resolveLockfileCredentials } from "@/sync";
+import { pullLockfile, pushLockfile } from "@/sync";
 import { activateHomeManager } from "@/update/nix/activate";
 import { buildNixSystem } from "@/update/nix/build";
 import { updateNix } from "@/update/nix/run";
 import { updateNixLock } from "@/update/nix/update-lock";
 
+const { credentialsMock } = vi.hoisted(() => ({
+  credentialsMock: vi.fn<() => Effect.Effect<{ workerUrl: string; token: string }, CliFailure>>(),
+}));
 vi.mock("@/process", () => ({ which: async () => "/bin/nix" }));
 vi.mock("@/update/nix/recovery", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/update/nix/recovery")>()),
@@ -30,10 +33,7 @@ vi.mock("@/update/nix/activate", () => ({
 vi.mock("@/sync", () => ({
   pullLockfile: vi.fn(() => Effect.fail(new CliFailure({ message: "service unavailable" }))),
   pushLockfile: vi.fn(() => Effect.void.pipe(Effect.as(undefined))),
-  resolveLockfileCredentials: vi.fn(async () => ({
-    workerUrl: "https://lockfiles.example/api",
-    token: "snapshot-token",
-  })),
+  resolveLockfileCredentials: Effect.suspend(() => credentialsMock()),
 }));
 vi.mock("@/update/nix/update-lock", () => ({ updateNixLock: vi.fn(async () => undefined) }));
 
@@ -48,10 +48,9 @@ beforeEach(() => {
     Effect.fail(new CliFailure({ message: "service unavailable" })),
   );
   vi.mocked(pushLockfile).mockImplementation(() => Effect.void.pipe(Effect.as(undefined)));
-  vi.mocked(resolveLockfileCredentials).mockImplementation(async () => ({
-    workerUrl: "https://lockfiles.example/api",
-    token: "snapshot-token",
-  }));
+  credentialsMock.mockImplementation(() =>
+    Effect.succeed({ workerUrl: "https://lockfiles.example/api", token: "snapshot-token" }),
+  );
   vi.mocked(updateNixLock).mockImplementation(async () => undefined);
   vi.stubEnv("OUTFITTING_REPO", "");
 });
@@ -297,13 +296,17 @@ linuxTest(
         : undefined;
       await writeFile(options.outputLockPath, candidateLock);
     });
-    vi.mocked(resolveLockfileCredentials).mockImplementation(async () => {
-      if (activated) {
-        throw new Error("keyring secrets store unavailable after activation");
-      }
-      events.push("credentials");
-      return credentials;
-    });
+    credentialsMock.mockImplementation(() =>
+      Effect.suspend(() => {
+        if (activated) {
+          return Effect.fail(
+            new CliFailure({ message: "keyring secrets store unavailable after activation" }),
+          );
+        }
+        events.push("credentials");
+        return Effect.succeed(credentials);
+      }),
+    );
     vi.mocked(buildNixSystem).mockImplementation(async (options) => {
       events.push("build");
       await writeFile(options.outputLockPath!, await readFile(options.lockPath!, "utf8"));

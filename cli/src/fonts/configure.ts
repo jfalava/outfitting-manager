@@ -1,25 +1,20 @@
 import { Console, Effect } from "effect";
 
 import { tryPromise } from "@/effect";
-import { CliFailure } from "@/errors";
-import { promptAndStoreR2Credentials, storeR2Endpoint } from "@/fonts/keychain";
-import { terminalPrompt } from "@/terminal-alert";
+import {
+  promptAndStoreR2Credentials,
+  R2_ENDPOINT_MISSING,
+  R2_ENDPOINT_PROMPT,
+  storeR2Endpoint,
+} from "@/fonts/keychain";
+import { promptCredential } from "@/secrets";
 import { ui } from "@/ui";
 
 export const configureEndpoint = (requestedEndpoint?: string) =>
   Effect.gen(function* () {
     const value =
       requestedEndpoint ??
-      (yield* tryPromise(async () =>
-        (
-          await terminalPrompt(
-            "R2 S3 endpoint or Cloudflare account ID (stored in your OS keychain):",
-          )
-        ).trim(),
-      ));
-    if (!value) {
-      return yield* new CliFailure({ message: "An R2 endpoint is required." });
-    }
+      (yield* promptCredential(R2_ENDPOINT_PROMPT, false, R2_ENDPOINT_MISSING));
 
     const endpoint = yield* tryPromise(() => storeR2Endpoint(value));
     yield* Console.log(ui.success(`Stored R2 endpoint: ${ui.key(endpoint)}`));
@@ -27,6 +22,6 @@ export const configureEndpoint = (requestedEndpoint?: string) =>
   });
 
 export const configureCredentials = Effect.gen(function* () {
-  yield* tryPromise(promptAndStoreR2Credentials);
+  yield* promptAndStoreR2Credentials;
   yield* Console.log(ui.success("Stored R2 credentials in your OS keychain."));
 });

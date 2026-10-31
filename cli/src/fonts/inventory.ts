@@ -1,6 +1,7 @@
 import { decodeResponse, encodeResponse, isJsonValue, Sha256 } from "@outfitting/contract";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
+import { tryPromise } from "@/effect";
 import {
   FONT_ARCHIVE_KEY,
   INVENTORY_FORMAT,
@@ -8,7 +9,7 @@ import {
   INVENTORY_MACHINE,
 } from "@/fonts/constants";
 import type { FontFace } from "@/fonts/names";
-import { request, WorkerResponseError } from "@/sync/request";
+import { requestEffect, WorkerResponseError } from "@/sync/request";
 
 const InventoryFaceSchema = Schema.Struct({
   family: Schema.String,
@@ -92,45 +93,38 @@ export function inventoriesEqual(
   });
 }
 
-export async function pullInventory(): Promise<InventorySnapshot | undefined> {
-  try {
-    const response = await request(["lockfiles", INVENTORY_MACHINE, INVENTORY_KIND]);
-    const raw: unknown = JSON.parse(await response.text());
-    if (!isJsonValue(raw)) {
-      throw new Error("Private fonts inventory is not valid JSON.");
-    }
-    const inventory = decodeResponse(InventorySchema, raw, "private-fonts");
-    if (inventory === undefined) {
-      throw new Error("Private fonts inventory has an invalid format.");
-    }
-    const hash = quotedHash(response.headers.get("ETag"));
-    if (hash === undefined) {
-      throw new Error("Private fonts inventory is missing a SHA-256 ETag.");
-    }
-    return { inventory, hash };
-  } catch (cause) {
-    if (Schema.is(WorkerResponseError)(cause) && cause.status === 404) {
-      return undefined;
-    }
-    throw cause;
-  }
-}
+export const pullInventory = requestEffect(["lockfiles", INVENTORY_MACHINE, INVENTORY_KIND]).pipe(
+  Effect.flatMap((response) =>
+    tryPromise(async (): Promise<InventorySnapshot> => {
+      const raw: unknown = JSON.parse(await response.text());
+      if (!isJsonValue(raw)) {
+        throw new Error("Private fonts inventory is not valid JSON.");
+      }
+      const inventory = decodeResponse(InventorySchema, raw, "private-fonts");
+      if (inventory === undefined) {
+        throw new Error("Private fonts inventory has an invalid format.");
+      }
+      const hash = quotedHash(response.headers.get("ETag"));
+      if (hash === undefined) {
+        throw new Error("Private fonts inventory is missing a SHA-256 ETag.");
+      }
+      return { inventory, hash };
+    }),
+  ),
+  Effect.catchIf(
+    (cause) => Schema.is(WorkerResponseError)(cause) && cause.status === 404,
+    () => Effect.void,
+  ),
+);
 
-export async function pushInventory(
-  inventory: PrivateFontsInventory,
-  ifMatch: string | undefined,
-): Promise<void> {
-  type RequestHeaders = Record<string, string>;
-  const headers: RequestHeaders = {
-    "Content-Type": "text/plain; charset=utf-8",
-  };
-  if (ifMatch !== undefined) {
-    headers["If-Match"] = `"${ifMatch}"`;
-  }
-  const bytes = encodeInventory(inventory);
-  await request(["lockfiles", INVENTORY_MACHINE, INVENTORY_KIND], {
+export function pushInventory(inventory: PrivateFontsInventory, ifMatch: string | undefined) {
+  const contentType = "text/plain; charset=utf-8";
+  return requestEffect(["lockfiles", INVENTORY_MACHINE, INVENTORY_KIND], {
     method: "PUT",
-    body: bytes,
-    headers,
-  });
+    body: encodeInventory(inventory),
+    headers:
+      ifMatch === undefined
+        ? { "Content-Type": contentType }
+        : { "Content-Type": contentType, "If-Match": `"${ifMatch}"` },
+  }).pipe(Effect.asVoid);
 }

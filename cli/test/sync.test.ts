@@ -134,15 +134,17 @@ describe("sync command helpers", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     try {
-      const { request } = await import("@/sync/request");
+      const { requestEffect } = await import("@/sync/request");
       await expect(
-        request(
-          ["lockfiles", "machine", "nix"],
-          {},
-          {
-            workerUrl: "http://remote.example/api",
-            token: "sensitive-token",
-          },
+        Effect.runPromise(
+          requestEffect(
+            ["lockfiles", "machine", "nix"],
+            {},
+            {
+              workerUrl: "http://remote.example/api",
+              token: "sensitive-token",
+            },
+          ),
         ),
       ).rejects.toThrow("must use HTTPS");
       expect(fetchMock).not.toHaveBeenCalled();

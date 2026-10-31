@@ -307,19 +307,18 @@ test.each([
 });
 
 test.each(["explicit", "implicit"])(
-  "%s credential Ctrl-C reports cancellation through the Promise boundary",
+  "%s credential Ctrl-C reports cancellation and stores nothing",
   (mode) => {
     const result = spawnSync(
       "bun",
       [
         "-e",
         `
-    import { Effect } from "effect";
+    import { BunRuntime } from "@effect/platform-bun";
     import { Command } from "effect/cli";
     import { runCli } from "./src/cli/run";
     import { configureToken } from "./src/sync/configure";
     import { apiToken } from "./src/sync/keychain";
-    import { tryPromise } from "./src/effect";
     delete process.env.AMP_ORB;
     delete process.env.OUTFITTING_SYNC_TOKEN;
     Object.defineProperty(process.stdin, "isTTY", { value: true });
@@ -328,7 +327,7 @@ test.each(["explicit", "implicit"])(
       get: async () => null,
       set: async () => { throw new Error("Must not save credentials"); },
     };
-    const handler = ${mode === "explicit" ? "configureToken" : "tryPromise(apiToken)"};
+    const handler = ${mode === "explicit" ? "configureToken" : "apiToken"};
     const root = Command.make("outfitting-manager").pipe(Command.withSubcommands([
       Command.make("demo", {}, () => handler),
     ]));
@@ -338,9 +337,9 @@ test.each(["explicit", "implicit"])(
       if (event === "data") queueMicrotask(() => process.stdin.emit("data", "\\u0003"));
       return result;
     };
-    await Effect.runPromise(runCli(root, "1.0.0", ["demo"], {
+    BunRuntime.runMain(runCli(root, "1.0.0", ["demo"], {
       stream: { isTTY: true, write: (text) => process.stdout.write(text) }, env: {},
-    }));
+    }), { disableErrorReporting: true });
   `,
       ],
       { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 5000 },
@@ -380,7 +379,7 @@ test.skipIf(process.platform === "win32").each(["cancel", "answer"])(
           env: { ...process.env, TERM: "xterm-256color", OUTFITTING_PROGRAM_STATUS: "1" },
           terminal: { data(terminal, data) {
             output += Buffer.from(data).toString();
-            if (!sent && output.includes("keychain):")) {
+            if (!sent && output.includes("keychain)")) {
               sent = true;
               setTimeout(() => terminal.write(${JSON.stringify(action === "cancel" ? "\u0003" : "https://sync.example.test\r")}), 20);
             }

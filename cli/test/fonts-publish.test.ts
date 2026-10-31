@@ -3,13 +3,17 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { checksumSidecar, packFontArchive, sha256Hex } from "@/fonts/archive";
-import { inventoryFromFaces, pullInventory, pushInventory } from "@/fonts/inventory";
+import { inventoryFromFaces, pushInventory, type InventorySnapshot } from "@/fonts/inventory";
 import { applyFontPlan } from "@/fonts/publish";
 import type { FontObjectStore, RemoteArchiveState } from "@/fonts/r2";
 
+const { pullMock } = vi.hoisted(() => ({
+  pullMock: vi.fn<() => Promise<InventorySnapshot | undefined>>(),
+}));
+
 vi.mock("@/fonts/inventory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/fonts/inventory")>()),
-  pullInventory: vi.fn(),
+  pullInventory: Effect.promise(() => pullMock()),
   pushInventory: vi.fn(),
 }));
 
@@ -31,12 +35,14 @@ describe("font archive publication", () => {
     let etag = '"etag-initial"';
     let inventory = inventoryFromFaces([face], sha256Hex(bytes), bytes.byteLength);
     let inventoryHash = "a".repeat(64);
-    vi.mocked(pullInventory).mockImplementation(async () => ({ inventory, hash: inventoryHash }));
-    vi.mocked(pushInventory).mockImplementation(async (next, expected) => {
-      if (expected !== inventoryHash) throw new Error("Inventory conflict");
-      inventory = next;
-      inventoryHash = "b".repeat(64);
-    });
+    pullMock.mockImplementation(async () => ({ inventory, hash: inventoryHash }));
+    vi.mocked(pushInventory).mockImplementation((next, expected) =>
+      Effect.sync(() => {
+        if (expected !== inventoryHash) throw new Error("Inventory conflict");
+        inventory = next;
+        inventoryHash = "b".repeat(64);
+      }),
+    );
 
     let resumeA: (() => void) | undefined;
     let pausedA: (() => void) | undefined;
@@ -122,7 +128,7 @@ describe("font archive publication", () => {
       getChecksum: async () => checksumSidecar(bytes),
       putArchive: vi.fn(),
     };
-    vi.mocked(pullInventory).mockResolvedValue({
+    pullMock.mockResolvedValue({
       hash: "a".repeat(64),
       inventory: inventoryFromFaces([face], "0".repeat(64), bytes.byteLength),
     });

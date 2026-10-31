@@ -1,6 +1,4 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { writeSync } from "node:fs";
-import { createInterface } from "node:readline";
 
 import { Cause, Context, Effect, Exit, Schema, Terminal } from "effect";
 
@@ -30,25 +28,6 @@ export interface TerminalSessionControls {
 export interface TerminalSessionOptions {
   stream?: TerminalAlertStream;
   env?: NodeJS.ProcessEnv;
-}
-
-/** Bridge the Effect service into legacy Promise-based credential helpers. */
-export const terminalSessionContext = new AsyncLocalStorage<TerminalSessionControls>();
-
-export async function terminalPrompt(message: string): Promise<string> {
-  const session = terminalSessionContext.getStore();
-  session?.blocked("question", message);
-  const input = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    return await new Promise<string>((resolve, reject) => {
-      input.once("SIGINT", () => reject(new Terminal.QuitError()));
-      input.once("close", () => reject(new Terminal.QuitError()));
-      input.question(`${message} `, resolve);
-    });
-  } finally {
-    input.close();
-    session?.resume();
-  }
 }
 
 function terminalText(text: string, limit = 192): string {

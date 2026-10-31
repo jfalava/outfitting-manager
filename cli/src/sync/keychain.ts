@@ -1,5 +1,8 @@
-import { maskedPrompt } from "@/masked-prompt";
-import { envValue, inAmpOrb, storedSecret } from "@/secrets";
+import { Effect } from "effect";
+
+import { tryPromise } from "@/effect";
+import { CliFailure } from "@/errors";
+import { envValue, inAmpOrb, promptCredential, storedSecret } from "@/secrets";
 import type { LockfileCredentials } from "@/sync/types";
 
 const SECRET_SERVICE = "outfitting-sync";
@@ -69,35 +72,29 @@ export async function storeApiToken(token: string): Promise<string> {
   return value;
 }
 
-export async function promptAndStoreApiToken(): Promise<string> {
-  const token =
-    (await maskedPrompt("Sync API token (stored in your OS keychain): "))?.trim() ?? null;
-  if (!token) {
-    throw new Error("An API token is required.");
-  }
+export const promptAndStoreApiToken = promptCredential(
+  "Sync API token (stored in your OS keychain)",
+  true,
+  "An API token is required.",
+).pipe(Effect.flatMap((token) => tryPromise(() => storeApiToken(token))));
 
-  return storeApiToken(token);
-}
-
-export async function apiToken(): Promise<string> {
+export const apiToken = Effect.gen(function* () {
   const fromEnv = envValue("OUTFITTING_SYNC_TOKEN");
   if (fromEnv) {
     return fromEnv;
   }
-
   if (inAmpOrb()) {
-    throw new Error("OUTFITTING_SYNC_TOKEN is required in a headless environment.");
+    return yield* new CliFailure({
+      message: "OUTFITTING_SYNC_TOKEN is required in a headless environment.",
+    });
   }
-
   // Bun.secrets is experimental and does not isolate credentials between scripts running as the same OS user. That is acceptable for this personal tool, but the keychain entry is not a hard security boundary.
-  const token = await storedSecret(SECRET_SERVICE, TOKEN_SECRET_NAME);
+  const stored = yield* tryPromise(() => storedSecret(SECRET_SERVICE, TOKEN_SECRET_NAME));
+  return stored || (yield* promptAndStoreApiToken);
+});
 
-  return token || promptAndStoreApiToken();
-}
-
-export async function resolveLockfileCredentials(): Promise<LockfileCredentials> {
-  return {
-    workerUrl: await baseUrl(),
-    token: await apiToken(),
-  };
-}
+export const resolveLockfileCredentials = Effect.gen(function* () {
+  const workerUrl = yield* tryPromise(baseUrl);
+  const token = yield* apiToken;
+  return { workerUrl, token } satisfies LockfileCredentials;
+});

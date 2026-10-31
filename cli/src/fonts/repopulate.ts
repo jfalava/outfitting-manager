@@ -1,6 +1,7 @@
 import { Console, Effect } from "effect";
 
 import { tryPromise } from "@/effect";
+import { CliFailure } from "@/errors";
 import { sha256Hex } from "@/fonts/archive";
 import { printFontTarget, printInventoryFaces } from "@/fonts/display";
 import {
@@ -21,7 +22,7 @@ export interface RepopulateResult {
 
 export function repopulateInventory(dryRun: boolean) {
   return Effect.gen(function* () {
-    const store = yield* tryPromise(() => createR2ObjectStore());
+    const store = yield* createR2ObjectStore();
     yield* printFontTarget(store.bucket);
     const remote = yield* tryPromise(() => loadRemoteArchiveState(store));
     return yield* syncInventoryFromRemote(remote, dryRun);
@@ -30,33 +31,35 @@ export function repopulateInventory(dryRun: boolean) {
 
 export function syncInventoryFromRemote(remote: RemoteArchiveState, dryRun: boolean) {
   return Effect.gen(function* () {
-    const snapshot = yield* tryPromise(() => pullInventory());
-    const result = yield* tryPromise(() => writeRepopulatedInventory(remote, snapshot, dryRun));
+    const snapshot = yield* pullInventory;
+    const result = yield* writeRepopulatedInventory(remote, snapshot, dryRun);
     yield* printRepopulateResult(result, dryRun);
     return result;
   });
 }
 
-async function writeRepopulatedInventory(
+function writeRepopulatedInventory(
   remote: RemoteArchiveState,
-  snapshot: InventorySnapshot | undefined,
+  snapshot: InventorySnapshot | void,
   dryRun: boolean,
-): Promise<RepopulateResult> {
-  if (remote.bytes === undefined || remote.bytes.byteLength === 0) {
-    throw new Error("No private font archive is stored in R2.");
-  }
-  const inventory = inventoryFromFaces(
-    remote.archive.faces,
-    sha256Hex(remote.bytes),
-    remote.bytes.byteLength,
-  );
-  if (snapshot !== undefined && inventoriesEqual(snapshot.inventory, inventory)) {
-    return { inventory, wrote: false };
-  }
-  if (!dryRun) {
-    await pushInventory(inventory, snapshot?.hash);
-  }
-  return { inventory, wrote: true };
+) {
+  return Effect.gen(function* () {
+    if (remote.bytes === undefined) {
+      return yield* new CliFailure({ message: "No private font archive is stored in R2." });
+    }
+    const inventory = inventoryFromFaces(
+      remote.archive.faces,
+      sha256Hex(remote.bytes),
+      remote.bytes.byteLength,
+    );
+    if (snapshot !== undefined && inventoriesEqual(snapshot.inventory, inventory)) {
+      return { inventory, wrote: false } satisfies RepopulateResult;
+    }
+    if (!dryRun) {
+      yield* pushInventory(inventory, snapshot?.hash);
+    }
+    return { inventory, wrote: true } satisfies RepopulateResult;
+  });
 }
 
 export function printRepopulateResult(result: RepopulateResult, dryRun: boolean) {

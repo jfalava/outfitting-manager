@@ -1,11 +1,10 @@
 import { decodeResponse, ErrorBody, isJsonValue } from "@outfitting/contract";
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Terminal } from "effect";
 import { FetchHttpClient, HttpBody, HttpClient } from "effect/http";
 
-import { toError, tryPromise } from "@/effect";
+import { toError } from "@/effect";
 import { normalizeWorkerUrl, resolveLockfileCredentials } from "@/sync/keychain";
 import type { CliRequestInit, LockfileCredentials } from "@/sync/types";
-import { TerminalSession, terminalSessionContext } from "@/terminal-alert";
 
 export class WorkerResponseError extends Schema.TaggedError<WorkerResponseError>()(
   "WorkerResponseError",
@@ -48,8 +47,11 @@ export const requestEffect = Effect.fn("lockfiles.request")(function* (
   parts: ReadonlyArray<string>,
   init: CliRequestInit = {},
   credentials?: LockfileCredentials,
-): Effect.fn.Return<Response, WorkerResponseError | ReturnType<typeof toError>> {
-  const resolved = credentials ?? (yield* tryPromise(resolveLockfileCredentials));
+): Effect.fn.Return<
+  Response,
+  WorkerResponseError | ReturnType<typeof toError> | Terminal.QuitError
+> {
+  const resolved = credentials ?? (yield* resolveLockfileCredentials);
   const url = endpoint(normalizeWorkerUrl(resolved.workerUrl), parts);
   const headers = {
     ...init.headers,
@@ -82,15 +84,3 @@ export const requestEffect = Effect.fn("lockfiles.request")(function* (
   const error = yield* workerResponseError(response);
   return yield* error;
 });
-
-export function request(
-  parts: ReadonlyArray<string>,
-  init: CliRequestInit = {},
-  credentials?: LockfileCredentials,
-): Promise<Response> {
-  const session = terminalSessionContext.getStore();
-  const effect = requestEffect(parts, init, credentials);
-  return Effect.runPromise(
-    session === undefined ? effect : effect.pipe(Effect.provideService(TerminalSession, session)),
-  );
-}
