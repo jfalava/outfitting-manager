@@ -24,6 +24,9 @@ jobs:
         working-directory: cli
         run: bun run lint && bun run typecheck && bun run test
 
+      - name: Test the shared contract
+        run: bun run test:contract
+
   build:
     needs: test
     permissions:
@@ -116,7 +119,7 @@ jobs:
           mv "${BINARY}" "${ENTRY}"
           chmod 755 "${ENTRY}"
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            powershell -NoProfile -Command "Compress-Archive -LiteralPath '${ENTRY}' -DestinationPath '${ARCHIVE}' -Force"
+            pwsh -NoProfile -Command "Compress-Archive -LiteralPath '${ENTRY}' -DestinationPath '${ARCHIVE}' -Force"
           else
             zip -j "${ARCHIVE}" "${ENTRY}"
           fi
