@@ -29,6 +29,7 @@ import {
 import type { HostPlatform } from "@/platform";
 import { runCommand } from "@/process";
 import {
+  BYOR_CONTRACT_SCHEMA,
   linuxPathsFromProfile,
   macosPathsFromProfile,
   selectByorProfile,
@@ -316,17 +317,23 @@ function selectedContract(contract: ByorContract, options: ByorSparseSourceOptio
   switch (options.platform) {
     case "linux": {
       const selected = selectByorProfile(contract, options.profile);
-      return { schema: 1, profiles: { [selected.name]: { linux: selected.linux } } };
+      return {
+        schema: BYOR_CONTRACT_SCHEMA,
+        profiles: { [selected.name]: { linux: selected.linux } },
+      };
     }
     case "macos": {
       const selected = selectMacosByorProfile(contract, options.profile);
-      return { schema: 1, profiles: { [selected.name]: { macos: selected.macos } } };
+      return {
+        schema: BYOR_CONTRACT_SCHEMA,
+        profiles: { [selected.name]: { macos: selected.macos } },
+      };
     }
     case "windows": {
       const selected = selectWindowsByorProfiles(contract, options.profile?.split(","));
       const shared = windowsSharedArtifacts(contract.windows);
       const narrowedContract: ByorContract = {
-        schema: 1,
+        schema: BYOR_CONTRACT_SCHEMA,
         profiles: Object.fromEntries(
           selected.names.map((name) => [name, { windows: contract.profiles[name]!.windows! }]),
         ),

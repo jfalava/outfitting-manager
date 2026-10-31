@@ -106,7 +106,7 @@ export interface ByorProfileDeclaration {
 }
 
 export interface ByorContract {
-  schema: 1 | 2 | typeof BYOR_CONTRACT_SCHEMA;
+  schema: typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
   backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
@@ -159,7 +159,7 @@ export interface ValidatedWindowsByorSource {
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type ByorContractInput = {
-  schema: 1 | 2 | typeof BYOR_CONTRACT_SCHEMA;
+  schema: typeof BYOR_CONTRACT_SCHEMA;
   windows?: ByorWindowsShared;
   backups?: ByorBackupsDeclaration;
   profiles: Readonly<Record<string, ByorProfileDeclaration>>;
@@ -243,7 +243,7 @@ const ByorProfileSchema = Schema.Struct({
 });
 
 const ByorContractSchema = Schema.Struct({
-  schema: Schema.Literals([1, 2, BYOR_CONTRACT_SCHEMA]),
+  schema: Schema.Literal(BYOR_CONTRACT_SCHEMA),
   windows: Schema.optionalKey(ByorWindowsSharedSchema),
   backups: Schema.optionalKey(BackupsSchema),
   profiles: Schema.Record(Schema.String, ByorProfileSchema),
@@ -320,11 +320,8 @@ function normalizeBackupPolicies(
 }
 
 export function normalizeBackups(
-  value: DecodedContract["backups"],
-): ByorBackupsDeclaration | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
+  value: NonNullable<DecodedContract["backups"]>,
+): ByorBackupsDeclaration {
   const names = Object.keys(value.profiles);
   if (names.length === 0 || !names.includes(value.defaultProfile)) {
     throw new Error("backups.defaultProfile must name a declared backup profile.");
@@ -534,11 +531,6 @@ function decodeContractRoot(value: ByorContractValue): DecodedContract {
   if (Object.keys(decoded.success.profiles).length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH}.profiles must contain at least one profile.`);
   }
-  if (decoded.success.schema !== BYOR_CONTRACT_SCHEMA && decoded.success.backups !== undefined) {
-    throw new Error(
-      "Backups require manifest schema 3 and explicit job policies. Migrate retention overrides and process guards before importing.",
-    );
-  }
   return decoded.success;
 }
 
@@ -595,9 +587,9 @@ export function parseByorContract(value: ByorContractValue): ByorContract {
     profiles[parsed.name] = parsed.profile;
   }
   const windows = parseOptionalWindowsShared(contract.windows, profiles);
-  const backups = normalizeBackups(contract.backups);
+  const backups = contract.backups === undefined ? undefined : normalizeBackups(contract.backups);
   const result: ByorContract = {
-    schema: backups === undefined ? contract.schema : BYOR_CONTRACT_SCHEMA,
+    schema: BYOR_CONTRACT_SCHEMA,
     profiles,
   };
   if (windows !== undefined) {

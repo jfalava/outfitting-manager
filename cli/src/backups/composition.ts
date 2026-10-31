@@ -72,17 +72,6 @@ export interface ComposedBackupProfile {
   document: TomlTable;
 }
 
-const LegacyGlobal = Schema.Struct({
-  "log-file": Schema.optionalKey(Schema.String),
-  "log-level-logfile": Schema.optionalKey(Schema.Literal("info")),
-  hooks: Schema.optionalKey(
-    Schema.Struct({
-      "run-failed": Schema.Array(
-        Schema.Struct({ command: Schema.NonEmptyString, "on-failure": Schema.Literal("warn") }),
-      ),
-    }),
-  ),
-});
 const RepositoryOptions = Schema.Struct({
   bucket: Schema.optionalKey(Schema.NonEmptyString),
   endpoint: Schema.optionalKey(Schema.NonEmptyString),
@@ -109,7 +98,7 @@ export async function composeBackupProfile(options: {
   const declaration = normalizeBackups({
     defaultProfile: options.profile,
     profiles: { [options.profile]: options.declaration },
-  })!.profiles[options.profile]!;
+  }).profiles[options.profile]!;
   const documents: TomlTable[] = [];
   for (const path of declaration.files) {
     const source = await safeSourcePath(options.root, path);
@@ -133,12 +122,7 @@ export function validateComposedBackup(
   policies: Readonly<Record<string, JobPolicy>> = {},
   paths: Readonly<Record<string, string>> = {},
 ): void {
-  // Legacy global logging/hooks are deliberately replaced by manager-owned logging and alerts.
-  const { global, ...managed } = document;
-  if (global !== undefined) {
-    Schema.decodeUnknownSync(LegacyGlobal, { onExcessProperty: "error" })(global);
-  }
-  const profile = Schema.decodeUnknownSync(Profile, { onExcessProperty: "error" })(managed);
+  const profile = Schema.decodeUnknownSync(Profile, { onExcessProperty: "error" })(document);
   if (profile.repository.options !== undefined) {
     Schema.decodeSync(RepositoryOptions, { onExcessProperty: "error" })(profile.repository.options);
   }

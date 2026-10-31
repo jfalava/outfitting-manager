@@ -75,19 +75,22 @@ describe("loadConfig", () => {
     );
   });
 
-  test.each([1, 2])(
-    "loads the optional font bucket in schema %s without a source",
-    async (schema) => {
-      const root = await tempRoot();
-      await writeFile(
-        join(root, "config.toml"),
-        `schema = ${schema}\n[fonts]\nbucket = " team-font-library "\n`,
-      );
-      const config = await loadConfig({ stateRoot: root });
-      expect(config.fonts).toEqual({ bucket: "team-font-library" });
-      expect(config.source).toBeUndefined();
-    },
-  );
+  test("rejects config schema 1", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "config.toml"), 'schema = 1\n[fonts]\nbucket = "fonts"\n');
+    await expect(loadConfig({ stateRoot: root })).rejects.toThrow("must set `schema = 2`");
+  });
+
+  test("loads the optional font bucket without a source", async () => {
+    const root = await tempRoot();
+    await writeFile(
+      join(root, "config.toml"),
+      `schema = 2\n[fonts]\nbucket = " team-font-library "\n`,
+    );
+    const config = await loadConfig({ stateRoot: root });
+    expect(config.fonts).toEqual({ bucket: "team-font-library" });
+    expect(config.source).toBeUndefined();
+  });
 
   test.each([
     'bucket = "   "',
@@ -107,7 +110,7 @@ describe("loadConfig", () => {
     await writeFile(
       configPath,
       [
-        "schema = 1",
+        "schema = 2",
         'machine_id = "from-file:aarch64-linux"',
         "",
         "[source]",
@@ -137,29 +140,21 @@ describe("loadConfig", () => {
     expect(fromEnv.machineId).toBe("from-env:x86_64-linux");
   });
 
-  test("ignores legacy config.json and rejects malformed TOML", async () => {
+  test("rejects malformed TOML", async () => {
     const root = await tempRoot();
-    await writeFile(
-      join(root, "config.json"),
-      JSON.stringify({ machineId: "legacy:aarch64-linux", linux: { profile: "legacy" } }),
-    );
-    const config = await loadConfig({ stateRoot: root });
-    expect(config.machineId).not.toBe("legacy:aarch64-linux");
-    expect(config.linux).toBeUndefined();
-
     await writeFile(join(root, "config.toml"), "schema = [not TOML");
     await expect(loadConfig({ stateRoot: root })).rejects.toThrow(/not valid TOML/);
   });
 
   test("rejects unsupported keys and reserved source-root declarations", async () => {
     const root = await tempRoot();
-    await writeFile(join(root, "config.toml"), "schema = 1\nextra = true\n");
+    await writeFile(join(root, "config.toml"), "schema = 2\nextra = true\n");
     await expect(loadConfig({ stateRoot: root })).rejects.toThrow(/unsupported key/);
 
     await writeFile(
       join(root, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "[source]",
         'path = "."',
         "[profiles.work.linux.apt]",

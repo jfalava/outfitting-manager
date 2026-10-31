@@ -31,7 +31,7 @@ async function localByorRepo(): Promise<string> {
 async function localConfig(state: string, repo: string) {
   await writeFile(
     join(state, "config.toml"),
-    `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages.txt"\n`,
+    `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages.txt"\n`,
   );
   return loadConfig({ stateRoot: state });
 }

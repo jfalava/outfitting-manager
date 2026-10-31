@@ -35,17 +35,6 @@ Prompt for and save the service token for later sync commands. You can also set 
 outfitting-manager sync configure token
 ```
 
-## Credential migration
-
-This version uses the `outfitting-sync` OS keychain service with `sync-url` and `sync-token` entries. It does not read the previous lockfiles credentials or environment variables. After deploying the API with its new `OUTFITTING_SYNC_TOKEN` secret, configure each existing machine again:
-
-```sh
-outfitting-manager sync configure worker https://example.com/api
-outfitting-manager sync configure token
-```
-
-For headless machines and CI, replace `OUTFITTING_LOCKFILES_URL` and `OUTFITTING_LOCKFILES_TOKEN` with `OUTFITTING_SYNC_URL` and `OUTFITTING_SYNC_TOKEN`. Verify one push or pull before removing the old API secret.
-
 ## `push`
 
 **Syntax:** `outfitting-manager sync push [<kind>] [<path>] [--if-match <sha256>]`

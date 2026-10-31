@@ -35,7 +35,7 @@ async function createLinuxRepo(
 ) {
   const repo = await mkdtemp(join(tmpdir(), "outfitting-linux-byor-repo-"));
   const toml = [
-    "schema = 1",
+    "schema = 2",
     "",
     "[source]",
     `path = ${JSON.stringify(repo)}`,
@@ -597,7 +597,7 @@ describe("Linux package adapter", () => {
     await writeFile(
       join(stateRoot, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "[source]",
         `path = ${JSON.stringify(repo)}`,
         "[linux]",
@@ -651,7 +651,7 @@ describe("Linux package adapter", () => {
             stateRoot,
             source: { kind: "local", path: repo },
             declarations: {
-              schema: 1,
+              schema: 3,
               profiles: {
                 workstation: { linux: { apt: { manifest: "packages/workstation/apt.txt" } } },
                 server: { linux: { apt: { manifest: "packages/server/apt.txt" } } },
@@ -707,60 +707,6 @@ describe("Linux package adapter", () => {
     expect(calls.some(({ args }) => args.includes("manual") || args.includes("shared"))).toBe(
       false,
     );
-  });
-
-  test("migrates legacy apt ownership without allowing a wrong-architecture prune", async () => {
-    const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-legacy-ownership-"));
-    const repo = await createLinuxRepo(stateRoot, { workstation: { apt: "manual\n" } });
-    const calls: string[][] = [];
-    await writeFile(
-      join(stateRoot, "linux-package-ownership.json"),
-      JSON.stringify({
-        version: 1,
-        profiles: { workstation: { apt: ["libc6"], pacman: ["nano"] } },
-      }),
-    );
-    try {
-      await Effect.runPromise(
-        applyLinux({
-          config: await loadConfig({ stateRoot }),
-          packageManager: "apt",
-          prune: true,
-          noRefresh: true,
-          yes: true,
-          which: async (name) =>
-            ({ apt: "/usr/bin/apt", dpkg: "/usr/bin/dpkg", "dpkg-query": "/usr/bin/dpkg-query" })[
-              name
-            ],
-          run: async (command, args) => {
-            calls.push([command, ...args]);
-            if (command === "/usr/bin/dpkg") return { code: 0, stdout: "arm64\n", stderr: "" };
-            if (command === "/usr/bin/dpkg-query")
-              return {
-                code: 0,
-                stdout:
-                  "manual\tarm64\tinstall ok installed\nlibc6\tarm64\tinstall ok installed\nlibc6\ti386\tinstall ok installed\n",
-                stderr: "",
-              };
-            return { code: 0, stdout: "Remv libc6:arm64 [1.0]\n", stderr: "" };
-          },
-        }),
-      );
-      const state = JSON.parse(
-        await readFile(join(stateRoot, "linux-package-ownership.json"), "utf8"),
-      ) as {
-        version: number;
-        profiles: { workstation: { apt: string[]; pacman: string[] } };
-      };
-      expect(state).toMatchObject({
-        version: 2,
-        profiles: { workstation: { apt: [], pacman: ["nano"] } },
-      });
-      expect(calls.some((args) => args.includes("remove"))).toBe(false);
-    } finally {
-      await rm(stateRoot, { force: true, recursive: true });
-      await rm(repo, { force: true, recursive: true });
-    }
   });
 
   test("refuses an apt removal simulation that targets a different architecture", async () => {

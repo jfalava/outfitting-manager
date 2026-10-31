@@ -278,7 +278,7 @@ describe.each(["github.com", "pepito.ghe.com"])("remote BYOR on %s", (host) => {
       const remote = remoteFixture(host);
       await writeFile(
         configFilePath(stateRoot),
-        `schema = 1\n[source]\nrepository = "https://${host}/org/machine-config"\nref = "feature/desk"\n[${platform}]\n${platform === "windows" ? 'profiles = ["desk"]' : 'profile = "desk"'}\n[profiles.desk.${platform}.${platform === "windows" ? "winget" : platform === "macos" ? "nix" : "apt"}]\n${platform === "windows" ? 'manifest = "packages/windows.txt"' : platform === "macos" ? 'flake = "nix"\nattribute = "darwinConfigurations.desk.system"' : 'manifest = "packages/apt.txt"'}\n[profiles.unselected.linux.nix]\nflake = "absent"\nattribute = "homeConfigurations.other.activationPackage"\n`,
+        `schema = 2\n[source]\nrepository = "https://${host}/org/machine-config"\nref = "feature/desk"\n[${platform}]\n${platform === "windows" ? 'profiles = ["desk"]' : 'profile = "desk"'}\n[profiles.desk.${platform}.${platform === "windows" ? "winget" : platform === "macos" ? "nix" : "apt"}]\n${platform === "windows" ? 'manifest = "packages/windows.txt"' : platform === "macos" ? 'flake = "nix"\nattribute = "darwinConfigurations.desk.system"' : 'manifest = "packages/apt.txt"'}\n[profiles.unselected.linux.nix]\nflake = "absent"\nattribute = "homeConfigurations.other.activationPackage"\n`,
       );
       const options = { stateRoot, ...remote };
       const init: Effect.Effect<unknown, CliFailure> =
@@ -387,7 +387,7 @@ test("private GitHub auth failure preserves the previous sparse source", async (
   await writeFile(join(sourceRoot, "keep.txt"), "previous\n");
   await writeFile(
     configFilePath(stateRoot),
-    'schema = 1\n[source]\nrepository = "https://github.com/org/private-config"\nref = "main"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n',
+    'schema = 2\n[source]\nrepository = "https://github.com/org/private-config"\nref = "main"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n',
   );
   const remote = privateGitHubFixture();
   remote.run = async () => ({ code: 1, stderr: "HTTP 401: Bad credentials", stdout: "" });
@@ -473,7 +473,7 @@ test.each([
   await mkdir(stateRoot);
   await writeFile(
     configFilePath(stateRoot),
-    `schema = 1\n[source]\nrepository = "${repository}"\nref = "main"\n[linux]\nprofile = "custom-linux"\n[profiles.custom-linux.linux.apt]\nmanifest = "packages/custom/apt.txt"\n`,
+    `schema = 2\n[source]\nrepository = "${repository}"\nref = "main"\n[linux]\nprofile = "custom-linux"\n[profiles.custom-linux.linux.apt]\nmanifest = "packages/custom/apt.txt"\n`,
   );
   const gitCalls: string[][] = [];
   const run: typeof runCommand = async (command, args, options) => {
@@ -535,7 +535,7 @@ test.each(["missing", "download", "invalid", "truncated", "symlink", "submodule"
     const remote = remoteFixture("github.com");
     await writeFile(
       configFilePath(stateRoot),
-      'schema = 1\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux]\npaths = ["nix"]\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n',
+      'schema = 2\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux]\npaths = ["nix"]\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n',
     );
     const source = sparseSourceRoot(stateRoot);
     await mkdir(source);
@@ -583,7 +583,7 @@ test("offline hashes selected declarations, reuses the source, and rejects chang
   const remote = remoteFixture("github.com");
   await writeFile(
     configFilePath(stateRoot),
-    'schema = 1\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n[profiles.other.linux.apt]\nmanifest = "packages/other.txt"\n',
+    'schema = 2\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n[profiles.other.linux.apt]\nmanifest = "packages/other.txt"\n',
   );
   const config = await loadConfig({ stateRoot });
   await syncByorSparseSource({ config, platform: "linux", ...remote });
@@ -595,7 +595,7 @@ test("offline hashes selected declarations, reuses the source, and rejects chang
   );
   await writeFile(
     configFilePath(stateRoot),
-    'schema = 1\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n[profiles.other.linux.apt]\nmanifest = "changed.txt"\n',
+    'schema = 2\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "packages/apt.txt"\n[profiles.other.linux.apt]\nmanifest = "changed.txt"\n',
   );
   await syncByorSparseSource({
     config: await loadConfig({ stateRoot }),
@@ -605,7 +605,7 @@ test("offline hashes selected declarations, reuses the source, and rejects chang
   });
   await writeFile(
     configFilePath(stateRoot),
-    'schema = 1\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "missing.txt"\n[profiles.other.linux.apt]\nmanifest = "changed.txt"\n',
+    'schema = 2\n[source]\nrepository = "https://github.com/org/machine-config"\nref = "feature/desk"\n[linux]\nprofile = "desk"\n[profiles.desk.linux.apt]\nmanifest = "missing.txt"\n[profiles.other.linux.apt]\nmanifest = "changed.txt"\n',
   );
   await expect(
     syncByorSparseSource({

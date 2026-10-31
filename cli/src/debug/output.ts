@@ -147,7 +147,7 @@ export function outputPreviews(platform: HostPlatform): OutputPreview[] {
       platform === "windows" ? { profiles: ["workstation", "shared"] } : { profile: "workstation" },
   });
   const manifest = parseByorContract({
-    schema: 1,
+    schema: 3,
     profiles: {
       workstation: {
         linux: { apt: { manifest: "linux/packages.txt" } },
@@ -639,11 +639,6 @@ function backupPreviews(platform: HostPlatform): OutputPreview[] {
           ...secretNames
             .filter((name) => name !== "alert-token")
             .map((name) => `${name}: available`),
-        ),
-      ),
-      sample("backups secrets import-secretstore", () =>
-        lines(
-          "Imported and verified: access-key, secret-key, repository-password. Run secrets check; set alert-token if absent.",
         ),
       ),
       sample("backups schedule", () =>

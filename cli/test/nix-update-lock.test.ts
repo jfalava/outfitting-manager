@@ -9,7 +9,7 @@ import { updateNixLock } from "@/update/nix/update-lock";
 
 const repo = {
   root: "/repo",
-  contract: { schema: 1 as const, profiles: {} },
+  contract: { schema: 3 as const, profiles: {} },
   flakePath: "/repo/system/home",
   flakeKind: "home-manager" as const,
   systemAttr: "homeConfigurations.work.activationPackage",

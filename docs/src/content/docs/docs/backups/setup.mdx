@@ -13,7 +13,7 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 Install [Rustic](https://github.com/rustic-rs/rustic) 0.10 or later (with named backup selection) and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
 
-On Windows, the CLI requires PowerShell 7 (`pwsh.exe`) on `PATH` and never falls back to Windows PowerShell 5.1. Per-job process guards and generated scheduled tasks run through `pwsh.exe`; `backups schedule` resolves its absolute path and fails if it is missing. The optional `secrets import-secretstore` command also needs the SecretManagement and SecretStore modules installed for PowerShell 7.
+On Windows, the CLI requires PowerShell 7 (`pwsh.exe`) on `PATH` and never falls back to Windows PowerShell 5.1. Per-job process guards and generated scheduled tasks run through `pwsh.exe`; `backups schedule` resolves its absolute path and fails if it is missing.
 
 ```sh
 rustic --version
@@ -243,44 +243,6 @@ For a Windows profile with a `project-data` snapshot, add:
 [backups.profiles.workstation.jobs.project-data]
 skipIfProcessesRunning = ["ExampleEditor", "Editor_Helper"]
 ```
-
-### Migrate an existing backup configuration
-
-Before upgrading, keep a matched copy of the previous binary, local config, and validated source cache for rollback. Pause schedules and add explicit credential service names matching the entries already in your native store; no credential rename or copy is required. For example, the historical macOS Ultramar mapping was:
-
-```toml
-[backups.credentials]
-access-key = "restic-s3-access-key"
-secret-key = "restic-s3-secret-key"
-repository-password = "restic-repo-ultramar-password"
-alert-token = "rustic-backup-alert-token"
-```
-
-The historical Windows R2 mapping used `r2-access-key-id`, `r2-secret-access-key`, `restic-repo-password`, and `rustic-backup-alert-token`, respectively. These names are migration examples, not defaults. SecretStore import reads these configured service names in the source vault and uses the same names in Credential Manager; it preflights destination conflicts before writing.
-
-Also configure the complete v1 alert settings or explicitly set `alertsDisabled = true`. Removing alert fields alone no longer enables backups. The wizard tolerates missing readiness settings, but backup commands fail before native access until configuration is complete. Check `doctor` for resolved service names, alert configuration, and schedule label without exposing secret values.
-
-New macOS schedules default to `dev.outfitting.backups.<selected-profile>`. To preserve an existing LaunchAgent identity when generating a replacement, set `scheduleLabel = "com.jfa.rustic-backup"` in the local `[backups]` table. Custom labels must match `[A-Za-z0-9][A-Za-z0-9._-]{0,254}`. Generation does not install or relabel live schedules. The caller registering a Windows task chooses its task name. Keep only one scheduled writer per repository.
-
-This identity cleanup does not change repository hashes, receipt or lock locations, or backup sources. Credential mappings, `scheduleLabel`, and `alertsDisabled` are excluded from the source hash. Native permission prompts and cutover approval remain manual. To roll back, pause schedules and restore the matched previous binary, config, and cache; restore any separately changed token securely. Do not rely on deleting alert fields to select a legacy endpoint in the new binary.
-
-Backup declarations now require manifest schema 3 and local config schema 2. Older backup-bearing configurations are rejected rather than silently losing implicit policies. Configurations without backups remain readable.
-
-Pause scheduled invocations during cutover. Preserve the existing job names, tags, repository configuration, hostname, credentials, and receipt directory. Before updating the schema versions, move any previous implicit behavior into explicit policies. For the former built-in Windows profile, the equivalent local policy is:
-
-```toml
-[backups.profiles.gaming-pc.jobs.ffxiv-configs]
-skipIfProcessesRunning = ["ffxiv_dx11", "ffxiv", "ffxivlauncher", "XIVLauncher"]
-
-[backups.profiles.gaming-pc.jobs.mmo-screenshots.retention]
-keep-monthly = 3
-```
-
-These are historical job names, not required names for new profiles. Keep the names already associated with your snapshots and receipts when migrating.
-
-Older macOS profiles using `${PROTON_DRIVE_PATH}` or `${PROTON_IMAGES_DIR}` must declare those names explicitly in the profile's `paths` table. There is no inferred Proton directory or environment-variable fallback. Keep the exact previous effective paths, including Unicode spelling, and compare the resolved `doctor` output before cutover. Do not change the repository configuration, hostname, job identities, receipt roots, or locks as part of this path migration. Source changes can invalidate accepted recovery anchors.
-
-Use your actual backup profile name instead of `gaming-pc`; declare the equivalent `jobs` map in the manifest if you import it. Then set manifest `schema` to 3 and local `schema` to 2. Re-importing replaces current-platform policies, while ordinary wizard edits preserve them. Refresh any remote source cache using the configuration wizard before offline scheduled runs. Run `backups doctor`, verify a backup without retention, and resume the schedule only after checking the results. Do not initialize the existing repository or discard its receipts.
 
 ## Run schedules with the right permissions
 

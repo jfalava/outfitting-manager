@@ -1,9 +1,6 @@
 const RESERVED_SOURCE_FILES = new Set([
   "config.toml",
-  "config.json",
-  "byor.json",
   "outfitting.json",
-  "repo-path",
   "windows.lock.json",
   ".outfitting-source.json",
 ]);

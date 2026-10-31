@@ -37,7 +37,7 @@ async function fixture(
       home,
       repo: {
         root: repoRoot,
-        contract: { schema: 1, profiles: {} },
+        contract: { schema: 3, profiles: {} },
         flakePath,
         flakeKind: "home-manager",
         systemAttr: "homeConfigurations.oci-agents.activationPackage",
@@ -53,7 +53,7 @@ async function fixture(
     home,
     repo: {
       root: repoRoot,
-      contract: { schema: 1, profiles: {} },
+      contract: { schema: 3, profiles: {} },
       flakePath,
       darwinNixPath,
       flakeKind: "macos",

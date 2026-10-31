@@ -41,7 +41,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(
       join(stateRoot, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "",
         "[source]",
         `path = ${JSON.stringify(repo)}`,
@@ -76,7 +76,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "machine", "apps", "desktop.list"), "Acme.Editor\nAcme.Terminal\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["workstation"]\n[profiles.workstation.windows.winget]\nmanifest = "machine/apps/desktop.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["workstation"]\n[profiles.workstation.windows.winget]\nmanifest = "machine/apps/desktop.list"\n`,
     );
 
     const config = await loadConfig({ stateRoot, machineId: "test:x64-windows" });
@@ -125,7 +125,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Editor\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot, machineId: "test:x64-windows" });
     const discovered: string[] = [];
@@ -150,7 +150,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Editor\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const installAttempts: string[] = [];
@@ -180,7 +180,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Editor\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const installAttempts: string[] = [];
@@ -214,7 +214,7 @@ describe("Windows BYOR apply", () => {
     );
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[windows.shared.scoop]\nmanifest = "scoop.txt"\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[windows.shared.scoop]\nmanifest = "scoop.txt"\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const installs: string[][] = [];
@@ -249,7 +249,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Broken\nAcme.Editor\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const output = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -311,7 +311,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Kept\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const previous = await readWindowsLock(config);
@@ -357,7 +357,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(
       join(stateRoot, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "[source]",
         `path = ${JSON.stringify(repo)}`,
         "[windows]",
@@ -429,7 +429,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(join(repo, "apps.list"), "Acme.Broken\nAcme.Editor\n");
     await writeFile(
       join(stateRoot, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(repo)}\n[windows]\nprofiles = ["work"]\n[profiles.work.windows.winget]\nmanifest = "apps.list"\n`,
     );
     const config = await loadConfig({ stateRoot });
     const installAttempts: string[] = [];
@@ -577,7 +577,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(
       join(stateRoot, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "[source]",
         `path = ${JSON.stringify(repo)}`,
         "[windows]",
@@ -728,7 +728,7 @@ describe("Windows BYOR apply", () => {
     await writeFile(
       join(stateRoot, "config.toml"),
       [
-        "schema = 1",
+        "schema = 2",
         "[source]",
         `path = ${JSON.stringify(repo)}`,
         "[windows]",

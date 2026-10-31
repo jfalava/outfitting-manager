@@ -31,7 +31,7 @@ const config = {
   source: { kind: "local" as const, path: "/repo" },
   macos: { profile: "macos" },
   declarations: parseByorContract({
-    schema: 1,
+    schema: 3,
     profiles: {
       macos: {
         macos: { nix: { flake: "system/macos", attribute: "darwinConfigurations.macos.system" } },

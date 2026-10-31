@@ -39,8 +39,6 @@ import { updateNixLock } from "@/update/nix/update-lock";
 export interface UpdateNixOptions {
   action: NixAction;
   config?: ManagerConfig;
-  /** Use this validated source instead of resolving the configured one. */
-  repo?: OutfittingRepo;
   sourceFetcher?: ManifestFetcher;
   /** Override the platform profile used to pick the flake. */
   profile?: string;
@@ -114,9 +112,6 @@ function resolveActiveRepo(
   config: ManagerConfig,
   selection: NixSelection,
 ): Effect.Effect<OutfittingRepo, CliFailure> {
-  if (options.repo !== undefined) {
-    return Effect.succeed(options.repo);
-  }
   if (selection.platform === "macos") {
     return resolveMacosRepo(options, config, selection.profile);
   }

@@ -16,7 +16,7 @@ import {
   secretNames,
 } from "@/backups/model";
 import { Processes } from "@/backups/process";
-import { Secrets, importSecretStore } from "@/backups/secrets";
+import { Secrets } from "@/backups/secrets";
 import { Settings } from "@/backups/settings";
 import { scheduledTask } from "@/backups/windows";
 import { withTerminalInput } from "@/terminal-alert";
@@ -255,25 +255,6 @@ const secrets = Command.make("secrets").pipe(
       }),
     ).pipe(
       Command.withDescription("Interactively store a backup credential without exposing its value"),
-    ),
-    Command.make(
-      "import-secretstore",
-      { vault: Flag.String("vault").pipe(Flag.withDefault("ResticVault")) },
-      Effect.fn("cli.importSecretStore")(function* ({ vault }) {
-        yield* configured(
-          importSecretStore(vault).pipe(
-            Effect.flatMap((names) =>
-              Console.log(
-                `Imported and verified: ${names.join(", ")}. Run secrets check; set alert-token if absent.`,
-              ),
-            ),
-          ),
-        );
-      }),
-    ).pipe(
-      Command.withDescription(
-        "Explicitly migrate Windows SecretStore credentials to Credential Manager",
-      ),
     ),
     Command.make(
       "check",

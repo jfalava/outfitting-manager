@@ -75,7 +75,7 @@ describe("BYOR-backed collectDiff", () => {
       repoRoot,
       profile: "workstation",
       contract: {
-        schema: 1,
+        schema: 3,
         profiles: {
           workstation: {
             macos: {
@@ -115,7 +115,7 @@ describe("BYOR-backed collectDiff", () => {
       repoRoot,
       profile: "workstation",
       contract: {
-        schema: 1,
+        schema: 3,
         profiles: {
           workstation: {
             macos: { nix: { flake: "nix", attribute: "darwinConfigurations.workstation.system" } },
@@ -139,7 +139,7 @@ describe("BYOR-backed collectDiff", () => {
       repoRoot,
       profile: "debian-minimal",
       contract: {
-        schema: 1,
+        schema: 3,
         profiles: {
           "debian-minimal": { linux: { apt: { manifest: "lists/minimal.apt" } } },
         },
@@ -182,7 +182,7 @@ describe("BYOR-backed collectDiff", () => {
       repoRoot,
       profile: "work",
       contract: {
-        schema: 1,
+        schema: 3,
         windows: { defaultProfiles: ["work"] },
         profiles: { work: { windows: { winget: { manifest: "windows/work.txt" } } } },
       },
@@ -203,7 +203,7 @@ describe("BYOR-backed collectDiff", () => {
       repoRoot,
       profile: "work",
       contract: {
-        schema: 1,
+        schema: 3,
         windows: { scoop: { manifest: "scoop.txt" } },
         profiles: { work: { windows: { winget: { manifest: "work.txt" } } } },
       },

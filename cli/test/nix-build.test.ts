@@ -9,7 +9,7 @@ import { buildNixSystem } from "@/update/nix/build";
 
 const fakeRepo = {
   root: "/repo",
-  contract: { schema: 1 as const, profiles: {} },
+  contract: { schema: 3 as const, profiles: {} },
   flakePath: "/repo/system/macos",
   darwinNixPath: "/repo/system/macos/darwin.nix",
   flakeKind: "macos" as const,
@@ -18,7 +18,7 @@ const fakeRepo = {
 
 const fakeHomeManagerRepo = {
   root: "/repo",
-  contract: { schema: 1 as const, profiles: {} },
+  contract: { schema: 3 as const, profiles: {} },
   flakePath: "/repo/system/custom-linux",
   flakeKind: "home-manager" as const,
   systemAttr: "homeConfigurations.workstation.activationPackage",

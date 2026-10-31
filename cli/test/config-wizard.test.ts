@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 const contract: ByorContract = {
-  schema: 1,
+  schema: 3,
   windows: {
     defaultProfiles: ["base"],
     scoop: { manifest: "packages/scoop.json" },
@@ -68,7 +68,7 @@ describe("config wizard document", () => {
 
   test("TOML declarations override conflicting manifest defaults while missing platforms are filled", () => {
     const manifest: ByorContract = {
-      schema: 1,
+      schema: 3,
       windows: {
         defaultProfiles: ["desk"],
         scoop: { manifest: "repo/scoop.json" },
@@ -83,7 +83,7 @@ describe("config wizard document", () => {
       },
     };
     const toml: ByorContract = {
-      schema: 1,
+      schema: 3,
       windows: { scoop: { manifest: "toml/scoop.json" } },
       profiles: {
         desk: { linux: { apt: { manifest: "toml/linux.txt" } } },
@@ -105,7 +105,7 @@ describe("config wizard document", () => {
 
   test("copies all manifest platforms into TOML without replacing existing machine values", () => {
     const manifest: ByorContract = {
-      schema: 1,
+      schema: 3,
       windows: {
         defaultProfiles: ["desk"],
         scoop: { manifest: "repo/scoop.json" },
@@ -120,14 +120,14 @@ describe("config wizard document", () => {
       },
     };
     const existing = {
-      schema: 1 as const,
+      schema: 3 as const,
       source: { path: "/repo" },
       linux: { profile: "desk" },
       windows: { profiles: ["desk"], shared: { scoop: { manifest: "toml/scoop.json" } } },
       profiles: { desk: { linux: { apt: { manifest: "toml/linux.txt" } } } },
     };
     const contractEdits: ByorContract = {
-      schema: 1,
+      schema: 3,
       profiles: { desk: { linux: { apt: { manifest: "toml/linux.txt" } } } },
     };
 
@@ -210,7 +210,7 @@ describe("config wizard document", () => {
     const root = await temporaryRoot();
     const target = join(root, "config.toml");
     const existing = {
-      schema: 1 as const,
+      schema: 3 as const,
       machine_id: "jfalava:aarch64-linux",
       source: { path: "../outfitting" },
       fonts: { bucket: "team-font-library" },
@@ -233,7 +233,7 @@ describe("config wizard document", () => {
       },
     };
     const editedContract: ByorContract = {
-      schema: 1,
+      schema: 3,
       profiles: {
         base: {
           linux: {
@@ -280,7 +280,7 @@ describe("config wizard document", () => {
   test("adds discovered Nix paths without replacing existing paths or other profiles", () => {
     const document = buildWizardConfigDocument(
       {
-        schema: 1,
+        schema: 3,
         profiles: {
           base: {
             linux: {
@@ -315,7 +315,7 @@ describe("config wizard document", () => {
 describe("config manifest generation", () => {
   test("replaces selected platform declarations and keeps other platforms intact", () => {
     const existing: ByorContract = {
-      schema: 1,
+      schema: 3,
       windows: { defaultProfiles: ["common"], scoop: { manifest: "scoop.json" } },
       profiles: {
         common: {
@@ -327,7 +327,7 @@ describe("config manifest generation", () => {
       },
     };
     const edited: ByorContract = {
-      schema: 1,
+      schema: 3,
       profiles: {
         common: { linux: { apt: { manifest: "new-apt.txt" } } },
         server: { linux: { apt: { manifest: "server.txt" } } },
@@ -350,7 +350,7 @@ describe("config manifest generation", () => {
     const target = join(root, "outfitting.json");
     const original = `${JSON.stringify(contract, null, 2)}\n`;
     const edited = `${JSON.stringify(
-      { schema: 1, profiles: { base: { linux: { apt: { manifest: "new.txt" } } } } },
+      { schema: 3, profiles: { base: { linux: { apt: { manifest: "new.txt" } } } } },
       null,
       2,
     )}\n`;
@@ -398,7 +398,7 @@ test("replaces an existing config only if it still matches the reviewed contents
   const edited = `${stringifyToml(
     buildWizardConfigDocument(
       {
-        schema: 1,
+        schema: 3,
         profiles: { base: { linux: { apt: { manifest: "packages/updated-apt.txt" } } } },
       },
       { path: root },

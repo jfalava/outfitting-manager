@@ -74,7 +74,7 @@ async function makeLinuxSource(profile: string, withLock = false) {
   await writeFile(
     join(stateRoot, "config.toml"),
     [
-      "schema = 1",
+      "schema = 2",
       "[source]",
       `path = ${JSON.stringify(repo)}`,
       "[linux]",
@@ -98,7 +98,7 @@ linuxTest("Linux Nix action skips profiles without a Nix declaration when reques
   await writeFile(
     join(stateRoot, "config.toml"),
     [
-      "schema = 1",
+      "schema = 2",
       "[linux]",
       'profile = "native-only"',
       "[profiles.native-only.linux.apt]",
@@ -130,40 +130,32 @@ test.skipIf(process.platform !== "darwin")(
     await mkdir(flake, { recursive: true });
     await writeFile(join(flake, "flake.nix"), "flake\n");
     await writeFile(join(flake, "darwin.nix"), "darwin\n");
-    const contract = {
-      schema: 1 as const,
-      profiles: {
-        macos: {
-          macos: { nix: { flake: "system/macos", attribute: "darwinConfigurations.macos.system" } },
-        },
-      },
-    };
+    await mkdir(join(root, "state"));
+    await writeFile(
+      join(root, "state", "config.toml"),
+      [
+        "schema = 2",
+        "[source]",
+        `path = ${JSON.stringify(root)}`,
+        "[macos]",
+        'profile = "macos"',
+        "[profiles.macos.macos.nix]",
+        'flake = "system/macos"',
+        'attribute = "darwinConfigurations.macos.system"',
+        "",
+      ].join("\n"),
+    );
     const lockPath = join(flake, "flake.lock");
     vi.mocked(buildNixSystem).mockImplementation(async ({ repo }) => {
       await writeFile(join(repo.flakePath, "flake.lock"), '{ "version": 7 }\n');
       return "/nix/store/system";
     });
-    const config = {
-      configPath: join(root, "state", "config.toml"),
+    const config = await loadConfig({
       stateRoot: join(root, "state"),
       machineId: "test:aarch64-darwin",
-      machineIdOverridden: true,
-    };
+    });
 
-    await Effect.runPromise(
-      updateNix({
-        action: "build",
-        config,
-        repo: {
-          root,
-          contract,
-          flakePath: flake,
-          darwinNixPath: join(flake, "darwin.nix"),
-          flakeKind: "macos",
-          systemAttr: "darwinConfigurations.macos.system",
-        },
-      }),
-    );
+    await Effect.runPromise(updateNix({ action: "build", config }));
 
     expect(pushLockfile).toHaveBeenCalledWith({
       machine: config.machineId,

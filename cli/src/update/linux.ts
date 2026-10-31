@@ -41,7 +41,7 @@ const ManagerOwnershipSchema = Schema.Struct({
 });
 
 const LinuxOwnershipSchema = Schema.Struct({
-  version: Schema.Literals([1, 2] as const),
+  version: Schema.Literal(2),
   profiles: Schema.Record(Schema.String, ManagerOwnershipSchema),
 });
 
@@ -330,26 +330,21 @@ function emptyOwnership(): LinuxOwnershipState {
 
 function validatedOwnershipProfile(
   profile: Readonly<Partial<Record<LinuxPackageManager, ReadonlyArray<string>>>>,
-  version: 1 | 2,
 ) {
   for (const [manager, names] of Object.entries(profile)) {
     const identity =
-      manager === "apt" && version === 2
-        ? /^[a-z0-9][a-z0-9+._-]*:[a-z0-9][a-z0-9_-]*$/
-        : /^[a-z0-9][a-z0-9+._-]*$/;
+      manager === "apt" ? /^[a-z0-9][a-z0-9+._-]*:[a-z0-9][a-z0-9_-]*$/ : /^[a-z0-9][a-z0-9+._-]*$/;
     if (names.some((name) => !identity.test(name))) {
       throw new Error("Invalid owned package identity.");
     }
   }
   return {
-    apt: profile.apt === undefined ? undefined : version === 1 ? [] : [...profile.apt],
+    apt: profile.apt === undefined ? undefined : [...profile.apt],
     pacman: profile.pacman === undefined ? undefined : [...profile.pacman],
   };
 }
 
-async function readOwnership(
-  config: ManagerConfig,
-): Promise<{ state: LinuxOwnershipState; migrated: boolean }> {
+async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState> {
   try {
     const parsed: unknown = JSON.parse(
       await readFile(join(config.stateRoot, LINUX_OWNERSHIP_FILE), "utf8"),
@@ -357,15 +352,12 @@ async function readOwnership(
     const decoded = await decodeLinuxOwnership(parsed);
     const state = emptyOwnership();
     for (const [profile, decodedProfile] of Object.entries(decoded.profiles)) {
-      state.profiles[profile] = validatedOwnershipProfile(decodedProfile, decoded.version);
+      state.profiles[profile] = validatedOwnershipProfile(decodedProfile);
     }
-    const migrated =
-      decoded.version === 1 &&
-      Object.values(decoded.profiles).some((profile) => (profile.apt?.length ?? 0) > 0);
-    return { state, migrated };
+    return state;
   } catch (cause) {
     if (isNotFound(cause)) {
-      return { state: emptyOwnership(), migrated: false };
+      return emptyOwnership();
     }
     throw new Error(`Invalid ${LINUX_OWNERSHIP_FILE}; refusing to guess package ownership.`, {
       cause,
@@ -680,14 +672,7 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     });
     const installed = yield* tryPromise(() => listInstalledLinuxPackages(command.manager, command));
     const missing = missingLinuxPackages(declared, installed);
-    const { state: ownership, migrated } = yield* tryPromise(() => readOwnership(config));
-    if (migrated) {
-      yield* Console.log(
-        ui.warning(
-          "Legacy apt ownership lacked architecture; dropped old apt removal rights. Existing packages will not be pruned unless installed again by Outfitting.",
-        ),
-      );
-    }
+    const ownership = yield* tryPromise(() => readOwnership(config));
     const context = {
       config,
       profile,

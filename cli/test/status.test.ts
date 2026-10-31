@@ -42,7 +42,7 @@ test("status preserves saved profiles and distinguishes sparse, missing and dirt
   try {
     await writeFile(
       join(root, "config.toml"),
-      `schema = 1\n[source]\npath = ${JSON.stringify(root)}\n[linux]\nprofile = "linux-work"\n[profiles.work.windows.winget]\nmanifest = "packages/work.txt"\n[profiles.dev.windows.winget]\nmanifest = "packages/dev.txt"\n[profiles.linux-work.linux.apt]\nmanifest = "packages/linux.txt"\n`,
+      `schema = 2\n[source]\npath = ${JSON.stringify(root)}\n[linux]\nprofile = "linux-work"\n[profiles.work.windows.winget]\nmanifest = "packages/work.txt"\n[profiles.dev.windows.winget]\nmanifest = "packages/dev.txt"\n[profiles.linux-work.linux.apt]\nmanifest = "packages/linux.txt"\n`,
     );
     const config = await loadConfig({ stateRoot: root });
     const lock = await readWindowsLock(config);
@@ -84,7 +84,7 @@ test.each([
       await writeFile(
         configPath,
         [
-          "schema = 1",
+          "schema = 2",
           ...(profile === undefined ? [] : ["[linux]", `profile = ${JSON.stringify(profile)}`]),
           "[profiles.work.linux.apt]",
           'manifest = "work.txt"',

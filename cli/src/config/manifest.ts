@@ -89,7 +89,7 @@ function collectLinuxProfiles(existing?: ByorContract) {
       const backends = yield* selectLinuxBackends(name, linux);
       profiles[name] = { linux: yield* collectLinuxDeclaration(name, backends, linux) };
     }
-    return parseByorContract({ schema: 1, profiles });
+    return parseByorContract({ schema: BYOR_CONTRACT_SCHEMA, profiles });
   });
 }
 
@@ -106,7 +106,7 @@ function collectMacosProfiles(existing?: ByorContract) {
       const extras = yield* collectMacosExtras(macos);
       profiles[name] = { macos: { nix, ...extras } };
     }
-    return parseByorContract({ schema: 1, profiles });
+    return parseByorContract({ schema: BYOR_CONTRACT_SCHEMA, profiles });
   });
 }
 
@@ -121,7 +121,7 @@ function collectWindowsProfiles(existing?: ByorContract, selectedProfiles?: Read
     const defaultProfiles = yield* windowsDefaultProfilesPrompt(names, defaults);
     const profiles = yield* collectWindowsProfileDeclarations(names, existing);
     const windows = yield* collectWindowsShared(names, existing?.windows, defaultProfiles);
-    return parseByorContract({ schema: 1, windows, profiles });
+    return parseByorContract({ schema: BYOR_CONTRACT_SCHEMA, windows, profiles });
   });
 }
 
@@ -172,11 +172,10 @@ export function buildManifestWithPlatformEdits(
 
   const windows = selected.includes("windows") ? edits.windows?.windows : existing?.windows;
   const result: ByorContract = {
-    schema: 1,
+    schema: BYOR_CONTRACT_SCHEMA,
     profiles,
   };
   if (existing?.backups !== undefined) {
-    result.schema = BYOR_CONTRACT_SCHEMA;
     result.backups = existing.backups;
   }
   if (windows !== undefined) {

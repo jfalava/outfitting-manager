@@ -16,7 +16,7 @@ Archive commands require an explicit bucket in this machine's `config.toml`:
 bucket = "my-private-fonts"
 ```
 
-This table is supported in config schemas 1 and 2 and is preserved by `config wizard`. `OUTFITTING_PRIVATE_FONTS_BUCKET` overrides the TOML bucket. There is no implicit bucket default. Font commands do not read `outfitting.deploy.json` or `OUTFITTING_DEPLOY_CONFIG`; provisioning settings cannot select a runtime font target. When upgrading, explicitly select the existing bucket rather than creating or renaming one. Plain `fonts list` reads only the sync inventory and does not require a bucket.
+This table is preserved by `config wizard`. `OUTFITTING_PRIVATE_FONTS_BUCKET` overrides the TOML bucket. There is no implicit bucket default. Font commands do not read `outfitting.deploy.json` or `OUTFITTING_DEPLOY_CONFIG`; provisioning settings cannot select a runtime font target. Plain `fonts list` reads only the sync inventory and does not require a bucket.
 
 Environment variables take precedence over native font credentials on every host:
 

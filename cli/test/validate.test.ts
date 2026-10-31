@@ -38,6 +38,15 @@ async function writeContract(root: string, value: unknown): Promise<void> {
 }
 
 describe("BYOR contract", () => {
+  test("rejects manifest schemas other than 3", () => {
+    const profiles = { desk: { linux: { apt: { manifest: "packages.txt" } } } };
+    for (const schema of [1, 2]) {
+      expect(() => parseByorContract({ schema, profiles } as never)).toThrow(
+        "outfitting.json is invalid",
+      );
+    }
+  });
+
   test("accepts arbitrary Linux profiles with only Nix or native packages", async () => {
     const root = await repository();
     await mkdir(join(root, "system", "server"), { recursive: true });
@@ -45,7 +54,7 @@ describe("BYOR contract", () => {
     await mkdir(join(root, "packages", "debian"), { recursive: true });
     await writeFile(join(root, "packages", "debian", "minimal.txt"), "curl\ngit\n");
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         "nix-server": {
           linux: {
@@ -82,7 +91,7 @@ describe("BYOR contract", () => {
   test("requires an explicit profile when several are declared", async () => {
     const root = await repository();
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         one: { linux: { apt: { manifest: "one.txt" } } },
         two: { linux: { pacman: { manifest: "two.txt" } } },
@@ -97,14 +106,14 @@ describe("BYOR contract", () => {
   test("rejects unsafe paths before reading outside the repository", () => {
     expect(() =>
       parseByorContract({
-        schema: 1,
+        schema: 3,
         profiles: { unsafe: { linux: { apt: { manifest: "../packages.txt" } } } },
       }),
     ).toThrow(/repository-relative path without traversal/);
 
     expect(() =>
       parseByorContract({
-        schema: 1,
+        schema: 3,
         profiles: { unsafe: { linux: { apt: { manifest: "/../packages.txt" } } } },
       }),
     ).toThrow(/repository-relative path without traversal/);
@@ -112,7 +121,7 @@ describe("BYOR contract", () => {
 
   test("normalizes repository-rooted paths to repository-relative paths", () => {
     const contract = parseByorContract({
-      schema: 1,
+      schema: 3,
       windows: {
         scoop: { manifest: "/packages/windows/scoop.txt" },
         powershell: { path: "/dotfiles/Microsoft.PowerShell_profile.ps1" },
@@ -136,7 +145,7 @@ describe("BYOR contract", () => {
   test("rejects an invalid package manifest", async () => {
     const root = await repository();
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         broken: {
           linux: {
@@ -155,7 +164,7 @@ describe("BYOR contract", () => {
   test("rejects a missing Nix flake", async () => {
     const root = await repository();
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         broken: {
           linux: {
@@ -175,7 +184,7 @@ describe("BYOR contract", () => {
     await mkdir(join(root, "system", "server"), { recursive: true });
     await writeFile(join(root, "system", "server", "flake.nix"), "{ outputs = {}; }\n");
     const contract = parseByorContract({
-      schema: 1,
+      schema: 3,
       profiles: {
         broken: {
           linux: {
@@ -204,7 +213,7 @@ describe("BYOR contract", () => {
     await expect(
       validateOutfittingRepo(invalid, {
         contract: parseByorContract({
-          schema: 1,
+          schema: 3,
           profiles: { base: { linux: { apt: { manifest: "packages.txt" } } } },
         }),
       }),
@@ -218,7 +227,7 @@ describe("BYOR contract", () => {
   test("schema failures name the offending path", () => {
     expect(() =>
       parseByorContract({
-        schema: 1,
+        schema: 3,
         profiles: {
           broken: {
             linux: {
@@ -234,7 +243,7 @@ describe("BYOR contract", () => {
   test("rejects an empty package manifest", async () => {
     const root = await repository();
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         empty: { linux: { apt: { manifest: "packages.txt" } } },
       },
@@ -247,7 +256,7 @@ describe("BYOR contract", () => {
 
   test("selects the requested Linux profile declaration", () => {
     const contract = parseByorContract({
-      schema: 1,
+      schema: 3,
       profiles: {
         one: { linux: { apt: { manifest: "one.txt" } } },
         two: { linux: { pacman: { manifest: "two.txt" } } },
@@ -264,7 +273,7 @@ describe("BYOR contract", () => {
     await mkdir(join(root, "home"), { recursive: true });
     await writeFile(join(root, "home", "flake.nix"), "{ outputs = {}; }\n");
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         workstation: {
           linux: {
@@ -294,7 +303,7 @@ describe("BYOR contract", () => {
     await writeFile(join(root, "packages", "custom", "base-winget.txt"), "Git.Git\n");
     await writeFile(join(root, "packages", "custom", "dev-winget.txt"), "OpenAI.Codex\n");
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       windows: {
         defaultProfiles: ["base", "dev"],
         scoop: { manifest: "packages/custom/scoop.txt" },
@@ -319,7 +328,7 @@ describe("BYOR contract", () => {
 
   test("selects composable multi-profile Windows sets", () => {
     const contract = parseByorContract({
-      schema: 1,
+      schema: 3,
       profiles: {
         base: { windows: { winget: { manifest: "base.txt" } } },
         dev: { windows: { winget: { manifest: "dev.txt" } } },
@@ -339,7 +348,7 @@ describe("BYOR contract", () => {
   test("rejects missing, empty, and invalid Windows winget manifests", async () => {
     const missing = await repository();
     await writeContract(missing, {
-      schema: 1,
+      schema: 3,
       profiles: {
         broken: { windows: { winget: { manifest: "missing.txt" } } },
       },
@@ -351,7 +360,7 @@ describe("BYOR contract", () => {
     const empty = await repository();
     await writeFile(join(empty, "empty.txt"), "# nothing\n", "utf8");
     await writeContract(empty, {
-      schema: 1,
+      schema: 3,
       profiles: { empty: { windows: { winget: { manifest: "empty.txt" } } } },
     });
     await expect(
@@ -361,7 +370,7 @@ describe("BYOR contract", () => {
     const invalid = await repository();
     await writeFile(join(invalid, "bad.txt"), "Git.Git --silent\n", "utf8");
     await writeContract(invalid, {
-      schema: 1,
+      schema: 3,
       profiles: { bad: { windows: { winget: { manifest: "bad.txt" } } } },
     });
     await expect(
@@ -372,7 +381,7 @@ describe("BYOR contract", () => {
   test("rejects Windows path traversal in the contract", () => {
     expect(() =>
       parseByorContract({
-        schema: 1,
+        schema: 3,
         profiles: {
           unsafe: { windows: { winget: { manifest: "../escape.txt" } } },
         },
@@ -386,7 +395,7 @@ describe("BYOR contract", () => {
     await writeFile(join(root, "packages", "apt.txt"), "curl\n");
     await writeFile(join(root, "packages", "winget.txt"), "Git.Git\n");
     await writeContract(root, {
-      schema: 1,
+      schema: 3,
       profiles: {
         "debian-minimal": { linux: { apt: { manifest: "packages/apt.txt" } } },
         workstation: { windows: { winget: { manifest: "packages/winget.txt" } } },
@@ -427,7 +436,7 @@ test("accepts macos-only profiles with custom flake and brewfile paths", async (
   await writeFile(join(root, "fonts", "fontget.txt"), "Inter\n");
   await writeFile(join(root, "system", "work", "home.nix"), "{ ... }: {}\n");
   await writeContract(root, {
-    schema: 1,
+    schema: 3,
     profiles: {
       workstation: {
         macos: {
@@ -458,7 +467,7 @@ test("accepts macos-only profiles with custom flake and brewfile paths", async (
 test("rejects missing flake, missing darwinConfigurations, and path traversal for macos", async () => {
   const missingFlake = await repository();
   await writeContract(missingFlake, {
-    schema: 1,
+    schema: 3,
     profiles: {
       broken: {
         macos: {
@@ -476,7 +485,7 @@ test("rejects missing flake, missing darwinConfigurations, and path traversal fo
   await writeFile(join(noDarwin, "system", "mac", "flake.nix"), "{ outputs = {}; }\n");
   await writeFile(join(noDarwin, "system", "mac", "darwin.nix"), "{ ... }: {}\n");
   await writeContract(noDarwin, {
-    schema: 1,
+    schema: 3,
     profiles: {
       broken: {
         macos: {
@@ -491,7 +500,7 @@ test("rejects missing flake, missing darwinConfigurations, and path traversal fo
 
   expect(() =>
     parseByorContract({
-      schema: 1,
+      schema: 3,
       profiles: {
         unsafe: {
           macos: {
@@ -514,7 +523,7 @@ test("selects macos from mixed linux+macos contracts with an explicit profile", 
   await mkdir(join(root, "packages"), { recursive: true });
   await writeFile(join(root, "packages", "apt.txt"), "curl\n");
   await writeContract(root, {
-    schema: 1,
+    schema: 3,
     profiles: {
       desk: {
         macos: {
@@ -540,7 +549,7 @@ test("selects macos from mixed linux+macos contracts with an explicit profile", 
   ).resolves.toMatchObject({ profile: "debian-minimal", backends: ["apt"] });
 
   const contract = parseByorContract({
-    schema: 1,
+    schema: 3,
     profiles: {
       desk: {
         macos: {
@@ -559,7 +568,7 @@ test("selects macos from mixed linux+macos contracts with an explicit profile", 
 
 test("remote fetch closure keeps flake directories and declared out-of-flake paths", () => {
   const contract = parseByorContract({
-    schema: 1,
+    schema: 3,
     windows: {
       scoop: { manifest: "packages/scoop.txt" },
       powershell: { path: "dotfiles/profile.ps1" },
@@ -613,7 +622,7 @@ test("validateOutfittingRepo returns flakeKind macos with custom systemAttr and 
   );
   await writeFile(join(root, "system", "custom", "darwin-host.nix"), "{ ... }: {}\n");
   await writeContract(root, {
-    schema: 1,
+    schema: 3,
     profiles: {
       laptop: {
         macos: {
@@ -642,7 +651,7 @@ test("windows-only BYOR resolves without a Nix flake", async () => {
   const windowsOnly = await repository();
   await writeFile(join(windowsOnly, "winget.txt"), "Git.Git\n");
   await writeContract(windowsOnly, {
-    schema: 1,
+    schema: 3,
     profiles: { base: { windows: { winget: { manifest: "winget.txt" } } } },
   });
   await expect(

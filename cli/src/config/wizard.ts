@@ -52,7 +52,7 @@ import { updateNix } from "@/update/nix/run";
 type WizardSource = { path: string } | { repository: string; ref: string };
 
 interface WizardConfigDocument {
-  schema: 1 | 2;
+  schema: 2;
   backups?: BackupsConfig;
   fonts?: FontsConfig;
   machine_id?: string;
@@ -64,7 +64,6 @@ interface WizardConfigDocument {
 }
 
 interface ExistingWizardConfigDocument {
-  schema?: 1 | 2;
   backups?: BackupsConfig;
   fonts?: FontsConfig;
   machine_id?: string;
@@ -329,7 +328,10 @@ function collectLinuxProfile(
     const declaration = existing?.profiles[name]?.linux;
     const backends = yield* selectLinuxBackends(name, declaration);
     const linux = yield* collectLinuxDeclaration(name, backends, declaration);
-    const contract = parseByorContract({ schema: 1, profiles: { [name]: { linux } } });
+    const contract = parseByorContract({
+      schema: BYOR_CONTRACT_SCHEMA,
+      profiles: { [name]: { linux } },
+    });
     return { contract, profiles: [name] };
   });
 }
@@ -386,7 +388,10 @@ function collectMacosProfile(
     const nix = yield* collectMacosNix(declaration?.nix);
     const extras = yield* collectMacosExtras(declaration);
     const macos: MacosProfileDeclaration = { nix, ...extras };
-    const contract = parseByorContract({ schema: 1, profiles: { [name]: { macos } } });
+    const contract = parseByorContract({
+      schema: BYOR_CONTRACT_SCHEMA,
+      profiles: { [name]: { macos } },
+    });
     return { contract, profiles: [name] };
   });
 }
@@ -448,7 +453,7 @@ export function collectWindowsProfiles(
     const names = namesInput.split(",");
     const profiles = yield* collectWindowsProfileDeclarations(names, existing);
     const windows = yield* collectWindowsShared(names, existing?.windows);
-    const contract = parseByorContract({ schema: 1, windows, profiles });
+    const contract = parseByorContract({ schema: BYOR_CONTRACT_SCHEMA, windows, profiles });
     return { contract, profiles: names };
   });
 }
@@ -467,11 +472,10 @@ export function mergeByorContractDefaults(
   const profiles = mergeProfiles(manifest.profiles, toml.profiles);
   const windows = { ...manifest.windows, ...toml.windows };
   const merged: ByorContract = {
-    schema: 1,
+    schema: BYOR_CONTRACT_SCHEMA,
     profiles,
   };
   if (toml.backups ?? manifest.backups) {
-    merged.schema = BYOR_CONTRACT_SCHEMA;
     merged.backups = toml.backups ?? manifest.backups;
   }
   if (Object.keys(windows).length > 0) {
@@ -622,7 +626,7 @@ export function buildWizardConfigDocument(
   const { platform, profiles, manifest, existing } = options;
   const manifestShared = windowsSharedArtifacts(manifest?.windows);
   const document: WizardConfigDocument = {
-    schema: 1,
+    schema: 2,
     source,
     profiles: mergeProfiles(manifest?.profiles, existing?.profiles, contract.profiles),
   };
@@ -634,7 +638,6 @@ export function buildWizardConfigDocument(
 
   const backups = importedBackups(manifest, existing?.backups, platform);
   if (backups !== undefined) {
-    document.schema = 2;
     document.backups = backups;
   }
 
@@ -720,7 +723,7 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
       files: files.split(",").map((file) => file.trim()),
     };
     const validated = yield* Effect.try({
-      try: () => normalizeBackups({ defaultProfile: name, profiles })!,
+      try: () => normalizeBackups({ defaultProfile: name, profiles }),
       catch: toError,
     });
     if (root !== undefined) {
@@ -730,7 +733,6 @@ function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatfor
         }
       }
     }
-    document.schema = 2;
     document.backups = { ...current, profile: name, profiles: validated.profiles };
   });
 }

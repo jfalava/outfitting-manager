@@ -21,6 +21,7 @@ import type {
 import { isNotFound, errorMessage } from "@/errors";
 import { envValue } from "@/secrets";
 import {
+  BYOR_CONTRACT_SCHEMA,
   linuxPathsFromProfile,
   macosPathsFromProfile,
   parseByorContract,
@@ -66,7 +67,7 @@ const SourceFileSchema = Schema.Struct({
 });
 
 const ConfigFileSchema = Schema.Struct({
-  schema: Schema.Literals([1, 2]),
+  schema: Schema.Literal(2),
   machine_id: Schema.optionalKey(Schema.NonEmptyString),
   source: Schema.optionalKey(SourceFileSchema),
   linux: Schema.optionalKey(LinuxFileSchema),
@@ -115,7 +116,7 @@ function normalizeBackupsConfig(backups: NonNullable<DecodedConfig["backups"]>):
   const validated = normalizeBackups({
     defaultProfile: backups.profile,
     profiles: backups.profiles,
-  })!;
+  });
   const config: Pick<
     BackupsConfig,
     "profile" | "profiles" | "logDirectory" | "credentials" | "scheduleLabel"
@@ -266,8 +267,8 @@ function normalizeDeclarations(decoded: DecodedConfig): ByorContract | undefined
   try {
     const raw =
       windows === undefined
-        ? { schema: 1 as const, profiles: decoded.profiles }
-        : { schema: 1 as const, profiles: decoded.profiles, windows };
+        ? { schema: BYOR_CONTRACT_SCHEMA, profiles: decoded.profiles }
+        : { schema: BYOR_CONTRACT_SCHEMA, profiles: decoded.profiles, windows };
     const contract = parseByorContract(raw as Parameters<typeof parseByorContract>[0]);
     const reserved = declarationPaths(contract).filter(isReservedSourcePath);
     if (reserved.length > 0) {
@@ -285,7 +286,7 @@ function normalizeDeclarations(decoded: DecodedConfig): ByorContract | undefined
 
 // oxlint-disable-next-line complexity -- each supported config section is normalized independently
 function configFileFromDecoded(decoded: DecodedConfig, configPath: string): ManagerConfigFile {
-  const file: ManagerConfigFile = { schema: decoded.schema };
+  const file: ManagerConfigFile = {};
   if (decoded.machine_id !== undefined) {
     file.machineId = decoded.machine_id.trim();
   }
@@ -329,11 +330,8 @@ function parseConfigFile(raw: string, configPath: string): ManagerConfigFile {
   assertConfigTableKeys(parsed, configPath);
   const decoded = decodeConfigFile(parsed);
   if (Option.isNone(decoded)) {
-    throw new Error(`${configPath} must use config schema 1 or 2 and the supported TOML tables.`);
-  }
-  if (decoded.value.backups !== undefined && decoded.value.schema !== 2) {
     throw new Error(
-      "Backups require config schema 2 and explicit job policies. Migrate retention overrides and process guards before upgrading.",
+      `${configPath} must set \`schema = 2\` and use only the supported TOML tables.`,
     );
   }
   return configFileFromDecoded(decoded.value, configPath);
@@ -396,7 +394,7 @@ function managerConfigFromFile(
   path: string,
   machineId: ResolvedMachineId,
 ): ManagerConfig {
-  const { schema: _schema, machineId: _machineId, ...sections } = file;
+  const { machineId: _machineId, ...sections } = file;
   return { configPath: path, stateRoot: root, ...machineId, ...sections };
 }
 

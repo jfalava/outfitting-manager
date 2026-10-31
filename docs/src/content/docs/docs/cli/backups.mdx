@@ -180,24 +180,6 @@ Verify required credentials in the native store without printing their values. W
 outfitting-manager backups secrets check
 ```
 
-### `secrets import-secretstore`
-
-**Syntax:** `outfitting-manager backups secrets import-secretstore [--vault <vault>]`
-
-Migrate backup credentials from PowerShell SecretStore to Windows Credential Manager. Supported on Windows only. Read source entries using the configured service names and write to those same names in Credential Manager. Preflight destination conflicts before writing; there are no implicit legacy-name aliases.
-
-```sh
-# Import credentials from the default 'ResticVault'
-outfitting-manager backups secrets import-secretstore
-
-# Import from a custom vault name
-outfitting-manager backups secrets import-secretstore --vault CustomVault
-```
-
-| Option            | Description                                                   |
-| ----------------- | ------------------------------------------------------------- |
-| `--vault <vault>` | PowerShell SecretStore vault name. Defaults to `ResticVault`. |
-
 ## `schedule`
 
 **Syntax:** `outfitting-manager backups schedule --binary <path>`

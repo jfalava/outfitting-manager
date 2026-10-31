@@ -41,7 +41,6 @@ export type ConfiguredSource =
   | { kind: "remote"; repository: string; ref: string };
 
 export interface ManagerConfigFile {
-  schema?: 1 | 2;
   /** Optional override; when omitted, auto `user:arch-os` is used. */
   machineId?: string;
   source?: ConfiguredSource;

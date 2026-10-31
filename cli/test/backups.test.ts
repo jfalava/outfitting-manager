@@ -448,9 +448,6 @@ test("rejects empty, duplicate, and unknown declarations", () => {
     defaultProfile: "mac",
     profiles: { mac: { platform: "macos" as const, files: ["a.toml"] } },
   };
-  for (const schema of [1, 2] as const) {
-    expect(() => parseByorContract({ schema, profiles, backups })).toThrow("schema 3");
-  }
   expect(() =>
     parseByorContract({ schema: 3, profiles, backups: { ...backups, typo: true } } as never),
   ).toThrow('excess property\n  at ["backups"]["typo"]');
@@ -548,7 +545,7 @@ test("manifest re-import replaces current-platform backups, preserves other plat
       { platform: "windows", profiles: ["desk"], existing: document },
     ).backups,
   ).toEqual(document.backups);
-  const withoutBackups = parseByorContract({ schema: 1, profiles: contract.profiles });
+  const withoutBackups = parseByorContract({ schema: 3, profiles: contract.profiles });
   expect(
     buildWizardConfigDocument(
       withoutBackups,
@@ -740,7 +737,7 @@ test("sparse refresh includes backup fragments, hashes order, and leaves the las
   const config = await loadConfig({ stateRoot });
   config.source = { kind: "remote", repository: repo, ref: "HEAD" };
   config.declarations = parseByorContract({
-    schema: 1,
+    schema: 3,
     profiles: { desk: { macos: { nix: { flake: "nix", attribute: "desk" } } } },
   });
   config.macos = { profile: "desk" };
@@ -987,10 +984,6 @@ test("paths and policies round-trip through import and local config; re-import r
   expect(edited.backups?.credentials).toEqual(credentials);
   expect(edited.backups?.alertsDisabled).toBe(true);
   expect(edited.backups?.scheduleLabel).toBe("org.example.existing");
-  await writeFile(join(root, "config.toml"), stringify({ ...document, schema: 1 }));
-  await expect(loadConfig({ stateRoot: root })).rejects.toThrow(
-    "Migrate retention overrides and process guards",
-  );
 });
 
 test.each<[Record<string, unknown>, string]>([
