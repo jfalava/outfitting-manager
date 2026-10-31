@@ -1,6 +1,6 @@
 import { Option, Schema } from "effect";
 
-import { errorMessage } from "@/errors";
+import { CliFailure, errorMessage } from "@/errors";
 
 export interface ScoopExportApp {
   Name: string;
@@ -61,11 +61,14 @@ export function parseScoopExport(output: string): ScoopExportState {
   try {
     parsed = JSON.parse(output) as unknown;
   } catch (cause) {
-    throw new Error(`Unable to parse Scoop export: ${errorMessage(cause)}`, { cause });
+    throw new CliFailure({
+      message: `Unable to parse Scoop export: ${errorMessage(cause)}`,
+      cause,
+    });
   }
   const decoded = decodeScoopExport(parsed);
   if (Option.isNone(decoded)) {
-    throw new Error("Scoop export must contain valid apps and buckets.");
+    throw new CliFailure({ message: "Scoop export must contain valid apps and buckets." });
   }
   return normalizeScoopExport(decoded.value);
 }
