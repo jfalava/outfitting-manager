@@ -4,68 +4,35 @@ import { Command, Flag } from "effect/cli";
 import { configuredProfile, loadConfig, sparseSourceRoot } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
+import { platformLabel, type HostPlatform } from "@/platform";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
 import {
-  byorContractPlatforms,
+  profileNames,
   validateLinuxByorSource,
   validateMacosByorSource,
   validateWindowsByorSource,
   type ByorContract,
-  type ByorContractPlatforms,
 } from "@/source/contract";
 import { ui } from "@/ui";
-
-type ValidatePlatform = "linux" | "windows" | "macos";
-
-function platformLabel(platform: ValidatePlatform): string {
-  switch (platform) {
-    case "linux":
-      return "Linux";
-    case "windows":
-      return "Windows";
-    case "macos":
-      return "macOS";
-  }
-}
-
-function requirePlatform(
-  platforms: ByorContractPlatforms,
-  platform: ValidatePlatform,
-): ValidatePlatform {
-  if (!platforms[platform]) {
-    throw new Error(`config.toml does not declare any ${platformLabel(platform)} profiles.`);
-  }
-  return platform;
-}
-
-function declaredPlatforms(platforms: ByorContractPlatforms): ValidatePlatform[] {
-  const declared: ValidatePlatform[] = [];
-  if (platforms.linux) {
-    declared.push("linux");
-  }
-  if (platforms.windows) {
-    declared.push("windows");
-  }
-  if (platforms.macos) {
-    declared.push("macos");
-  }
-  return declared;
-}
 
 function resolveValidatePlatform(
   contract: ByorContract,
   platformFlag: string | undefined,
-): ValidatePlatform {
-  const platforms = byorContractPlatforms(contract);
+): HostPlatform {
   if (platformFlag === "linux" || platformFlag === "windows" || platformFlag === "macos") {
-    return requirePlatform(platforms, platformFlag);
+    if (profileNames(contract, platformFlag).length === 0) {
+      throw new Error(`config.toml does not declare any ${platformLabel(platformFlag)} profiles.`);
+    }
+    return platformFlag;
   }
   if (platformFlag !== undefined) {
     throw new Error(`--platform must be linux, windows, or macos (got \`${platformFlag}\`).`);
   }
 
-  const declared = declaredPlatforms(platforms);
+  const declared = (["linux", "windows", "macos"] as const).filter(
+    (platform) => profileNames(contract, platform).length > 0,
+  );
   if (declared.length > 1) {
     throw new Error(
       `config.toml declares multiple platforms (${declared.join(", ")}). Pass --platform ${declared.join("|")}.`,

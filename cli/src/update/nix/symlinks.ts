@@ -3,13 +3,14 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { OutfittingRepo } from "@/config/repo";
+import { isNotFound } from "@/errors";
 
 async function ensureSymlink(linkPath: string, target: string): Promise<void> {
   let existing: Awaited<ReturnType<typeof lstat>> | undefined;
   try {
     existing = await lstat(linkPath);
   } catch (cause) {
-    if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
+    if (!isNotFound(cause)) {
       throw cause;
     }
   }

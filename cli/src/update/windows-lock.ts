@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Option, Schema } from "effect";
 
 import { stateRoot, type ManagerConfig } from "@/config";
+import { isNotFound } from "@/errors";
 
 export const WINDOWS_LOCK_KIND = "windows";
 export const WINDOWS_LOCK_FORMAT = "outfitting-windows-lock-v2";
@@ -147,11 +148,7 @@ async function readWindowsLockFile(path: string): Promise<WindowsLock | undefine
   try {
     content = await readFile(path, "utf8");
   } catch (cause) {
-    if (
-      cause instanceof Error &&
-      "code" in cause &&
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    if (isNotFound(cause)) {
       return undefined;
     }
     throw cause;

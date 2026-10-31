@@ -10,7 +10,7 @@ import {
 import { type ManagerConfig } from "@/config/types";
 import { tryPromise } from "@/effect";
 import type { ManifestFetcher } from "@/fetch/github";
-import type { HostPlatform } from "@/platform";
+import { hostPlatform, type HostPlatform } from "@/platform";
 import type { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource, validateBackups } from "@/setup/source";
@@ -44,13 +44,7 @@ export interface SetupOptions {
 }
 
 function setupPlatform(options: SetupOptions): HostPlatform {
-  if (options.platform !== undefined) {
-    return options.platform;
-  }
-  if (process.platform === "darwin") {
-    return "macos";
-  }
-  return process.platform === "win32" ? "windows" : "linux";
+  return options.platform ?? hostPlatform();
 }
 
 function setupRepo(config: ManagerConfig, options: SetupOptions): string | undefined {

@@ -1,3 +1,4 @@
+import { errorMessage } from "@/errors";
 import { FONT_EXTENSIONS, type FontExtension } from "@/fonts/constants";
 
 const NAME_ID_FAMILY = 1;
@@ -212,7 +213,7 @@ export function readFontNames(bytes: Uint8Array, sourcePath: string): FontNameRe
       return parseNameTable(nameTableBytes(bytes, 0));
     }
   } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
+    const detail = errorMessage(cause);
     throw new Error(`Unable to read OpenType names from ${sourcePath}: ${detail}`, {
       cause: cause,
     });

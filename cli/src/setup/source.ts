@@ -19,6 +19,7 @@ import { composeBackupProfile } from "@/backups/composition";
 import { sparseSourceRoot } from "@/config/paths";
 import { configuredProfile } from "@/config/profile";
 import type { ManagerConfig } from "@/config/types";
+import { isNotFound, errorMessage } from "@/errors";
 import { classifyGitHubRepository, readGitHubBlobs, type ManifestFetcher } from "@/fetch/github";
 import type { HostPlatform } from "@/platform";
 import { runCommand } from "@/process";
@@ -34,6 +35,7 @@ import {
   validateWindowsByorSource,
   type ByorContract,
   relativeSourcePath,
+  isWithinSourcePath,
 } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";
 
@@ -46,12 +48,6 @@ export interface ByorSourceFile {
 export interface ByorSourceResult {
   root: string;
   files: ByorSourceFile[];
-}
-
-function isNotFound(cause: unknown): boolean {
-  return (
-    cause instanceof Error && "code" in cause && (cause as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }
 
 async function replaceSourceTree(staged: string, target: string): Promise<void> {
@@ -77,7 +73,7 @@ async function replaceSourceTree(staged: string, target: string): Promise<void> 
         await rename(backup, target);
       } catch (restoreCause) {
         throw new Error(
-          `Could not publish the refreshed source and could not restore the previous source. Previous source remains at ${backup}. Publish error: ${cause instanceof Error ? cause.message : String(cause)}. Restore error: ${restoreCause instanceof Error ? restoreCause.message : String(restoreCause)}.`,
+          `Could not publish the refreshed source and could not restore the previous source. Previous source remains at ${backup}. Publish error: ${errorMessage(cause)}. Restore error: ${errorMessage(restoreCause)}.`,
           { cause: restoreCause },
         );
       }
@@ -200,10 +196,6 @@ export async function validateBackups(
   }
 }
 
-function withinPath(path: string, root: string): boolean {
-  return root === "." || path === root || path.startsWith(`${root}/`);
-}
-
 async function runGit(
   run: typeof runCommand,
   cwd: string,
@@ -277,7 +269,7 @@ function selectGitTreeEntries(
 ): GitTreeEntry[] {
   const roots = paths.map((path) => relativeSourcePath(path, "BYOR path"));
   for (const root of roots) {
-    if (!entries.some((entry) => withinPath(entry.path, root))) {
+    if (!entries.some((entry) => isWithinSourcePath(entry.path, root))) {
       throw new Error(`Git path \`${root}\` is missing or empty.`);
     }
   }
@@ -290,7 +282,8 @@ function selectGitTreeEntries(
   }
   const selected = entries.filter(
     (entry) =>
-      roots.some((root) => withinPath(entry.path, root)) && !isReservedSourcePath(entry.path),
+      roots.some((root) => isWithinSourcePath(entry.path, root)) &&
+      !isReservedSourcePath(entry.path),
   );
   for (const entry of selected) {
     relativeSourcePath(entry.path, "Git tree path");

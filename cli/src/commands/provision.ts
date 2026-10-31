@@ -6,7 +6,7 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 import pc from "picocolors";
 
-import { toCliFailure } from "@/errors";
+import { toCliFailure, errorMessage } from "@/errors";
 import { storeApiToken, storeWorkerUrl } from "@/sync/keychain";
 import { ui } from "@/ui";
 
@@ -219,9 +219,9 @@ export const provisionCommand = Command.make(
           catch: (cause) =>
             toCliFailure(
               cause,
-              `Stack deployed, but credentials could not be stored in the OS keychain: ${
-                cause instanceof Error ? cause.message : String(cause)
-              }. Set them with sync configure worker / configure token.`,
+              `Stack deployed, but credentials could not be stored in the OS keychain: ${errorMessage(
+                cause,
+              )}. Set them with sync configure worker / configure token.`,
             ),
         });
       }

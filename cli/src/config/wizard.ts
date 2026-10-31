@@ -14,8 +14,9 @@ import type { OutfittingRepo } from "@/config/repo";
 import type { BackupsConfig, FontsConfig } from "@/config/types";
 import { publishValidatedConfig } from "@/config/write";
 import { tryPromise } from "@/effect";
+import { isNotFound, errorMessage } from "@/errors";
 import { classifyGitHubRepository, readGitHubFile } from "@/fetch/github";
-import type { HostPlatform } from "@/platform";
+import { hostPlatform, type HostPlatform } from "@/platform";
 import { envValue } from "@/secrets";
 import { runSetup } from "@/setup/run";
 import { readGitFile } from "@/setup/source";
@@ -37,6 +38,8 @@ import {
   type ByorWindowsShared,
   type LinuxProfileDeclaration,
   type MacosProfileDeclaration,
+  profileNames,
+  isWithinSourcePath,
 } from "@/source/contract";
 import { discoverNixSourcePaths, missingSourcePathFromNixError } from "@/source/nix-dependencies";
 import { TerminalSession, withTerminalInput } from "@/terminal-alert";
@@ -96,17 +99,6 @@ interface WizardDocumentOptions {
   profiles: ReadonlyArray<string>;
   manifest?: ByorContract;
   existing?: ExistingWizardConfigDocument;
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function hostPlatform(): HostPlatform {
-  if (process.platform === "darwin") {
-    return "macos";
-  }
-  return process.platform === "win32" ? "windows" : "linux";
 }
 
 function targetPathPrompt(defaultPath: string) {
@@ -517,21 +509,6 @@ export function mergeByorContractDefaults(
   return parseByorContract(merged);
 }
 
-function profileNamesFor(contract: ByorContract | undefined, platform: HostPlatform): string[] {
-  if (contract === undefined) {
-    return [];
-  }
-  return Object.entries(contract.profiles)
-    .filter(([, profile]) =>
-      platform === "linux"
-        ? profile.linux !== undefined
-        : platform === "macos"
-          ? profile.macos !== undefined
-          : profile.windows !== undefined,
-    )
-    .map(([name]) => name);
-}
-
 function windowsProfileSetupPrompt(
   existing: ExistingWizardConfig | undefined,
   defaults: ByorContract | undefined,
@@ -540,7 +517,7 @@ function windowsProfileSetupPrompt(
   const windowsDefaults =
     selected !== undefined && selected.length > 0
       ? selected
-      : (defaults?.windows?.defaultProfiles ?? profileNamesFor(defaults, "windows"));
+      : (defaults?.windows?.defaultProfiles ?? profileNames(defaults, "windows"));
   return collectWindowsProfiles(windowsDefaults, defaults);
 }
 
@@ -549,7 +526,7 @@ function singleProfileSetupPrompt(
   existing: ExistingWizardConfig | undefined,
   defaults: ByorContract | undefined,
 ) {
-  const candidates = profileNamesFor(defaults, platform);
+  const candidates = profileNames(defaults, platform);
   const selected =
     platform === "linux" ? existing?.document.linux?.profile : existing?.document.macos?.profile;
   const defaultName =
@@ -587,11 +564,7 @@ async function readExistingConfig(
   try {
     contents = await readFile(configPath, "utf8");
   } catch (cause) {
-    if (
-      cause instanceof Error &&
-      "code" in cause &&
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    if (isNotFound(cause)) {
       return undefined;
     }
     throw cause;
@@ -1024,10 +997,6 @@ function selectedNixDeclaration(
   return false;
 }
 
-function isCoveredSourcePath(path: string, parent: string): boolean {
-  return parent === "." || path === parent || path.startsWith(`${parent}/`);
-}
-
 type LoadedWizardConfig = Awaited<ReturnType<typeof loadConfig>>;
 
 interface LinuxNixWizardState {
@@ -1173,8 +1142,8 @@ function mayOfferNixActivation(sourceScanAvailable: boolean, skippedPaths: Reado
 
 function isNixPathIncluded(linux: LinuxProfileDeclaration | undefined, path: string): boolean {
   return (
-    (linux?.nix !== undefined && isCoveredSourcePath(path, linux.nix.flake)) ||
-    (linux?.paths ?? []).some((declared) => isCoveredSourcePath(path, declared))
+    (linux?.nix !== undefined && isWithinSourcePath(path, linux.nix.flake)) ||
+    (linux?.paths ?? []).some((declared) => isWithinSourcePath(path, declared))
   );
 }
 

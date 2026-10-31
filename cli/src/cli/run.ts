@@ -4,7 +4,7 @@ import { CliError, Command } from "effect/cli";
 
 import { normalizeCommandAlias } from "@/arguments";
 import { makeCommandHelpLayer } from "@/cli/help";
-import { CliFailure } from "@/errors";
+import { CliFailure, errorMessage } from "@/errors";
 import {
   createTerminalSession,
   TerminalSession,
@@ -86,7 +86,7 @@ export const runCli = Effect.fnUntraced(function* <Name extends string, Input, C
         session.alert("error");
         for (const error of errors) {
           if (!CliError.isCliError(error)) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = errorMessage(error);
             console.error(ui.error(message));
           }
         }

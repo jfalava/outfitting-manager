@@ -122,7 +122,7 @@ describe("recoverNix", () => {
       const activateHomeManager: NonNullable<RecoverNixOptions["activateHomeManager"]> = async (
         options,
       ) => {
-        calls.push(`activate:${options.activationPackage}:${options.env?.OUTFITTING_REPO}`);
+        calls.push(`activate:${options.activationPackage}:${options.repoRoot}`);
       };
       const push: NonNullable<RecoverNixOptions["push"]> = (options) =>
         Effect.sync(() => {

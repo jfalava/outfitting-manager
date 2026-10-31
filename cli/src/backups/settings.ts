@@ -7,6 +7,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { composeBackupProfile } from "@/backups/composition";
 import { loadConfig } from "@/config/load";
 import type { ManagerConfig } from "@/config/types";
+import { errorMessage } from "@/errors";
 import { syncByorSparseSource } from "@/setup/source";
 import type { BackupPlatform } from "@/source/contract";
 
@@ -197,8 +198,7 @@ export class Settings extends Context.Service<Settings, SettingsData>()("backup/
       Settings,
       Effect.tryPromise({
         try: async () => loadBackupSettings(await loadConfig(), requested, platform),
-        catch: (cause) =>
-          new BackupError({ message: cause instanceof Error ? cause.message : String(cause) }),
+        catch: (cause) => new BackupError({ message: errorMessage(cause) }),
       }),
     );
   }

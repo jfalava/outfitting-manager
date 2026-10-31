@@ -63,13 +63,12 @@ function activatePreparedNix(
     yield* setTerminalPhase("Activating recovered profile");
     if (state.platform === "linux") {
       const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        OUTFITTING_REPO: state.repoRoot,
-      };
       yield* Console.log(ui.heading("Activating the recovered Home Manager profile…"));
       yield* tryPromise(() =>
-        activateHomeManagerFn({ activationPackage: state.systemConfig!, env }),
+        activateHomeManagerFn({
+          activationPackage: state.systemConfig!,
+          repoRoot: state.repoRoot!,
+        }),
       );
     } else {
       const session = yield* TerminalSession;

@@ -1,5 +1,6 @@
 import { runCommand } from "@/process";
 import { emitTerminalAlert, type TerminalAlert } from "@/terminal-alert";
+import { nixEnv } from "@/update/nix/types";
 
 export interface ActivateNixSystemOptions {
   systemConfig: string;
@@ -13,8 +14,9 @@ export interface ActivateNixSystemOptions {
 export interface ActivateHomeManagerOptions {
   /** Store path of the built homeConfigurations.*.activationPackage. */
   activationPackage: string;
+  /** Repository root exposed to activation scripts as OUTFITTING_REPO. */
+  repoRoot: string;
   run?: typeof runCommand;
-  env?: NodeJS.ProcessEnv;
 }
 
 function sudoEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
@@ -84,12 +86,9 @@ export async function activateNixSystem(options: ActivateNixSystemOptions): Prom
  */
 export async function activateHomeManager(options: ActivateHomeManagerOptions): Promise<void> {
   const run = options.run ?? runCommand;
-  const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
-  delete env.NIX_PATH;
-
   const activate = await run(`${options.activationPackage}/activate`, [], {
     inherit: true,
-    env,
+    env: nixEnv(options.repoRoot),
   });
   if (activate.code !== 0) {
     throw new Error(`Home Manager activate failed (exit ${activate.code}).`);

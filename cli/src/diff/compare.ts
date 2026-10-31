@@ -18,6 +18,7 @@ import {
   type OutfittingRepo,
 } from "@/config";
 import type { DiffManager, DiffPlatform, DiffSection, PlatformDiff } from "@/diff/types";
+import { errorMessage } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
 import type { LinuxPackageManager } from "@/platform/linux";
 import { runCommand, which } from "@/process";
@@ -34,6 +35,7 @@ import {
 } from "@/update/linux";
 import { prepareLinuxSource, readLinuxManifest, type LinuxSource } from "@/update/linux-source";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
+import { nixEnv } from "@/update/nix/types";
 import { parseScoopManifest, type ScoopManifest } from "@/update/scoop";
 import { runScoopCommand } from "@/update/scoop-command";
 import { parseScoopExport, type ScoopExportState } from "@/update/scoop-export";
@@ -88,10 +90,6 @@ interface WindowsDiffOptions {
 interface LinuxDiffOptions {
   manager: Extract<DiffManager, "apt" | "pacman">;
   profiles: ReadonlyArray<string> | undefined;
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function sectionStatus(
@@ -515,8 +513,7 @@ async function compareNixSection(
   try {
     context.reportItem("system", 1, 1);
     const active = await realpath("/run/current-system");
-    const env: NodeJS.ProcessEnv = { ...process.env, OUTFITTING_REPO: repo.root };
-    delete env.NIX_PATH;
+    const env = nixEnv(repo.root);
     const result = await context.run(
       executable,
       [

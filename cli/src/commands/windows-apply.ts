@@ -6,7 +6,7 @@ import { Command, Flag, Prompt } from "effect/cli";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
-import { CliFailure } from "@/errors";
+import { CliFailure, errorMessage } from "@/errors";
 import { runCommand, which } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
@@ -165,8 +165,7 @@ const loadDeclarations = Effect.fn("loadWindowsDeclarations")(function* (
     );
     const entries = yield* Effect.try({
       try: () => parseWindowsPackageList(manifest.text, manifest.path),
-      catch: (cause) =>
-        new CliFailure({ message: cause instanceof Error ? cause.message : String(cause) }),
+      catch: (cause) => new CliFailure({ message: errorMessage(cause) }),
     });
     for (const entry of entries) {
       const identity = wingetIdentity(entry.name, entry.source);
@@ -189,8 +188,7 @@ const loadDeclarations = Effect.fn("loadWindowsDeclarations")(function* (
   const scoopManifest = yield* tryPromise(() => readDeclaration(source, scoopPath));
   const scoop = yield* Effect.try({
     try: () => parseScoopManifest(scoopManifest.text),
-    catch: (cause) =>
-      new CliFailure({ message: cause instanceof Error ? cause.message : String(cause) }),
+    catch: (cause) => new CliFailure({ message: errorMessage(cause) }),
   });
   return { winget: [...byIdentity.values()], scoop };
 });
@@ -395,10 +393,6 @@ function scoopBinTargets(bin: ScoopBin): ScoopBinTarget[] | undefined {
   return targets;
 }
 
-function errorText(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 function isMissingPathError(cause: unknown): boolean {
   return (
     cause instanceof Error &&
@@ -448,7 +442,7 @@ async function readScoopBinTargets(prefix: string): Promise<ScoopBinInspection> 
     }
     return targets.length === 0 ? { kind: "no-binaries" } : { kind: "targets", targets };
   } catch (cause) {
-    return { kind: "unknown", reason: errorText(cause) };
+    return { kind: "unknown", reason: errorMessage(cause) };
   }
 }
 
@@ -555,7 +549,7 @@ async function inspectScoopBinTargets(
     try {
       exists = await scoopBinTargetExists(target, prefix, whichFn, requireCommandResolution);
     } catch (cause) {
-      unknownReason ??= errorText(cause);
+      unknownReason ??= errorMessage(cause);
       continue;
     }
     if (exists === undefined) {
@@ -619,7 +613,7 @@ async function inspectScoopPackageBins(
     }
     return inspectScoopBinTargets(prefix, targets, whichFn, requireCommandResolution);
   } catch (cause) {
-    return { kind: "unknown", reason: errorText(cause) };
+    return { kind: "unknown", reason: errorMessage(cause) };
   }
 }
 
@@ -724,8 +718,7 @@ const inspectScoop = Effect.fn("inspectWindowsScoop")(function* (
   }
   const state = yield* Effect.try({
     try: () => parseScoopExport(exported.stdout),
-    catch: (cause) =>
-      new CliFailure({ message: cause instanceof Error ? cause.message : String(cause) }),
+    catch: (cause) => new CliFailure({ message: errorMessage(cause) }),
   });
   for (const bucket of buckets) {
     const existing = state.buckets.find(

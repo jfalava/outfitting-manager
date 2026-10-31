@@ -3,7 +3,7 @@ import { Effect, Result, Schema } from "effect";
 import { toError } from "@/effect";
 import { CliFailure } from "@/errors";
 import { runCommand } from "@/process";
-import { relativeSourcePath } from "@/source/contract";
+import { isWithinSourcePath, relativeSourcePath } from "@/source/contract";
 import { isReservedSourcePath } from "@/source/reserved";
 
 export type ManifestFetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -202,10 +202,6 @@ const repositoryJson = Effect.fn("github.repositoryJson")(function* (
   return yield* Effect.tryPromise({ try: () => response.json(), catch: toError });
 });
 
-function withinPath(path: string, root: string): boolean {
-  return root === "." || path === root || path.startsWith(`${root}/`);
-}
-
 type GitHubTreeEntry = Schema.Schema.Type<typeof GitHubTreeEntrySchema>;
 
 function selectSourceEntries(
@@ -214,7 +210,7 @@ function selectSourceEntries(
 ): GitHubTreeEntry[] {
   const roots = paths.map((path) => relativeSourcePath(path, "BYOR path"));
   for (const root of roots) {
-    if (!entries.some((entry) => entry.type !== "tree" && withinPath(entry.path, root))) {
+    if (!entries.some((entry) => entry.type !== "tree" && isWithinSourcePath(entry.path, root))) {
       throw new Error(`GitHub path \`${root}\` is missing or empty.`);
     }
     if (isReservedSourcePath(root)) {
@@ -226,7 +222,7 @@ function selectSourceEntries(
   const selected = entries.filter(
     (entry) =>
       entry.type !== "tree" &&
-      roots.some((root) => withinPath(entry.path, root)) &&
+      roots.some((root) => isWithinSourcePath(entry.path, root)) &&
       !isReservedSourcePath(entry.path),
   );
   for (const entry of selected) {

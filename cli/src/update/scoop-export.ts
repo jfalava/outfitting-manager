@@ -1,5 +1,7 @@
 import { Option, Schema } from "effect";
 
+import { errorMessage } from "@/errors";
+
 export interface ScoopExportApp {
   Name: string;
   Source: string;
@@ -59,10 +61,7 @@ export function parseScoopExport(output: string): ScoopExportState {
   try {
     parsed = JSON.parse(output) as unknown;
   } catch (cause) {
-    throw new Error(
-      `Unable to parse Scoop export: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause },
-    );
+    throw new Error(`Unable to parse Scoop export: ${errorMessage(cause)}`, { cause });
   }
   const decoded = decodeScoopExport(parsed);
   if (Option.isNone(decoded)) {

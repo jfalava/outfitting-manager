@@ -4,6 +4,13 @@ export type { NixAction };
 
 export const NIX_LOCK_KIND = "nix";
 
+/** Environment for Nix commands: exposes the repository and ignores channel lookups. */
+export function nixEnv(repoRoot: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, OUTFITTING_REPO: repoRoot };
+  delete env.NIX_PATH;
+  return env;
+}
+
 export type NixRecoveryPhase = "prepared" | "activated";
 
 export const NIX_RECOVERY_PHASES = [

@@ -1,17 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
-import { relativeSourcePath } from "@/source/contract";
-
-function isCovered(path: string, parent: string): boolean {
-  return parent === "." || path === parent || path.startsWith(`${parent}/`);
-}
-
-function isEnoent(cause: unknown): boolean {
-  return (
-    cause instanceof Error && "code" in cause && (cause as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
+import { isNotFound } from "@/errors";
+import { isWithinSourcePath, relativeSourcePath } from "@/source/contract";
 
 function repositoryPath(value: string): string | undefined {
   if (value.startsWith("/") || value.includes("\\") || /^[A-Za-z]:/.test(value)) {
@@ -122,8 +113,8 @@ export async function discoverNixSourcePaths(options: {
 
     const source = await readFile(filePath, "utf8");
     for (const path of sourceReferences(source, file)) {
-      const insideFlake = isCovered(path, flake);
-      const alreadyDeclared = declaredPaths.some((declared) => isCovered(path, declared));
+      const insideFlake = isWithinSourcePath(path, flake);
+      const alreadyDeclared = declaredPaths.some((declared) => isWithinSourcePath(path, declared));
       if (!insideFlake && !alreadyDeclared) {
         candidates.add(path);
       }
@@ -137,7 +128,7 @@ export async function discoverNixSourcePaths(options: {
           queue.push(absolutePath);
         }
       } catch (cause) {
-        if (!isEnoent(cause)) {
+        if (!isNotFound(cause)) {
           throw cause;
         }
       }

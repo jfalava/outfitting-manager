@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import { Schema } from "effect";
 
+import { isNotFound } from "@/errors";
 import { envValue } from "@/secrets";
 import { isNixRecoveryPhase, type NixRecoveryPhase } from "@/update/nix/types";
 
@@ -28,12 +29,6 @@ const NixRecoveryContextSchema = Schema.Struct({
 });
 const decodeNixRecoveryContext = Schema.decodeUnknownSync(NixRecoveryContextSchema);
 type NixRecoveryContext = Schema.Schema.Type<typeof NixRecoveryContextSchema>;
-
-function isNotFound(cause: unknown): boolean {
-  return (
-    cause instanceof Error && "code" in cause && (cause as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
 
 async function readRecoveryContext(path: string): Promise<string | undefined> {
   try {

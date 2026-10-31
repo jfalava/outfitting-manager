@@ -21,6 +21,7 @@ import {
   type BackupsConfig,
   type WindowsConfig,
 } from "@/config/types";
+import { isNotFound, errorMessage } from "@/errors";
 import { envValue } from "@/secrets";
 import {
   linuxPathsFromProfile,
@@ -287,10 +288,9 @@ function normalizeDeclarations(decoded: DecodedConfig): ByorContract | undefined
     }
     return contract;
   } catch (cause) {
-    throw new Error(
-      `config.toml profile declarations are invalid: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause },
-    );
+    throw new Error(`config.toml profile declarations are invalid: ${errorMessage(cause)}`, {
+      cause,
+    });
   }
 }
 
@@ -348,12 +348,6 @@ function parseConfigFile(raw: string, configPath: string): ManagerConfigFile {
     );
   }
   return configFileFromDecoded(decoded.value, configPath);
-}
-
-function isNotFound(cause: unknown): boolean {
-  return (
-    cause instanceof Error && "code" in cause && (cause as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }
 
 async function readConfigFile(path: string): Promise<ManagerConfigFile | undefined> {

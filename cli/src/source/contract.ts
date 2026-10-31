@@ -5,6 +5,8 @@ import { Result, Schema } from "effect";
 
 import { BackupCredentials, Job, JobPolicy } from "@/backups/model";
 import { validateBackupBindings } from "@/backups/paths";
+import { errorMessage } from "@/errors";
+import type { HostPlatform } from "@/platform";
 import { parseLinuxPackageManifest } from "@/source/linux-manifest";
 import { isLinuxProfile, type LinuxProfile } from "@/source/linux-profile";
 import { isReservedSourcePath } from "@/source/reserved";
@@ -362,6 +364,11 @@ function profileName(value: string, label: string): LinuxProfile {
 }
 
 /** Normalize repository paths, accepting one leading slash but rejecting traversal and platform escapes. */
+/** Whether a repository-relative path equals or sits under `parent` ("." covers everything). */
+export function isWithinSourcePath(path: string, parent: string): boolean {
+  return parent === "." || path === parent || path.startsWith(`${parent}/`);
+}
+
 export function relativeSourcePath(value: string, label: string): string {
   const path = requiredString(value, label).replace(/^\//, "");
   const segments = path.split("/");
@@ -613,12 +620,9 @@ export function parseByorContractJson(contents: string, path = BYOR_CONTRACT_PAT
   try {
     return parseByorContract(parsed);
   } catch (cause) {
-    throw new Error(
-      `${path} is an invalid BYOR manifest: ${cause instanceof Error ? cause.message : String(cause)}`,
-      {
-        cause,
-      },
-    );
+    throw new Error(`${path} is an invalid BYOR manifest: ${errorMessage(cause)}`, {
+      cause,
+    });
   }
 }
 
@@ -662,22 +666,11 @@ async function fileOrDirectoryExists(path: string): Promise<boolean> {
   }
 }
 
-function linuxProfileNames(contract: ByorContract): string[] {
-  return Object.keys(contract.profiles).filter(
-    (name) => contract.profiles[name]?.linux !== undefined,
-  );
-}
-
-function windowsProfileNames(contract: ByorContract): string[] {
-  return Object.keys(contract.profiles).filter(
-    (name) => contract.profiles[name]?.windows !== undefined,
-  );
-}
-
-function macosProfileNames(contract: ByorContract): string[] {
-  return Object.keys(contract.profiles).filter(
-    (name) => contract.profiles[name]?.macos !== undefined,
-  );
+/** Profile names declaring the given platform, in declaration order. */
+export function profileNames(contract: ByorContract | undefined, platform: HostPlatform): string[] {
+  return Object.entries(contract?.profiles ?? {})
+    .filter(([, profile]) => profile[platform] !== undefined)
+    .map(([name]) => name);
 }
 
 /** Default darwin.nix path relative to the repository root for a macOS flake. */
@@ -710,7 +703,7 @@ export function selectByorProfile(
   contract: ByorContract,
   requested: string | undefined,
 ): SelectedByorProfile {
-  const linuxNames = linuxProfileNames(contract);
+  const linuxNames = profileNames(contract, "linux");
   if (linuxNames.length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH} does not declare any Linux profiles.`);
   }
@@ -744,7 +737,7 @@ export function selectMacosByorProfile(
   contract: ByorContract,
   requested: string | undefined,
 ): SelectedMacosByorProfile {
-  const macosNames = macosProfileNames(contract);
+  const macosNames = profileNames(contract, "macos");
   if (macosNames.length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH} does not declare any macOS profiles.`);
   }
@@ -778,7 +771,7 @@ export function selectWindowsByorProfiles(
   contract: ByorContract,
   requested: string[] | undefined,
 ): SelectedWindowsByorProfiles {
-  const available = windowsProfileNames(contract);
+  const available = profileNames(contract, "windows");
   if (available.length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH} does not declare any Windows profiles.`);
   }
@@ -885,7 +878,7 @@ async function validatePackageBackend(options: {
     packages = parseLinuxPackageManifest(await readFile(manifestPath, "utf8"));
   } catch (cause) {
     throw new Error(
-      `BYOR profile \`${options.profile}\` has an invalid ${options.backend} manifest ${options.declaration.manifest}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `BYOR profile \`${options.profile}\` has an invalid ${options.backend} manifest ${options.declaration.manifest}: ${errorMessage(cause)}`,
       { cause },
     );
   }
@@ -930,7 +923,7 @@ async function validateWingetManifest(options: {
     packages = parseWindowsPackageList(await readFile(manifestPath, "utf8"), options.manifest);
   } catch (cause) {
     throw new Error(
-      `BYOR profile \`${options.profile}\` has an invalid winget manifest ${options.manifest}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `BYOR profile \`${options.profile}\` has an invalid winget manifest ${options.manifest}: ${errorMessage(cause)}`,
       { cause },
     );
   }
@@ -962,7 +955,7 @@ async function validateOptionalSharedFile(options: {
       options.parse(content);
     } catch (cause) {
       throw new Error(
-        `BYOR windows.${options.label} is invalid (${options.relative}): ${cause instanceof Error ? cause.message : String(cause)}`,
+        `BYOR windows.${options.label} is invalid (${options.relative}): ${errorMessage(cause)}`,
         { cause },
       );
     }
@@ -994,7 +987,7 @@ export async function validateLinuxByorSource(options: {
 }): Promise<ValidatedLinuxByorProfile> {
   const root = await resolveByorRoot(options.root);
   const contract = options.contract;
-  if (linuxProfileNames(contract).length === 0) {
+  if (profileNames(contract, "linux").length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH} does not declare any Linux profiles.`);
   }
   const selected = selectByorProfile(contract, options.profile);
@@ -1145,7 +1138,7 @@ export async function validateMacosByorSource(options: {
 }): Promise<ValidatedMacosByorProfile> {
   const root = await resolveByorRoot(options.root);
   const contract = options.contract;
-  if (macosProfileNames(contract).length === 0) {
+  if (profileNames(contract, "macos").length === 0) {
     throw new Error(`${BYOR_CONTRACT_PATH} does not declare any macOS profiles.`);
   }
   const selected = selectMacosByorProfile(contract, options.profile);
@@ -1209,20 +1202,5 @@ export async function validateMacosByorSource(options: {
     flakePath: flakeDir,
     darwinNixPath,
     systemAttr: selected.macos.nix.attribute,
-  };
-}
-
-export interface ByorContractPlatforms {
-  linux: boolean;
-  windows: boolean;
-  macos: boolean;
-}
-
-/** Detect which platforms a contract declares. */
-export function byorContractPlatforms(contract: ByorContract): ByorContractPlatforms {
-  return {
-    linux: linuxProfileNames(contract).length > 0,
-    windows: windowsProfileNames(contract).length > 0,
-    macos: macosProfileNames(contract).length > 0,
   };
 }

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { Effect } from "effect";
 
 import { tryPromise } from "@/effect";
-import { CliFailure } from "@/errors";
+import { CliFailure, isNotFound } from "@/errors";
 import { printLockfileKinds, printLockfilePull } from "@/sync/display";
 import { inferOutputPath, isGitTrackedFile, resolveKindSelection } from "@/sync/files";
 import { fetchLockfileKinds } from "@/sync/list";
@@ -22,7 +22,7 @@ const pullOne = (machine: string, kind: string, outPath: string) =>
 
     const destination = yield* tryPromise(() =>
       lstat(outPath).catch((cause: unknown) => {
-        if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+        if (isNotFound(cause)) {
           return undefined;
         }
         throw cause;

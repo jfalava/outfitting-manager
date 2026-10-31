@@ -6,7 +6,7 @@ import { Console, Effect, Schema } from "effect";
 
 import { configuredProfile, loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
-import { CliFailure, toCliFailure } from "@/errors";
+import { CliFailure, toCliFailure, isNotFound } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
 import {
   detectLinuxPackageManager,
@@ -387,11 +387,7 @@ async function readOwnership(
       Object.values(decoded.profiles).some((profile) => (profile.apt?.length ?? 0) > 0);
     return { state, migrated };
   } catch (cause) {
-    if (
-      cause instanceof Error &&
-      "code" in cause &&
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    if (isNotFound(cause)) {
       return { state: emptyOwnership(), migrated: false };
     }
     throw new Error(`Invalid ${LINUX_OWNERSHIP_FILE}; refusing to guess package ownership.`, {

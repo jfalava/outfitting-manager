@@ -15,6 +15,7 @@ import {
   selectMacosByorProfile,
   type ByorContract,
   type ByorProfileDeclaration,
+  profileNames,
 } from "@/source/contract";
 
 /** Which Nix flake root a checkout is driving. */
@@ -58,16 +59,6 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function profileNamesWith(
-  contract: ByorContract,
-  predicate: (entry: ByorProfileDeclaration) => boolean,
-): string[] {
-  return Object.keys(contract.profiles).filter((name) => {
-    const entry = contract.profiles[name];
-    return entry !== undefined && predicate(entry);
-  });
-}
-
 type ByorFlakeKind = "macos" | "linux" | "none";
 
 interface ByorFlakeInventory {
@@ -78,9 +69,11 @@ interface ByorFlakeInventory {
 
 function inventoryByorFlakes(contract: ByorContract): ByorFlakeInventory {
   return {
-    macos: profileNamesWith(contract, (entry) => entry.macos !== undefined),
-    linuxNix: profileNamesWith(contract, (entry) => entry.linux?.nix !== undefined),
-    linuxAny: profileNamesWith(contract, (entry) => entry.linux !== undefined),
+    macos: profileNames(contract, "macos"),
+    linuxNix: profileNames(contract, "linux").filter(
+      (name) => contract.profiles[name]?.linux?.nix !== undefined,
+    ),
+    linuxAny: profileNames(contract, "linux"),
   };
 }
 

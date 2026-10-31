@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { errorMessage } from "@/errors";
 import { which as defaultWhich } from "@/process";
 
 export type LinuxPackageManager = "apt" | "pacman";
@@ -85,7 +86,7 @@ export async function detectLinuxPackageManager(
     if (options.requested !== undefined) {
       return "";
     }
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message = errorMessage(cause);
     throw new Error(`Unable to read ${osReleasePath}: ${message}`, { cause });
   });
 

@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 
 import type { OutfittingRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
+import { nixEnv } from "@/update/nix/types";
 
 export interface UpdateNixLockOptions {
   repo: OutfittingRepo;
@@ -23,11 +24,7 @@ export async function updateNixLock(options: UpdateNixLockOptions): Promise<void
   }
   args.push("--output-lock-file", options.outputLockPath);
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    OUTFITTING_REPO: options.repo.root,
-  };
-  delete env.NIX_PATH;
+  const env = nixEnv(options.repo.root);
 
   const result: RunCommandResult = await run("nix", args, {
     cwd: options.repo.flakePath,

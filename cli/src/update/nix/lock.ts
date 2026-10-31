@@ -7,7 +7,7 @@ import { Effect, Schema } from "effect";
 
 import type { ManagerConfig } from "@/config";
 import { physicalPath } from "@/config/repo";
-import { CliFailure } from "@/errors";
+import { CliFailure, errorMessage } from "@/errors";
 import { pullLockfile } from "@/sync";
 import { WorkerResponseError } from "@/sync/request";
 import { NIX_LOCK_KIND } from "@/update/nix/types";
@@ -89,7 +89,7 @@ export async function openNixLock(
       baseHash: createHash("sha256").update(lock).digest("hex"),
     };
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message = errorMessage(cause);
     const status = responseStatus(cause);
 
     if (options.failOnRemoteError && status !== 404) {

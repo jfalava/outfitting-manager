@@ -17,7 +17,8 @@ import {
   requiredProfileNames,
 } from "@/config/wizard";
 import { tryPromise } from "@/effect";
-import type { HostPlatform } from "@/platform";
+import { isNotFound, errorMessage } from "@/errors";
+import { hostPlatform, type HostPlatform } from "@/platform";
 import {
   BYOR_CONTRACT_PATH,
   parseByorContract,
@@ -28,34 +29,18 @@ import {
   validateWindowsSharedArtifacts,
   type ByorContract,
   type ByorProfileDeclaration,
+  profileNames,
 } from "@/source/contract";
 import { TerminalSession, withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 
-type ManifestPlatform = HostPlatform;
 type MutableByorProfiles = { [name: string]: ByorProfileDeclaration };
 
 function validateProfileNames(value: string) {
   return Effect.try({
     try: () => requiredProfileNames(value),
-    catch: (cause) => (cause instanceof Error ? cause.message : String(cause)),
+    catch: (cause) => errorMessage(cause),
   });
-}
-
-function hostPlatform(): ManifestPlatform {
-  if (process.platform === "darwin") {
-    return "macos";
-  }
-  return process.platform === "win32" ? "windows" : "linux";
-}
-
-function platformProfiles(
-  contract: ByorContract | undefined,
-  platform: ManifestPlatform,
-): string[] {
-  return Object.entries(contract?.profiles ?? {})
-    .filter(([, profile]) => profile[platform] !== undefined)
-    .map(([name]) => name);
 }
 
 function profileNamesPrompt(message: string, defaults: ReadonlyArray<string>) {
@@ -86,7 +71,7 @@ function windowsDefaultProfilesPrompt(
             }
             return selected.join(",");
           },
-          catch: (cause) => (cause instanceof Error ? cause.message : String(cause)),
+          catch: (cause) => errorMessage(cause),
         }),
     }),
   ).pipe(Effect.map((profiles) => profiles.split(",")));
@@ -96,7 +81,7 @@ function collectLinuxProfiles(existing?: ByorContract) {
   return Effect.gen(function* () {
     const names = yield* profileNamesPrompt(
       "Linux profiles to include (comma-separated)",
-      platformProfiles(existing, "linux"),
+      profileNames(existing, "linux"),
     );
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
@@ -122,7 +107,7 @@ function collectMacosProfiles(existing?: ByorContract) {
   return Effect.gen(function* () {
     const names = yield* profileNamesPrompt(
       "macOS profiles to include (comma-separated)",
-      platformProfiles(existing, "macos"),
+      profileNames(existing, "macos"),
     );
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
@@ -139,12 +124,10 @@ function collectWindowsProfiles(existing?: ByorContract, selectedProfiles?: Read
   return Effect.gen(function* () {
     const names = yield* profileNamesPrompt(
       "Windows profiles to include (comma-separated)",
-      platformProfiles(existing, "windows"),
+      profileNames(existing, "windows"),
     );
     const defaults =
-      selectedProfiles ??
-      existing?.windows?.defaultProfiles ??
-      platformProfiles(existing, "windows");
+      selectedProfiles ?? existing?.windows?.defaultProfiles ?? profileNames(existing, "windows");
     const defaultProfiles = yield* windowsDefaultProfilesPrompt(names, defaults);
     const profiles = yield* collectWindowsProfileDeclarations(names, existing);
     const windows = yield* collectWindowsShared(names, existing?.windows, defaultProfiles);
@@ -153,7 +136,7 @@ function collectWindowsProfiles(existing?: ByorContract, selectedProfiles?: Read
 }
 
 function collectPlatformManifest(
-  platform: ManifestPlatform,
+  platform: HostPlatform,
   defaults: ByorContract | undefined,
   selectedWindowsProfiles: ReadonlyArray<string> | undefined,
 ) {
@@ -169,7 +152,7 @@ function collectPlatformManifest(
 
 function replacePlatformProfiles(
   profiles: MutableByorProfiles,
-  platform: ManifestPlatform,
+  platform: HostPlatform,
   edits: ByorContract["profiles"] | undefined,
 ): void {
   for (const [name, profile] of Object.entries(profiles)) {
@@ -189,8 +172,8 @@ function replacePlatformProfiles(
 /** Merge edited platforms into a manifest while preserving every unselected platform. */
 export function buildManifestWithPlatformEdits(
   existing: ByorContract | undefined,
-  selected: ReadonlyArray<ManifestPlatform>,
-  edits: Partial<Record<ManifestPlatform, ByorContract>>,
+  selected: ReadonlyArray<HostPlatform>,
+  edits: Partial<Record<HostPlatform, ByorContract>>,
 ): ByorContract {
   const profiles: MutableByorProfiles = { ...existing?.profiles };
   for (const platform of selected) {
@@ -216,13 +199,13 @@ async function validateManifestArtifacts(root: string, contract: ByorContract): 
   for (const [profile, declaration] of Object.entries(contract.backups?.profiles ?? {})) {
     await composeBackupProfile({ root, profile, declaration });
   }
-  for (const name of platformProfiles(contract, "linux")) {
+  for (const name of profileNames(contract, "linux")) {
     await validateLinuxByorSource({ root, contract, profile: name });
   }
-  for (const name of platformProfiles(contract, "macos")) {
+  for (const name of profileNames(contract, "macos")) {
     await validateMacosByorSource({ root, contract, profile: name });
   }
-  const windowsProfiles = platformProfiles(contract, "windows");
+  const windowsProfiles = profileNames(contract, "windows");
   if (windowsProfiles.length > 0) {
     await validateWindowsByorSource({ root, contract, profiles: windowsProfiles });
   } else {
@@ -266,11 +249,7 @@ async function readExistingManifest(target: string): Promise<string | undefined>
     }
     return await readFile(target, "utf8");
   } catch (cause) {
-    if (
-      cause instanceof Error &&
-      "code" in cause &&
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    if (isNotFound(cause)) {
       return undefined;
     }
     throw cause;
@@ -305,13 +284,13 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
           title: platform === "macos" ? "macOS" : platform[0]!.toUpperCase() + platform.slice(1),
           value: platform,
           selected:
-            platformProfiles(defaults, platform).length > 0 ||
+            profileNames(defaults, platform).length > 0 ||
             (platform === "windows" && configured.windows !== undefined) ||
             (defaults === undefined && platform === hostPlatform()),
         })),
       }),
     );
-    const edits: Partial<Record<ManifestPlatform, ByorContract>> = {};
+    const edits: Partial<Record<HostPlatform, ByorContract>> = {};
     for (const platform of selected) {
       edits[platform] = yield* collectPlatformManifest(
         platform,

@@ -1,4 +1,5 @@
 export {
+  hostPlatform,
   NIX_ACTIONS,
   platformLabel,
   type HostPlatform,

@@ -11,6 +11,7 @@ import {
   type ManagerConfig,
 } from "@/config";
 import { tryPromise } from "@/effect";
+import { isNotFound, errorMessage } from "@/errors";
 import { type HostPlatform } from "@/platform";
 import { runCommand } from "@/process";
 import { envValue } from "@/secrets";
@@ -28,7 +29,7 @@ async function sourcePathStatus(source: string): Promise<string | undefined> {
       return "not a directory";
     }
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+    if (isNotFound(cause)) {
       return "missing";
     }
     throw cause;
@@ -37,7 +38,7 @@ async function sourcePathStatus(source: string): Promise<string | undefined> {
     await stat(`${source}/.git`);
     return undefined;
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+    if (isNotFound(cause)) {
       return "local source (no Git metadata)";
     }
     throw cause;
@@ -101,7 +102,7 @@ function readSelectedProfile(platform: HostPlatform, config: ManagerConfig): str
       ? "not selected"
       : selectedProfile(config.declarations, platform, config);
   } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
+    const reason = errorMessage(cause);
     return `invalid (${reason})`;
   }
 }
@@ -162,7 +163,7 @@ async function cacheFreshnessLines(
     });
     return ["Cache validation: current"];
   } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
+    const reason = errorMessage(cause);
     return [`Cache validation: stale or missing (${reason})`];
   }
 }

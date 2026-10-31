@@ -3,19 +3,12 @@ import { Command } from "effect/cli";
 
 import { loadConfig, resolveOutfittingRepo } from "@/config";
 import { tryPromise } from "@/effect";
-import type { HostPlatform } from "@/platform";
-
-function currentPlatform(): HostPlatform {
-  if (process.platform === "darwin") {
-    return "macos";
-  }
-  return process.platform === "win32" ? "windows" : "linux";
-}
+import { hostPlatform } from "@/platform";
 
 const pathCommand = Command.make("path", {}, () =>
   tryPromise(async () => {
     const config = await loadConfig();
-    return resolveOutfittingRepo({ config, platform: currentPlatform() });
+    return resolveOutfittingRepo({ config, platform: hostPlatform() });
   }).pipe(Effect.flatMap((repo) => Console.log(repo.root))),
 ).pipe(Command.withDescription("Print the validated active source root (one path, for scripts)."));
 

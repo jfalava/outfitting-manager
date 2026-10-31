@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import type { OutfittingRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
+import { nixEnv } from "@/update/nix/types";
 
 export type NixBuildMode = "build" | "test" | "dry";
 
@@ -80,11 +81,7 @@ export async function buildNixSystem(options: NixBuildOptions): Promise<string> 
     flakeRef(options.repo),
   ];
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    OUTFITTING_REPO: options.repo.root,
-  };
-  delete env.NIX_PATH;
+  const env = nixEnv(options.repo.root);
 
   const result: RunCommandResult = await run("nix", args, {
     inherit: options.mode === "dry",

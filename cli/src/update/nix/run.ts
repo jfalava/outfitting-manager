@@ -274,11 +274,9 @@ function runNixAction(
 
 function activateNixProfile(repo: OutfittingRepo, systemConfig: string) {
   if (repo.flakeKind === "home-manager") {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      OUTFITTING_REPO: repo.root,
-    };
-    return tryPromise(() => activateHomeManager({ activationPackage: systemConfig, env }));
+    return tryPromise(() =>
+      activateHomeManager({ activationPackage: systemConfig, repoRoot: repo.root }),
+    );
   }
   return Effect.flatMap(TerminalSession, (session) =>
     tryPromise(() =>
