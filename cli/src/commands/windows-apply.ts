@@ -313,7 +313,9 @@ const confirmPlan = Effect.fn("confirmWindowsApplyPlan")(function* <R>(
     return true;
   }
   if (confirmation === undefined) {
-    return yield* new CliFailure({ message: "Confirmation is required to apply package changes." });
+    return yield* new CliFailure({
+      message: "Confirmation is required to apply package changes; rerun with --yes.",
+    });
   }
   const confirmed = yield* confirmation;
   if (!confirmed) {
@@ -1088,11 +1090,13 @@ export const windowsApplyCommand = Command.make(
       strict,
       prune,
       yes,
-      confirm: withTerminalInput(
-        Prompt.Confirm({ message: "Apply this plan?", initial: false }),
-        "permission",
-        "Apply this plan?",
-      ).pipe(Effect.orDie),
+      confirm: process.stdin.isTTY
+        ? withTerminalInput(
+            Prompt.Confirm({ message: "Apply this plan?", initial: false }),
+            "permission",
+            "Apply this plan?",
+          ).pipe(Effect.orDie)
+        : undefined,
     }),
 ).pipe(
   Command.withDescription(

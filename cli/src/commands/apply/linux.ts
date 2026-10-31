@@ -59,14 +59,16 @@ export const makeLinuxApplyCommand = () =>
         noRefresh: flags.noRefresh,
         ifConfigured: flags.ifConfigured,
         strict: flags.strict,
-        confirm: withTerminalInput(
-          Prompt.Confirm({
-            message: "Apply this plan?",
-            initial: false,
-          }),
-          "permission",
-          "Apply this plan?",
-        ).pipe(Effect.orDie),
+        confirm: process.stdin.isTTY
+          ? withTerminalInput(
+              Prompt.Confirm({
+                message: "Apply this plan?",
+                initial: false,
+              }),
+              "permission",
+              "Apply this plan?",
+            ).pipe(Effect.orDie)
+          : undefined,
       }),
   ).pipe(
     Command.withDescription(

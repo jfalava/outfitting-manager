@@ -686,7 +686,7 @@ export const applyLinux = <ConfirmR = never>(options: LinuxApplyOptions<ConfirmR
     if ((missing.length > 0 || removals.length > 0) && !options.yes) {
       if (options.confirm === undefined) {
         return yield* new CliFailure({
-          message: "Confirmation is required to apply package changes.",
+          message: "Confirmation is required to apply package changes; rerun with --yes.",
         });
       }
       const confirmed = yield* options.confirm;

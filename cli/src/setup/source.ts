@@ -406,7 +406,7 @@ async function readSourceMetadata(root: string): Promise<ByorSourceMetadata> {
     value = JSON.parse(await readFile(join(root, SOURCE_METADATA_PATH), "utf8"));
   } catch (cause) {
     throw new Error(
-      `No cached remote source exists at ${root}. Refresh it once before using offline mode.`,
+      `No cached remote source exists at ${root}. Run outfitting-manager init to fetch it.`,
       { cause },
     );
   }
@@ -440,7 +440,7 @@ export async function syncByorSparseSource(
       metadata.declarationHash !== currentDeclarationHash
     ) {
       throw new Error(
-        `The cached source does not match the current repository, ref, and profile declarations in ${options.config.configPath}. Refresh it before using offline mode.`,
+        `The cached source does not match the current repository, ref, and profile declarations in ${options.config.configPath}. Run outfitting-manager init to refresh it.`,
       );
     }
     await validateByorSource(target, options.platform, profile, contract);
