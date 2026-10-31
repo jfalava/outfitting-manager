@@ -87,7 +87,7 @@ export const pushHomebrewInventory = (options: PushHomebrewInventoryOptions = {}
       await mkdir(config.stateRoot, { recursive: true });
       return mkdtemp(join(config.stateRoot, ".outfitting-homebrew-"));
     });
-    try {
+    yield* Effect.gen(function* () {
       const snapshot = join(staging, "upload.txt");
       yield* tryPromise(async () => {
         await writeFile(snapshot, body, { encoding: "utf8", mode: 0o600 });
@@ -102,8 +102,10 @@ export const pushHomebrewInventory = (options: PushHomebrewInventoryOptions = {}
           path: snapshot,
         });
       }
-    } finally {
-      yield* tryPromise(() => rm(staging, { recursive: true, force: true }));
-    }
+    }).pipe(
+      Effect.ensuring(
+        Effect.ignore(tryPromise(() => rm(staging, { recursive: true, force: true }))),
+      ),
+    );
     yield* Console.log(ui.success("Homebrew inventory stored."));
   });

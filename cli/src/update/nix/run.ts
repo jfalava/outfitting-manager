@@ -250,7 +250,8 @@ function runNixUpdate(
     const candidateLockPath = join(paths.physicalDir, "updated-flake.lock");
     const buildLockPath = join(paths.physicalDir, "build-flake.lock");
 
-    try {
+    // Effect.gen does not run `finally` on failure, so cleanup must be a finalizer.
+    return yield* Effect.gen(function* () {
       yield* setTerminalPhase("Updating flake inputs");
       yield* Console.log(ui.heading(`Updating flake inputs for ${nixTargetLabel(repo)}…`));
       yield* tryPromise(() =>
@@ -301,9 +302,11 @@ function runNixUpdate(
       });
       yield* tryPromise(() => clearNixRecovery(checkpoint.dir));
       yield* Console.log(ui.success(`Updated and switched ${nixTargetLabel(repo)}.`));
-    } finally {
-      yield* tryPromise(() => rm(paths.displayDir, { force: true, recursive: true }));
-    }
+    }).pipe(
+      Effect.ensuring(
+        Effect.ignore(tryPromise(() => rm(paths.displayDir, { force: true, recursive: true }))),
+      ),
+    );
   });
 }
 
@@ -394,7 +397,7 @@ function runNixActionWithPublish(
       }),
     );
     let stagedLockDir: string | undefined;
-    try {
+    return yield* Effect.gen(function* () {
       if (lock.warning !== undefined) {
         yield* Console.log(ui.muted(lock.warning));
       }
@@ -424,15 +427,19 @@ function runNixActionWithPublish(
         kind: NIX_LOCK_KIND,
         path: stagedLock.path,
       });
-    } finally {
-      const cleanupLockDir = stagedLockDir;
-      if (cleanupLockDir !== undefined) {
-        yield* tryPromise(() => rm(cleanupLockDir, { force: true, recursive: true }));
-      }
-      const { lockDir } = lock;
-      if (lockDir !== undefined) {
-        yield* tryPromise(() => closeNixLock(lockDir));
-      }
-    }
+    }).pipe(
+      Effect.ensuring(
+        Effect.ignore(
+          tryPromise(async () => {
+            if (stagedLockDir !== undefined) {
+              await rm(stagedLockDir, { force: true, recursive: true });
+            }
+            if (lock.lockDir !== undefined) {
+              await closeNixLock(lock.lockDir);
+            }
+          }),
+        ),
+      ),
+    );
   });
 }

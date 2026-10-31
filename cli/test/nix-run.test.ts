@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -277,5 +277,39 @@ linuxTest(
       credentials,
     });
     expect(await readFile(localLockPath, "utf8")).toBe(localLock);
+  },
+);
+
+linuxTest.each(["switch", "update"] as const)(
+  "a failed Nix %s removes its temporary lock directories",
+  async (action) => {
+    const { config, stateRoot } = await makeLinuxSource(`hm-fail-${action}`, true);
+    const scratch = await mkdtemp(join(tmpdir(), "outfitting-nix-tmp-"));
+    temporaryRoots.push(scratch);
+    vi.stubEnv("TMPDIR", scratch);
+    vi.stubEnv("XDG_STATE_HOME", stateRoot);
+    vi.mocked(pullLockfile).mockImplementation((options) =>
+      Effect.promise(async () => {
+        await writeFile(options.outPath!, '{"version":7}\n');
+        return undefined;
+      }),
+    );
+    vi.mocked(updateNixLock).mockImplementation(async (options) => {
+      await writeFile(options.outputLockPath, '{"version":7}\n');
+    });
+    vi.mocked(buildNixSystem).mockImplementation(async (options) => {
+      if (options.outputLockPath !== undefined) {
+        await writeFile(options.outputLockPath, await readFile(options.lockPath!, "utf8"));
+      }
+      return "/nix/store/failing-home";
+    });
+    vi.mocked(activateHomeManager).mockImplementation(async () => {
+      throw new Error("activation failed");
+    });
+
+    await expect(Effect.runPromise(updateNix({ action, config, noRefresh: true }))).rejects.toThrow(
+      "activation failed",
+    );
+    expect(await readdir(scratch)).toEqual([]);
   },
 );
