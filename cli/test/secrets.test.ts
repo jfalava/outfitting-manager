@@ -1,13 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Redacted } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { BackupError, secretNames, type BackupCredentials } from "@/backups/model";
-import { Processes } from "@/backups/process";
+import { secretNames, type BackupCredentials } from "@/backups/model";
 import { Secrets as BackupSecrets } from "@/backups/secrets";
-import { Settings, type SettingsData } from "@/backups/settings";
 import { r2Credentials } from "@/fonts/keychain";
 import { envValue, inAmpOrb } from "@/secrets";
 import { apiToken, baseUrl, storeApiToken, storeWorkerUrl } from "@/sync/keychain";
@@ -57,28 +52,20 @@ const credentials: BackupCredentials = {
   "repository-password": "Archive's repository password",
   "alert-token": "Operations Alert Token!",
 };
-const importedValues = {
-  "access-key": "imported-access-19",
-  "secret-key": "imported-secret-72",
-  "repository-password": "imported-password-43",
-  "alert-token": "imported-alert-86",
-};
 
 function nativeStore(entries: Array<[string, string]> = [], caseInsensitive = false) {
   const target = (value: string) => (caseInsensitive ? value.toUpperCase() : value);
   const stored = new Map(entries.map(([key, value]) => [target(key), value]));
-  const writes: Array<{ service: string; name: string; value: string }> = [];
   vi.stubGlobal("Bun", {
     secrets: {
       get: async ({ service, name }: { service: string; name: string }) =>
         stored.get(target(`${service}/${name}`)) ?? null,
       set: async (entry: { service: string; name: string; value: string }) => {
-        writes.push(entry);
         stored.set(target(`${entry.service}/${entry.name}`), entry.value);
       },
     },
   });
-  return { stored, writes };
+  return { stored };
 }
 
 test.each(["darwin", "win32"] as const)(

@@ -204,3 +204,29 @@ describe("authentication", () => {
     expect(await response.json()).toEqual({ error: "Not found" });
   });
 });
+
+test("0002 backfills each head from the latest existing lockfile", () => {
+  const db = new DatabaseSync(":memory:");
+  const [first, ...rest] = readdirSync(migrations)
+    .filter((file) => file.endsWith(".sql"))
+    .toSorted();
+  db.exec(readFileSync(new URL(first!, migrations), "utf8"));
+  const insert = db.prepare(
+    "INSERT INTO lockfiles (machine, kind, hash, size, created_at) VALUES (?, ?, ?, 1, ?)",
+  );
+  // Newest by timestamp was inserted first; equal timestamps fall back to the later id.
+  insert.run("m", "nix", "newer", "2026-02-01T00:00:00.000Z");
+  insert.run("m", "nix", "older", "2026-01-01T00:00:00.000Z");
+  insert.run("m", "winget", "first", "2026-01-01T00:00:00.000Z");
+  insert.run("m", "winget", "second", "2026-01-01T00:00:00.000Z");
+  for (const name of rest) {
+    db.exec(readFileSync(new URL(name, migrations), "utf8"));
+  }
+  expect(db.prepare("SELECT kind, hash FROM lockfile_heads ORDER BY kind").all()).toEqual([
+    { kind: "nix", hash: "newer" },
+    { kind: "winget", hash: "second" },
+  ]);
+  expect(db.prepare("SELECT COUNT(*) AS count FROM lockfile_promotions").get()).toEqual({
+    count: 4,
+  });
+});
