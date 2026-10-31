@@ -1,29 +1,18 @@
-import { Effect, Option } from "effect";
+import { Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { initFlags } from "@/commands/setup/flags";
-import { tryPromise } from "@/effect";
-import { resolveSetupSource, runSetup, type SetupOptions } from "@/setup/run";
+import { runSetup, type SetupOptions } from "@/setup/run";
 
 export interface WindowsInitOptions extends SetupOptions {
   profiles?: string[];
 }
 
 export const initializeWindows = (options: WindowsInitOptions = {}) =>
-  Effect.gen(function* () {
-    const source = yield* tryPromise(() =>
-      resolveSetupSource({
-        ...options,
-        platform: "windows",
-        repoProfile: options.profiles?.join(","),
-      }),
-    );
-    const repo = yield* runSetup({
-      ...options,
-      ...source,
-      nextCommand: options.nextCommand ?? "Next: outfitting-manager apply",
-    });
-    return { config: source.config, repo };
+  runSetup({
+    ...options,
+    platform: "windows",
+    repoProfile: options.profiles?.join(","),
   });
 
 /**

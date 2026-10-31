@@ -11,10 +11,10 @@ import {
   isWingetAlreadyInstalledExitCode,
   publishWindowsLock,
   recordWindowsOperation,
-  reportPackageFailure,
   type WindowsPackageAction,
   type WindowsPackageManager,
 } from "@/update/windows-lock";
+import { reportPackageFailure } from "@/update/windows-report";
 import { wingetPackageArgs } from "@/update/winget";
 
 const packageArguments = Argument.String("package").pipe(

@@ -3,10 +3,10 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-import { Console, Effect, Option, Schema } from "effect";
+import { Console, Option, Schema } from "effect";
 
 import { stateRoot, type ManagerConfig } from "@/config";
-import { CliFailure, isNotFound } from "@/errors";
+import { isNotFound } from "@/errors";
 import { pushLockfile } from "@/sync";
 import { ui } from "@/ui";
 
@@ -276,17 +276,3 @@ export const publishWindowsLock = (config: ManagerConfig, noPush: boolean | unde
         kind: WINDOWS_LOCK_KIND,
         path: windowsLockPath({ root: config.stateRoot }),
       });
-
-/** Stop on a failed package operation under `--strict`; otherwise warn and collect it. */
-export const reportPackageFailure = Effect.fn("reportWindowsPackageFailure")(function* (
-  failure: string,
-  strict: boolean,
-  failures: string[],
-  log: (message: string) => Effect.Effect<void>,
-) {
-  if (strict) {
-    return yield* new CliFailure({ message: `${failure}.` });
-  }
-  failures.push(failure);
-  yield* log(ui.warning(`${failure}; continuing.`));
-});

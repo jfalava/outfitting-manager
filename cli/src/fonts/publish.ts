@@ -15,9 +15,10 @@ import type { FontObjectStore, RemoteArchiveState } from "@/fonts/r2";
 import { TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 
-const baselineMismatch = new CliFailure({
-  message: "Font archive, checksum, and inventory disagree; refusing to publish.",
-});
+const baselineMismatch = () =>
+  new CliFailure({
+    message: "Font archive, checksum, and inventory disagree; refusing to publish.",
+  });
 
 function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {
   return Effect.gen(function* () {
@@ -27,7 +28,7 @@ function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {
     );
     if (remote.bytes === undefined) {
       if (snapshot !== undefined || checksum !== undefined) {
-        return yield* baselineMismatch;
+        return yield* baselineMismatch();
       }
       return snapshot;
     }
@@ -41,7 +42,7 @@ function checkBaseline(store: FontObjectStore, remote: RemoteArchiveState) {
         inventoryFromFaces(remote.archive.faces, archiveHash, remote.bytes.byteLength),
       )
     ) {
-      return yield* baselineMismatch;
+      return yield* baselineMismatch();
     }
     return snapshot;
   });

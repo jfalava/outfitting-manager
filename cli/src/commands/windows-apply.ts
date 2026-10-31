@@ -29,7 +29,6 @@ import {
   isWingetPackageAbsentExitCode,
   readWindowsLock,
   recordWindowsOperation,
-  reportPackageFailure,
   scoopPackageName,
   wingetIdentity,
   wingetSource,
@@ -38,6 +37,7 @@ import {
   type WindowsLockOperationInput,
   type WindowsPackageRecord,
 } from "@/update/windows-lock";
+import { reportPackageFailure } from "@/update/windows-report";
 import { wingetPackageArgs } from "@/update/winget";
 
 export type { WindowsWingetPackage };

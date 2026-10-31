@@ -61,7 +61,7 @@ describe("Windows BYOR apply", () => {
       ].join("\n"),
     );
 
-    const { repo: validated } = await Effect.runPromise(
+    const validated = await Effect.runPromise(
       initializeWindows({ stateRoot, profiles: ["work", "dev"] }),
     );
 
