@@ -74,7 +74,10 @@ test("status preserves saved profiles and distinguishes sparse, missing and dirt
 
 test.each([
   ["missing", "Unknown BYOR Linux profile `missing`. Choose: work, server."],
-  [undefined, "The BYOR repository defines multiple profiles. Pass --profile (work, server)."],
+  [
+    undefined,
+    "The BYOR repository defines multiple Linux profiles. Pass --profile (work, server).",
+  ],
 ])(
   "status reports profile selection errors without hiding other details: %s",
   async (profile, reason) => {

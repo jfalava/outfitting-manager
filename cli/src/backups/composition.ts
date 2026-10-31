@@ -108,6 +108,11 @@ export async function composeBackupProfile(options: {
     } catch (cause) {
       throw new Error(`Backup TOML ${path} is missing or invalid.`, { cause });
     }
+    if ("global" in parsed) {
+      throw new Error(
+        `Backup TOML ${path}: remove [global]; logging and failure alerts are manager-owned.`,
+      );
+    }
     documents.push(parsed);
   }
   const document = composeTomlDocuments(documents);

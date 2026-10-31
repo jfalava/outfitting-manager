@@ -481,6 +481,13 @@ test("rejects external symlinks, unsupported substitutions, and unknown Rustic k
   await expect(compose()).rejects.toThrow('excess property\n  at ["typo"]');
   await writeFile(
     join(root, "profile.toml"),
+    stringify({ ...base, global: { "log-level": "info" }, backup: { snapshots: [documents] } }),
+  );
+  await expect(compose()).rejects.toThrow(
+    "Backup TOML profile.toml: remove [global]; logging and failure alerts are manager-owned.",
+  );
+  await writeFile(
+    join(root, "profile.toml"),
     stringify({
       ...base,
       backup: { snapshots: [documents, { ...images, sources: ["${UNKNOWN}/photos"] }] },

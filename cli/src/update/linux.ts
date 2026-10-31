@@ -342,10 +342,9 @@ function validatedOwnershipProfile(
 }
 
 async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState> {
+  const path = join(config.stateRoot, LINUX_OWNERSHIP_FILE);
   try {
-    const parsed: unknown = JSON.parse(
-      await readFile(join(config.stateRoot, LINUX_OWNERSHIP_FILE), "utf8"),
-    );
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
     const decoded = await decodeLinuxOwnership(parsed);
     const state = emptyOwnership();
     for (const [profile, decodedProfile] of Object.entries(decoded.profiles)) {
@@ -356,9 +355,10 @@ async function readOwnership(config: ManagerConfig): Promise<LinuxOwnershipState
     if (isNotFound(cause)) {
       return emptyOwnership();
     }
-    throw new Error(`Invalid ${LINUX_OWNERSHIP_FILE}; refusing to guess package ownership.`, {
-      cause,
-    });
+    throw new Error(
+      `Invalid ${path}; refusing to guess package ownership. Deleting it forgets which packages --prune may remove; installed packages stay.`,
+      { cause },
+    );
   }
 }
 

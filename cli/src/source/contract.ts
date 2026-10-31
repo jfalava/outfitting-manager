@@ -712,7 +712,7 @@ function selectExclusiveProfile<Platform extends "linux" | "macos">(
   }
   if (requested === undefined && others.length > 0) {
     throw new Error(
-      `The BYOR repository defines multiple profiles. Pass --profile (${names.join(", ")}).`,
+      `The BYOR repository defines multiple ${label} profiles. Pass --profile (${names.join(", ")}).`,
     );
   }
   const name = requested === undefined ? only : profileName(requested, "--profile");
