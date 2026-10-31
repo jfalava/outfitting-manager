@@ -228,4 +228,48 @@ describe("BYOR-backed collectDiff", () => {
     });
     expect(result.sections[0]).toMatchObject({ status: "same", missing: [], extra: [] });
   });
+
+  test("matches Scoop buckets the way apply does, ignoring .git and trailing slashes", async () => {
+    const stateRoot = await tempRoot("outfitting-diff-bucket-state-");
+    const repoRoot = await tempRoot("outfitting-diff-bucket-repo-");
+    const config = await localSource({
+      stateRoot,
+      repoRoot,
+      profile: "work",
+      contract: {
+        schema: 3,
+        windows: { scoop: { manifest: "scoop.txt" } },
+        profiles: { work: { windows: { winget: { manifest: "work.txt" } } } },
+      },
+      files: {
+        "work.txt": "Git.Git\n",
+        "scoop.txt":
+          'bucket "https://github.com/ScoopInstaller/Main"\nbucket "https://github.com/acme/scoop-tools/"\n',
+      },
+    });
+    const result = await collectDiff({
+      platform: "windows",
+      manager: "scoop",
+      config,
+      which: async () => "scoop.cmd",
+      run: async () => ({
+        code: 0,
+        stdout: JSON.stringify({
+          apps: [],
+          buckets: [
+            { Name: "main", Source: "https://github.com/ScoopInstaller/Main.git" },
+            { Name: "tools", Source: "https://github.com/acme/scoop-other" },
+          ],
+        }),
+        stderr: "",
+      }),
+    });
+    expect(result.sections[0]).toMatchObject({
+      missing: [],
+      extra: [],
+      changed: [
+        "bucket: tools: https://github.com/acme/scoop-other → https://github.com/acme/scoop-tools",
+      ],
+    });
+  });
 });

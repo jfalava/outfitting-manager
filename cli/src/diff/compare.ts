@@ -38,7 +38,12 @@ import {
 } from "@/update/linux-source";
 import { closeNixLock, openNixLock } from "@/update/nix/lock";
 import { nixEnv } from "@/update/nix/types";
-import { parseScoopManifest, scoopExport, type ScoopManifest } from "@/update/scoop";
+import {
+  normalizeBucketUrl,
+  parseScoopManifest,
+  scoopExport,
+  type ScoopManifest,
+} from "@/update/scoop";
 import type { ScoopExportState } from "@/update/scoop-export";
 import { scoopPackageName } from "@/update/windows-lock";
 
@@ -202,11 +207,11 @@ function compareScoop(
 ): DiffSection {
   const desiredBuckets = desired.buckets.map((bucket) => ({
     name: `bucket: ${bucket.name}`,
-    value: bucket.url,
+    value: normalizeBucketUrl(bucket.url),
   }));
   const actualBuckets = actual.buckets.map((bucket) => ({
     name: `bucket: ${bucket.Name}`,
-    value: bucket.Source,
+    value: normalizeBucketUrl(bucket.Source),
   }));
   const desiredPackages = desired.packages.map((spec) => ({
     name: `package: ${scoopPackageName(spec)}`,
