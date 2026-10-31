@@ -11,7 +11,7 @@ sidebar:
 
 Job arguments use the `name` from a configured Rustic `[[backup.snapshots]]` entry. There are no built-in platform job names. The examples use `project-data` and `photos` from the setup guide; replace them with names shown by `backups doctor` for your selected profile.
 
-Every backup command requires local `[backups.credentials]` with exactly `access-key`, `secret-key`, `repository-password`, and `alert-token` mapped to distinct, nonblank, control-free service names. There are no defaults. Set the mapping directly or import `backups.credentials` from `outfitting.json`; source refresh alone does not import it. Also configure `backups.alertUrl` with a canonical HTTPS `/v1/alerts` endpoint or explicitly set `backups.alertsDisabled = true` without `alertUrl`. Canary's credential policy owns the sender and all recipients; local address fields are no longer supported. Incomplete settings fail before native credential access. See [setup](/docs/backups/setup/) for configuration and migration.
+Every backup command requires local `[backups.credentials]` with exactly `access-key`, `secret-key`, `repository-password`, and `alert-token` mapped to distinct, nonblank, control-free service names. There are no defaults. Set the mapping directly or import `backups.credentials` from `outfitting.json`; source refresh alone does not import it. Also configure `backups.alertUrl` with a canonical HTTPS `/v1/alerts` endpoint or explicitly set `backups.alertsDisabled = true` without `alertUrl`. Canary's credential policy owns the sender and all recipients; local address fields are no longer supported. Incomplete settings fail before native credential access. See [setup](/docs/backups/setup/) for configuration.
 
 ## `doctor`
 
