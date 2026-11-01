@@ -14,7 +14,12 @@ export class Secrets extends Context.Service<
     identities: BackupCredentials,
     platform: NodeJS.Platform = "darwin",
   ) {
-    const store = platform === "win32" ? "Credential Manager" : "Keychain";
+    const store =
+      platform === "win32"
+        ? "Credential Manager"
+        : platform === "linux"
+          ? "Secret Service"
+          : "Keychain";
     return Layer.succeed(
       Secrets,
       Secrets.of({

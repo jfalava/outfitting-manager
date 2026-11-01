@@ -83,13 +83,15 @@ export interface ByorWindowsShared {
   registry?: WindowsPathDeclaration;
 }
 
-export type BackupPlatform = "macos" | "windows";
+export type BackupPlatform = "macos" | "windows" | "linux";
 
 export interface BackupProfileDeclaration {
   platform: BackupPlatform;
   files: string[];
   paths?: Readonly<Record<string, string>>;
   jobs?: Readonly<Record<string, JobPolicy>>;
+  /** Hours between due backups, anchored to the platform's daily hour; defaults to 24. */
+  intervalHours?: BackupIntervalHours;
 }
 
 export interface ByorBackupsDeclaration {
@@ -223,11 +225,16 @@ const ByorWindowsSharedSchema = Schema.Struct({
   registry: Schema.optionalKey(WindowsPathSchema),
 });
 
+// Divisors of 24 keep every interval boundary at the same local hours each day.
+export const backupIntervalHours = [1, 2, 3, 4, 6, 8, 12, 24] as const;
+export type BackupIntervalHours = (typeof backupIntervalHours)[number];
+
 export const BackupProfileSchema = Schema.Struct({
-  platform: Schema.Union([Schema.Literal("macos"), Schema.Literal("windows")]),
+  platform: Schema.Literals(["macos", "windows", "linux"]),
   files: Schema.Array(Schema.String),
   paths: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   jobs: Schema.optionalKey(Schema.Record(Job, JobPolicy)),
+  intervalHours: Schema.optionalKey(Schema.Literals(backupIntervalHours)),
 });
 
 const BackupsSchema = Schema.Struct({
@@ -347,6 +354,9 @@ export function normalizeBackups(
     }
     if (profile.jobs !== undefined) {
       profiles[name].jobs = normalizeBackupPolicies(profile.jobs, profile.platform);
+    }
+    if (profile.intervalHours !== undefined) {
+      profiles[name].intervalHours = profile.intervalHours;
     }
   }
   return { ...value, profiles };

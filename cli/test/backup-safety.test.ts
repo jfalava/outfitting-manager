@@ -22,6 +22,7 @@ import {
 import { Processes, type ProcessOutput } from "@/backups/process";
 import { Secrets } from "@/backups/secrets";
 import { Settings, type SettingsData } from "@/backups/settings";
+import { systemdUnits } from "@/backups/systemd";
 import { scheduledTask } from "@/backups/windows";
 
 // Opt in with an absolute Rustic executable; all repositories and data remain disposable.
@@ -101,6 +102,7 @@ const fixture = async (
     repository: "fixture-repository",
     jobs: activeJobs,
     dailyHour: windows ? 9 : 10,
+    intervalHours: 24,
     jobPolicies:
       policies ??
       (windows
@@ -576,6 +578,24 @@ test.each([false, true])(
   },
 );
 
+test("systemd units escape the manager invocation and wake hourly", async () => {
+  const f = await fixture(false);
+  const binary = join(f.root, 'Tools 100% "$HOME"/manager');
+  const units = await f.run(systemdUnits(binary));
+  expect(units).toContain(
+    `ExecStart="${f.root}/Tools 100%% \\"$$HOME\\"/manager" "--config" "${f.settings.configPath}" "backups" "--profile" "fixture" "run-due"`,
+  );
+  expect(units).toContain(
+    'Environment="XDG_RUNTIME_DIR=%t" "DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus"',
+  );
+  expect(units).toContain(`Environment="BACKUP_RUSTIC=${f.settings.rustic}"`);
+  expect(units).toMatch(/^OnCalendar=hourly\nPersistent=true$/m);
+  expect((await f.run(systemdUnits("manager").pipe(Effect.flip))).message).toContain(
+    "absolute paths",
+  );
+  expect(f.calls).toEqual([]);
+});
+
 test("scheduling prints a quoted manager invocation without running processes or installing tasks", async () => {
   const f = await fixture(false, true);
   const binary = join(f.root, "Owner's Backup & Tools/manager");
@@ -626,6 +646,38 @@ test("daily eligibility uses local calendar days, including DST and the 10:00 bo
       zone,
     ),
   ).toBe(false);
+});
+
+test("shorter intervals use slots from the anchor hour and wrap across midnight", () => {
+  const zone = DateTime.zoneMakeNamedUnsafe("UTC");
+  const schedule = { hour: 10, intervalHours: 6 }; // Slots at 04, 10, 16 and 22.
+  const at = (acceptedAt: string | undefined, now: string) =>
+    isDue(
+      acceptedAt === undefined
+        ? undefined
+        : {
+            version: 1,
+            repository: "r",
+            hostname: "h",
+            job: "hermes",
+            startedAt: DateTime.makeUnsafe(acceptedAt),
+            acceptedAt: DateTime.makeUnsafe(acceptedAt),
+            outcome: "accepted-changed",
+            knownIds: [],
+          },
+      DateTime.makeUnsafe(now),
+      zone,
+      schedule,
+    );
+  expect(at("2026-10-25T09:59:00Z", "2026-10-25T09:59:59Z")).toBe(false);
+  expect(at("2026-10-25T09:59:00Z", "2026-10-25T10:00:00Z")).toBe(true);
+  expect(at("2026-10-25T10:30:00Z", "2026-10-25T15:59:59Z")).toBe(false);
+  expect(at("2026-10-25T10:30:00Z", "2026-10-25T16:00:00Z")).toBe(true);
+  // Before the first slot of the day, the previous day's 22:00 slot is still current.
+  expect(at("2026-10-25T22:30:00Z", "2026-10-26T03:59:59Z")).toBe(false);
+  expect(at("2026-10-25T21:00:00Z", "2026-10-26T01:00:00Z")).toBe(true);
+  expect(at("2026-10-26T03:00:00Z", "2026-10-26T04:00:00Z")).toBe(true);
+  expect(at(undefined, "2026-10-26T01:00:00Z")).toBe(true);
 });
 
 test("weekly checks catch up on Monday without repeating before Sunday's 15:00 deadline", () => {

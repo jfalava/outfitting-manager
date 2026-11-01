@@ -3,7 +3,7 @@ import { posix } from "node:path";
 const windowsNames = ["APPDATA", "USERPROFILE", "LOCALAPPDATA"] as const;
 const bindingName = /^[A-Z][A-Z0-9_]*$/;
 
-export function builtinPathNames(platform: "macos" | "windows"): ReadonlyArray<string> {
+export function builtinPathNames(platform: "macos" | "windows" | "linux"): ReadonlyArray<string> {
   return platform === "windows" ? ["HOME", ...windowsNames] : ["HOME"];
 }
 
@@ -27,7 +27,7 @@ export function substituteBackupPaths(
 
 export function validateBackupBindings(
   paths: Readonly<Record<string, string>>,
-  platform: "macos" | "windows",
+  platform: "macos" | "windows" | "linux",
 ): void {
   const builtins = Object.fromEntries(builtinPathNames(platform).map((name) => [name, "/"]));
   for (const [name, value] of Object.entries(paths)) {
@@ -42,7 +42,10 @@ export function validateBackupBindings(
   }
 }
 
-export function requireAbsoluteBackupPath(value: string, platform: "macos" | "windows"): string {
+export function requireAbsoluteBackupPath(
+  value: string,
+  platform: "macos" | "windows" | "linux",
+): string {
   const absolute =
     platform === "windows"
       ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/.?][^\\/]*[\\/][^\\/]+(?:[\\/]|$))/.test(value)
@@ -56,7 +59,7 @@ export function requireAbsoluteBackupPath(value: string, platform: "macos" | "wi
 export function resolveBackupBindings(
   paths: Readonly<Record<string, string>> | undefined,
   builtins: Readonly<Record<string, string>>,
-  platform: "macos" | "windows",
+  platform: "macos" | "windows" | "linux",
 ) {
   return {
     ...builtins,

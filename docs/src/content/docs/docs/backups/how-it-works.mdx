@@ -27,9 +27,9 @@ Rustic deduplicates unchanged data. If a snapshot uses `skip-if-unchanged = true
 
 ## Let the schedule catch up
 
-Generated LaunchAgents and Windows Task Scheduler jobs call `backups run-due` hourly. The command starts each daily backup after local time reaches 10:00 on macOS or 09:00 on Windows. It also checks repository metadata after Sunday at 15:00, if a weekly check is due. A failed job stays due for the next invocation; a candidate marked `review-required` waits for manual acceptance.
+Generated LaunchAgents, Windows Task Scheduler jobs, and Linux systemd user timers call `backups run-due` hourly. The command starts each daily backup after local time reaches 10:00 on macOS, 09:00 on Windows, or 00:00 on Linux. Profiles with `intervalHours` run once per slot instead; see [setup](/docs/backups/setup/#back-up-more-often-than-daily). It also checks repository metadata after Sunday at 15:00, if a weekly check is due. A failed job stays due for the next invocation; a candidate marked `review-required` waits for manual acceptance. A wake-up with nothing due does not read credentials or contact the repository.
 
-`backups schedule` prints the LaunchAgent or Task Scheduler definition; it does not install it.
+`backups schedule` prints the LaunchAgent, Task Scheduler definition, or systemd service and timer; it does not install them. The Linux timer uses `Persistent=true`, so a wake-up missed while the machine was off runs at the next boot.
 
 ## When a snapshot needs review
 

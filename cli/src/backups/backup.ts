@@ -18,20 +18,40 @@ import { Processes, parseJson, successful } from "./process.ts";
 import { Secrets } from "./secrets.ts";
 import { Settings } from "./settings.ts";
 
+const startOfHour = (time: DateTime.Zoned, hour: number) =>
+  DateTime.setParts(time, { hour, minute: 0, second: 0, millisecond: 0 });
+
+/**
+ * Daily (the default): due once per local day from `hour`; an earlier same-day backup counts.
+ * Shorter intervals: slots start every `intervalHours` from `hour`, wrapping across midnight,
+ * and a job is due when nothing was accepted since the current slot started.
+ */
 export const isDue = (
   state: JobState | undefined,
   now: DateTime.Utc,
   zone = DateTime.zoneMakeLocal(),
-  hour = 10,
+  { hour = 10, intervalHours = 24 }: { hour?: number; intervalHours?: number } = {},
 ) => {
   const local = DateTime.setZone(now, zone);
-  if (DateTime.toParts(local).hour < hour) {
-    return false;
+  const current = DateTime.toParts(local).hour;
+  const first = hour % intervalHours;
+  let start: DateTime.Zoned;
+  if (intervalHours >= 24) {
+    if (current < hour) {
+      return false;
+    }
+    start = startOfHour(local, 0);
+  } else if (current >= first) {
+    start = startOfHour(
+      local,
+      first + Math.floor((current - first) / intervalHours) * intervalHours,
+    );
+  } else {
+    start = startOfHour(DateTime.subtract(local, { days: 1 }), first + 24 - intervalHours);
   }
   return (
     state?.acceptedAt === undefined ||
-    DateTime.formatIsoDate(DateTime.setZone(state.acceptedAt, zone)) !==
-      DateTime.formatIsoDate(local)
+    DateTime.toEpochMillis(state.acceptedAt) < DateTime.toEpochMillis(start)
   );
 };
 
@@ -481,7 +501,10 @@ export class Backup extends Context.Service<
               }
               if (
                 due &&
-                !isDue(previous, yield* DateTime.now, DateTime.zoneMakeLocal(), config.dailyHour)
+                !isDue(previous, yield* DateTime.now, DateTime.zoneMakeLocal(), {
+                  hour: config.dailyHour,
+                  intervalHours: config.intervalHours,
+                })
               ) {
                 return;
               }

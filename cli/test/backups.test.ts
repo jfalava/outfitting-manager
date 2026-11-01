@@ -297,6 +297,46 @@ test.each(["macos", "windows"] as const)(
   },
 );
 
+test("linux profiles resolve XDG state, interval, hooks and keep-within from local config", async () => {
+  const root = await tempRoot();
+  vi.mocked(os.homedir).mockReturnValue("/home/fixture");
+  vi.stubEnv("XDG_STATE_HOME", "/ambient/state");
+  const hooks = { "run-before": ["stage-databases --quiet"] };
+  await writeFile(
+    join(root, "jobs.toml"),
+    stringify({
+      ...base,
+      forget: { "keep-daily": 0, "keep-within": "4d" },
+      backup: { snapshots: [{ ...documents, sources: ["${HOME}/.agent"], hooks }] },
+    }),
+  );
+  const local = (intervalHours: number) => ({
+    schema: 2,
+    source: { path: root },
+    backups: {
+      profile: "agent",
+      credentials,
+      alertsDisabled: true,
+      profiles: { agent: { platform: "linux", files: ["jobs.toml"], intervalHours } },
+    },
+  });
+  await writeFile(join(root, "config.toml"), stringify(local(6)));
+  const config = await loadConfig({ stateRoot: root });
+  const settings = await loadBackupSettings(config, undefined, "linux");
+  expect(settings.intervalHours).toBe(6);
+  expect(settings.dailyHour).toBe(0);
+  expect(settings.sources.documents).toEqual(["/home/fixture/.agent"]);
+  expect(settings.profile.backup.snapshots[0]?.hooks).toEqual(hooks);
+  expect(settings.profile.forget).toEqual({ "keep-daily": 0, "keep-within": "4d" });
+  expect(settings.stateDirectory).toBe("/home/fixture/.local/state/rustic-backup");
+  expect(settings.logFile).toBe("/home/fixture/.local/state/rustic/rustic.log");
+  await expect(loadBackupSettings(config, undefined, "darwin")).rejects.toThrow("not this host");
+  delete config.backups!.profiles.agent!.intervalHours;
+  expect((await loadBackupSettings(config, undefined, "linux")).intervalHours).toBe(24);
+  await writeFile(join(root, "config.toml"), stringify(local(5)));
+  await expect(loadConfig({ stateRoot: root })).rejects.toThrow("intervalHours");
+});
+
 test.each<[Readonly<Record<string, string>>, string]>([
   [{ HOME: "/override" }, "Invalid or reserved backup path binding: HOME."],
   [{ APPDATA: "/override" }, "Invalid or reserved backup path binding: APPDATA."],
@@ -583,8 +623,9 @@ test("manifest re-import replaces current-platform backups, preserves other plat
   ).toEqual(credentials);
   await expect(loadBackupSettings(config, "gaming", "darwin")).rejects.toThrow("not this host");
   await expect(loadBackupSettings(config, "missing", "win32")).rejects.toThrow("Select a declared");
-  await expect(loadBackupSettings(config, "mac", "linux")).rejects.toThrow(
-    "macOS and Windows only",
+  await expect(loadBackupSettings(config, "mac", "linux")).rejects.toThrow("not this host");
+  await expect(loadBackupSettings(config, "mac", "freebsd")).rejects.toThrow(
+    "macOS, Windows, and Linux only",
   );
   await writeFile(
     join(root, "config.toml"),
@@ -1035,6 +1076,10 @@ test.each<[Record<string, unknown>, string]>([
   [
     { photos: { skipIfProcessesRunning: ["Edit*"] } },
     'Expected a string matching the RegExp ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$\n  at ["backups"]["profiles"]["desk"]["jobs"]["photos"]["skipIfProcessesRunning"][0]',
+  ],
+  [
+    { photos: { retention: { "keep-within": "4" } } },
+    '["backups"]["profiles"]["desk"]["jobs"]["photos"]["retention"]["keep-within"]',
   ],
   [
     { "../escape": {} },

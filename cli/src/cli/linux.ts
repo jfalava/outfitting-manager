@@ -1,6 +1,7 @@
 import { Command } from "effect/cli";
 
 import { makeLinuxApplyCommand } from "@/commands/apply/linux";
+import { makeBackupsCommand } from "@/commands/backups";
 import { configCommand } from "@/commands/config";
 import { makeDebugCommand } from "@/commands/debug";
 import { makeLinuxDiffCommand } from "@/commands/diff";
@@ -25,6 +26,7 @@ export const makeLinuxRootCommand = (currentVersion: string) =>
     Command.withSubcommands([
       linuxInitCommand,
       configCommand,
+      makeBackupsCommand(),
       sourceCommand,
       validateCommand,
       makeNixCommand("linux"),

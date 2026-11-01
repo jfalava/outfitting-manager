@@ -9,7 +9,7 @@ import { loadConfig } from "@/config/load";
 import type { ManagerConfig } from "@/config/types";
 import { errorMessage } from "@/errors";
 import { syncByorSparseSource } from "@/setup/source";
-import type { BackupPlatform } from "@/source/contract";
+import type { BackupIntervalHours, BackupPlatform } from "@/source/contract";
 
 import { BackupError, Profile, type BackupCredentials, type JobPolicy, type Job } from "./model.ts";
 import {
@@ -41,14 +41,32 @@ export interface SettingsData {
   readonly profile: Profile;
   readonly jobs: ReadonlyArray<Job>;
   readonly dailyHour: number;
+  readonly intervalHours: BackupIntervalHours;
   readonly jobPolicies: Readonly<Record<Job, JobPolicy>>;
   readonly sources: Readonly<Record<Job, ReadonlyArray<string>>>;
   readonly environment: Record<string, string | undefined>;
 }
 
-function hostSettings(windows: boolean) {
+function backupPlatform(platform: NodeJS.Platform): BackupPlatform | undefined {
+  switch (platform) {
+    case "darwin":
+      return "macos";
+    case "win32":
+      return "windows";
+    case "linux":
+      return "linux";
+    default:
+      return undefined;
+  }
+}
+
+function hostSettings(platform: BackupPlatform) {
   const home = homedir();
+  const windows = platform === "windows";
   const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData/Local");
+  // Linux uses fixed XDG default locations: ambient XDG_STATE_HOME can differ between
+  // a login shell and the systemd user manager, and receipts must not move.
+  const state = join(home, ".local/state");
   return {
     home,
     account: userInfo().username,
@@ -58,9 +76,15 @@ function hostSettings(windows: boolean) {
     rustic: process.env.BACKUP_RUSTIC ?? "rustic",
     stateDirectory: windows
       ? join(localAppData, "rustic-backup")
-      : join(home, "Library/Application Support/rustic-backup"),
-    logDirectory: windows ? win32.join(localAppData, "rustic") : join(home, "Library/Logs"),
-    dailyHour: windows ? 9 : 10,
+      : platform === "linux"
+        ? join(state, "rustic-backup")
+        : join(home, "Library/Application Support/rustic-backup"),
+    logDirectory: windows
+      ? win32.join(localAppData, "rustic")
+      : platform === "linux"
+        ? join(state, "rustic")
+        : join(home, "Library/Logs"),
+    dailyHour: windows ? 9 : platform === "linux" ? 0 : 10,
   };
 }
 
@@ -105,8 +129,9 @@ function selectProfile(
   requested: string | undefined,
   platform: NodeJS.Platform,
 ) {
-  if (platform !== "darwin" && platform !== "win32") {
-    throw new Error("Backups support macOS and Windows only.");
+  const hostPlatform = backupPlatform(platform);
+  if (hostPlatform === undefined) {
+    throw new Error("Backups support macOS, Windows, and Linux only.");
   }
   const backups = manager.backups;
   const name = requested ?? backups?.profile;
@@ -114,10 +139,10 @@ function selectProfile(
   if (backups === undefined || name === undefined || declaration === undefined) {
     throw new Error("Select a declared backup profile with config wizard or backups --profile.");
   }
-  if (declaration.platform !== (platform === "win32" ? "windows" : "macos")) {
+  if (declaration.platform !== hostPlatform) {
     throw new Error(`Backup profile ${name} is for ${declaration.platform}, not this host.`);
   }
-  return { name, declaration, backups };
+  return { name, declaration, backups, intervalHours: declaration.intervalHours ?? 24 };
 }
 
 export async function loadBackupSettings(
@@ -125,7 +150,7 @@ export async function loadBackupSettings(
   requested?: string,
   platform = process.platform,
 ): Promise<SettingsData> {
-  const { name, declaration, backups } = selectProfile(manager, requested, platform);
+  const { name, declaration, backups, intervalHours } = selectProfile(manager, requested, platform);
   if (backups.credentials === undefined) {
     throw new Error("Declare native service names in backups.credentials before using backups.");
   }
@@ -153,7 +178,7 @@ export async function loadBackupSettings(
         ).root;
   const composed = await composeBackupProfile({ root: repoRoot, profile: name, declaration });
   const profile = Schema.decodeUnknownSync(Profile)(composed.document);
-  const host = hostSettings(platform === "win32");
+  const host = hostSettings(declaration.platform);
   const builtins = builtinPaths(platform === "win32", host.home);
   const substitutions = resolveBackupBindings(declaration.paths, builtins, declaration.platform);
   const effective = resolveSources(profile, substitutions, declaration.platform);
@@ -167,6 +192,7 @@ export async function loadBackupSettings(
     logFile: (platform === "win32" ? win32.join : join)(logDirectory, "rustic.log"),
     credentials: backups.credentials,
     scheduleLabel: backups.scheduleLabel ?? `dev.outfitting.backups.${name}`,
+    intervalHours,
     repoRoot: resolve(repoRoot),
     configPath: manager.configPath,
     backupProfile: name,

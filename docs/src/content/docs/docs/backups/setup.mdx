@@ -39,6 +39,7 @@ Use `backups secrets set` to enter credentials in a prompt. The CLI stores them 
 
 - macOS: Keychain
 - Windows: Credential Manager
+- Linux: the Secret Service (for example GNOME Keyring), through libsecret
 
 Set these credentials on each machine:
 
@@ -58,6 +59,18 @@ outfitting-manager backups secrets set repository-password
 outfitting-manager backups secrets set alert-token
 outfitting-manager backups secrets check
 ```
+
+## Keep the Secret Service unlocked on Linux
+
+On Linux, credentials go through libsecret (`libsecret-1.so.0`) to a Secret Service provider on the user's D-Bus session bus. Scheduled runs have no login session, so the provider must already be running and unlocked in the systemd user manager:
+
+- Enable lingering so the user manager and its timers start at boot: `loginctl enable-linger <user>`, or `users.users.<name>.linger = true` on NixOS.
+- Run exactly one secrets daemon as a user service that unlocks itself, for example `gnome-keyring-daemon --foreground --components=secrets --unlock` with the keyring password on standard input. Do not also start a D-Bus-activated or PAM-launched daemon. An empty password keeps the keyring unlocked unattended, but stores it unencrypted at rest, readable by anyone who can read the user's home directory.
+- Order the backup service after that unit with `After=` and `Wants=`.
+
+On NixOS, the released binary is not a Nix-patched executable. Enable `programs.nix-ld.enable = true` with `programs.nix-ld.libraries = [ pkgs.libsecret pkgs.glib ]` so it starts and can load libsecret. Run the daemon from `pkgs.gnome-keyring` in a Home Manager user service. Do not rely on `services.gnome.gnome-keyring.enable` on a headless machine: its PAM unlock needs a password login, which key-based SSH and timers never perform, and its D-Bus activation can start a second daemon that is not unlocked.
+
+On other distributions with Home Manager, use the system libsecret. A Nix libsecret on `LD_LIBRARY_PATH` fails to load against the system glibc, so the generated service unsets `LD_LIBRARY_PATH`.
 
 ## Configure a backup profile
 
@@ -139,7 +152,7 @@ Path spelling, separators, and Unicode are preserved during substitution. Both i
 
 ### Choose log locations
 
-Rustic writes `rustic.log` under `~/Library/Logs` on macOS or `%LOCALAPPDATA%/rustic` on Windows. To override the directory, add `logDirectory` to the local `[backups]` table, alongside `profile`:
+Rustic writes `rustic.log` under `~/Library/Logs` on macOS, `%LOCALAPPDATA%/rustic` on Windows, or `~/.local/state/rustic` on Linux. Linux receipts and locks live under `~/.local/state/rustic-backup`; both locations ignore `XDG_STATE_HOME` so they cannot move between a login shell and the systemd user manager. To override the directory, add `logDirectory` to the local `[backups]` table, alongside `profile`:
 
 ```toml
 [backups]
@@ -230,11 +243,28 @@ Every `[[backup.snapshots]]` entry creates a job, in composition order. There is
 
 Use the snapshot's `name` in CLI job arguments and any matching `jobs` policy key. Tags must include that same name and must not include another configured job's name, commas, control characters, or surrounding whitespace. Other annotation tags can be shared.
 
+### Back up more often than daily
+
+By default each job is due once per local day. Set `intervalHours` on the profile to one of 1, 2, 3, 4, 6, 8, or 12 for shorter slots, anchored at the platform's daily hour (10:00 on macOS, 09:00 on Windows, 00:00 on Linux). A job is due when nothing was accepted since the current slot started. Slots wrap across midnight, so a missed slot catches up on the next wake-up.
+
+```toml
+[backups.profiles.agent]
+platform = "linux"
+files = ["backups/common.toml", "backups/agent.toml"]
+intervalHours = 6
+```
+
+Retention can keep everything recent with Rustic's `keep-within`, such as `keep-within = "4d"` in `[forget]` or a job's `retention`. Rustic measures it from the job's latest snapshot. Accepted spans are a positive whole number followed by `h`, `d`, `w`, or `y`, or a spelled-out unit such as `4 days`. To replace inherited counters, set them to `0`.
+
+### Prepare consistent copies with Rustic hooks
+
+A snapshot may declare Rustic hooks that run only around its own backup: `hooks = { run-before = ["command args"] }`, plus `run-after`, `run-failed`, and `run-finally`. Commands use Rustic's short string form and resolve through `PATH`. A failing `run-before` command fails that backup, and nothing is accepted. Hook standard output is mixed into Rustic's JSON result, so hook commands must write nothing to standard output; send diagnostics to standard error. Use a hook to stage consistent copies of live databases, back up the staging directory, and exclude the live files with `globs`.
+
 ### Attach optional job policies
 
 The `jobs` map attaches policies to existing TOML snapshots; it does not create jobs. Unknown job references or policy fields are errors. Jobs without policies inherit `[forget]` and have no process guard.
 
-- `retention` overrides `keep-daily`, `keep-weekly`, and `keep-monthly` individually. Omitted counters inherit the TOML default; `0` disables a counter and `-1` keeps all qualifying period representatives. Each job needs at least one enabled counter. Global `keep-id` pins and recovery anchors remain protected.
+- `retention` overrides `keep-within`, `keep-daily`, `keep-weekly`, and `keep-monthly` individually. Omitted counters inherit the TOML default; `0` disables a counter and `-1` keeps all qualifying period representatives. Each job needs at least one enabled counter. Global `keep-id` pins and recovery anchors remain protected.
 - `skipIfProcessesRunning` lists up to 32 exact Windows process basenames without `.exe`, paths, or wildcards. Matching ignores case. Names use letters, digits, `.`, `_`, or `-`, start with a letter or digit, and are at most 128 characters. Process guards are currently Windows-only; macOS rejects nonempty lists.
 
 For a Windows profile with a `project-data` snapshot, add:
@@ -248,3 +278,4 @@ skipIfProcessesRunning = ["ExampleEditor", "Editor_Helper"]
 
 - The account running a backup needs read access to every source folder.
 - Run the LaunchAgent or scheduled task as the same logged-in user who stored the credentials. On Windows, the user must remain logged in; a locked session is fine.
+- On Linux, install the systemd user service and timer for the user who stored the credentials, with lingering enabled and the Secret Service unlocked as described above.

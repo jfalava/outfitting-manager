@@ -18,12 +18,13 @@ import {
 import { Processes } from "@/backups/process";
 import { Secrets } from "@/backups/secrets";
 import { Settings } from "@/backups/settings";
+import { systemdUnits } from "@/backups/systemd";
 import { scheduledTask } from "@/backups/windows";
 import { withTerminalInput } from "@/terminal-alert";
 
 const root = Command.make("backups").pipe(
   Command.withDescription(
-    "macOS and Windows Rustic orchestration with Effect and native credentials",
+    "macOS, Windows, and Linux Rustic orchestration with Effect and native credentials",
   ),
   Command.withSharedFlags({
     profile: Flag.String("profile").pipe(
@@ -36,8 +37,8 @@ const root = Command.make("backups").pipe(
 const configured = Effect.fn("configured")(function* <A, E>(
   program: Effect.Effect<A, E, Settings | Secrets | Backup | Processes>,
 ) {
-  if (process.platform !== "darwin" && process.platform !== "win32") {
-    return yield* new BackupError({ message: "This wrapper supports macOS and Windows." });
+  if (!["darwin", "win32", "linux"].includes(process.platform)) {
+    return yield* new BackupError({ message: "This wrapper supports macOS, Windows, and Linux." });
   }
   const options = yield* root;
   const settings = Settings.layer(Option.getOrUndefined(options.profile)).pipe(
@@ -113,7 +114,7 @@ const due = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Catch up daily backups (macOS 10:00, Windows 09:00) and weekly checks after Sunday 15:00",
+    "Catch up backups due each profile interval (default daily after macOS 10:00, Windows 09:00, Linux 00:00) and weekly checks after Sunday 15:00",
   ),
 );
 
@@ -127,7 +128,11 @@ const status = Command.make(
       }),
     );
   }),
-).pipe(Command.withDescription("Read local receipts without accessing Keychain or the repository"));
+).pipe(
+  Command.withDescription(
+    "Read local receipts without accessing native credentials or the repository",
+  ),
+);
 
 const snapshots = Command.make(
   "snapshots",
@@ -285,14 +290,17 @@ const schedule = Command.make(
   { binary: Flag.String("binary") },
   Effect.fn("cli.schedule")(function* ({ binary }) {
     yield* configured(
-      (process.platform === "win32" ? scheduledTask(binary) : launchAgent(binary)).pipe(
-        Effect.flatMap(Console.log),
-      ),
+      (process.platform === "win32"
+        ? scheduledTask(binary)
+        : process.platform === "linux"
+          ? systemdUnits(binary)
+          : launchAgent(binary)
+      ).pipe(Effect.flatMap(Console.log)),
     );
   }),
 ).pipe(
   Command.withDescription(
-    "Print a LaunchAgent or Task Scheduler XML for an installed binary; never installs it",
+    "Print a LaunchAgent, Task Scheduler XML, or systemd user units for an installed binary; never installs it",
   ),
 );
 
@@ -309,6 +317,7 @@ const doctor = Command.make(
               platform: process.platform,
               bun: Bun.version,
               hostname: settings.hostname,
+              intervalHours: settings.intervalHours,
               repository: settings.profile.repository,
               jobs: settings.jobs,
               jobPolicies: settings.jobPolicies,

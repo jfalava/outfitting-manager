@@ -693,9 +693,6 @@ function importedBackups(
 
 function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatform, root?: string) {
   return Effect.gen(function* () {
-    if (platform === "linux") {
-      return;
-    }
     const current = document.backups;
     if (
       !(yield* withTerminalInput(

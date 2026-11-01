@@ -93,7 +93,12 @@ const RetentionCount = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(-1),
   Schema.isLessThanOrEqualTo(2_147_483_647),
 );
+// Rustic (jiff) friendly spans such as "4d" or "96h"; relative to the group's latest snapshot.
+const RetentionSpan = Schema.String.check(
+  Schema.isPattern(/^[1-9][0-9]{0,5}(?:h|d|w|y| hours?| days?| weeks?| months?| years?)$/),
+);
 export const RetentionCounters = Schema.Struct({
+  "keep-within": Schema.optionalKey(RetentionSpan),
   "keep-daily": Schema.optionalKey(RetentionCount),
   "keep-weekly": Schema.optionalKey(RetentionCount),
   "keep-monthly": Schema.optionalKey(RetentionCount),
@@ -126,6 +131,15 @@ export const Profile = Schema.Struct({
         sources: Schema.NonEmptyArray(Schema.NonEmptyString),
         tags: Schema.NonEmptyArray(Schema.NonEmptyString),
         globs: Schema.optionalKey(Schema.Array(Schema.String)),
+        // Short-form Rustic commands, run only around this snapshot's backup.
+        hooks: Schema.optionalKey(
+          Schema.Struct({
+            "run-before": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+            "run-after": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+            "run-failed": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+            "run-finally": Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+          }),
+        ),
         "skip-if-unchanged": Schema.Boolean,
       }),
     ).check(Schema.isMinLength(1)),

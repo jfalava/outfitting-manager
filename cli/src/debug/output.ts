@@ -5,6 +5,7 @@ import { stringify } from "smol-toml";
 import { formatLaunchAgent } from "@/backups/launchd";
 import { JobState, SnapshotGroups, secretNames } from "@/backups/model";
 import type { SettingsData } from "@/backups/settings";
+import { formatSystemdUnits } from "@/backups/systemd";
 import { formatScheduledTask } from "@/backups/windows";
 import { printBackupJson } from "@/commands/backups";
 import { printDiff } from "@/commands/diff";
@@ -118,7 +119,8 @@ function backupSettings(platform: HostPlatform) {
       },
     },
     jobs: ["documents"],
-    dailyHour: platform === "windows" ? 9 : 10,
+    dailyHour: platform === "windows" ? 9 : platform === "linux" ? 0 : 10,
+    intervalHours: 24,
     jobPolicies: {},
     sources: { documents: [`${home}/Documents`] },
     environment: { USERDOMAIN: "PREVIEW", SystemRoot: "C:/Windows" },
@@ -540,119 +542,118 @@ function platformPreviews(platform: HostPlatform): OutputPreview[] {
 function backupPreviews(platform: HostPlatform): OutputPreview[] {
   const { home } = previewPaths(platform);
   const previews: OutputPreview[] = [];
-  if (platform !== "linux") {
-    const settings = backupSettings(platform);
-    const receipt: JobState = {
-      version: 1,
-      repository: settings.repository,
-      hostname: settings.hostname,
-      job: "documents",
-      startedAt: DateTime.makeUnsafe(TIME),
-      finishedAt: DateTime.makeUnsafe("2026-10-26T10:00:42Z"),
-      outcome: "accepted-changed",
-      acceptedAt: DateTime.makeUnsafe("2026-10-26T10:00:42Z"),
-      current: { id: HASH, tree: "b".repeat(64), files: 2431, bytes: 187654321 },
-      knownIds: [HASH],
-    };
-    for (const action of ["status", "run", "run-due", "accept"]) {
-      previews.push(
-        sample(
-          `backups ${action}`,
-          (empty) =>
-            action === "accept"
-              ? printBackupJson(JobState, receipt)
-              : printBackupJson(Schema.Array(JobState), empty ? [] : [receipt]),
-          action === "accept" ? {} : { empty: true },
-        ),
-      );
-    }
+  const settings = backupSettings(platform);
+  const receipt: JobState = {
+    version: 1,
+    repository: settings.repository,
+    hostname: settings.hostname,
+    job: "documents",
+    startedAt: DateTime.makeUnsafe(TIME),
+    finishedAt: DateTime.makeUnsafe("2026-10-26T10:00:42Z"),
+    outcome: "accepted-changed",
+    acceptedAt: DateTime.makeUnsafe("2026-10-26T10:00:42Z"),
+    current: { id: HASH, tree: "b".repeat(64), files: 2431, bytes: 187654321 },
+    knownIds: [HASH],
+  };
+  for (const action of ["status", "run", "run-due", "accept"]) {
     previews.push(
-      sample("backups doctor", () =>
-        json({
-          platform: platform === "macos" ? "darwin" : "win32",
-          bun: "1.4.4",
-          hostname: settings.hostname,
-          repository: settings.profile.repository,
-          jobs: settings.jobs,
-          jobPolicies: settings.jobPolicies,
-          retentionDefaults: settings.profile.forget,
-          sources: settings.sources,
-          stateDirectory: settings.stateDirectory,
-          logDirectory: settings.logDirectory,
-          logFile: settings.logFile,
-          credentials: settings.credentials,
-          scheduleLabel: settings.scheduleLabel,
-          alert: settings.alert,
-          checkedAt: TIME,
-          accessVerified: false,
-          note: "Only Rustic traverses sources. Verify native credentials and source access through the real scheduled executable before cutover.",
-        }),
-      ),
       sample(
-        "backups snapshots",
+        `backups ${action}`,
         (empty) =>
-          printBackupJson(SnapshotGroups, [
-            {
-              snapshots: empty
-                ? []
-                : [
-                    {
-                      id: HASH,
-                      tree: "b".repeat(64),
-                      hostname: settings.hostname,
-                      paths: [`${home}/Documents`],
-                      tags: ["documents"],
-                      time: DateTime.makeUnsafe(TIME),
-                      summary: { total_files_processed: 2431, total_bytes_processed: 187654321 },
-                    },
-                  ],
-            },
-          ]),
-        { empty: true },
-      ),
-      sample("backups check", (_empty, delay) =>
-        Effect.gen(function* () {
-          yield* lines("Checking repository metadata; this may take a while...");
-          yield* activity("Checking repository metadata", delay);
-          yield* lines(
-            "Repository metadata check passed (42s). Use --read-data to verify file packs.",
-          );
-        }),
-      ),
-      sample("backups restore", () =>
-        lines(
-          `Restored ${HASH} to ${home}/Recovered Documents. Compare the recovered files before relying on this backup.`,
-        ),
-      ),
-      sample(
-        "backups maintenance",
-        (empty) => json({ applied: false, removedSnapshots: empty ? [] : ["d".repeat(64)] }),
-        { empty: true },
-      ),
-      sample(
-        "backups secrets set",
-        () => lines("Stored repository-password in the native credential store."),
-        { input: "auth" },
-      ),
-      sample("backups secrets check", () =>
-        lines(
-          ...secretNames
-            .filter((name) => name !== "alert-token")
-            .map((name) => `${name}: available`),
-        ),
-      ),
-      sample("backups schedule", () =>
-        Console.log(
-          platform === "windows"
-            ? formatScheduledTask(
-                `${home}/bin/outfitting-manager.exe`,
-                "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
-                settings,
-              )
-            : formatLaunchAgent(`${home}/bin/outfitting-manager`, settings),
-        ),
+          action === "accept"
+            ? printBackupJson(JobState, receipt)
+            : printBackupJson(Schema.Array(JobState), empty ? [] : [receipt]),
+        action === "accept" ? {} : { empty: true },
       ),
     );
   }
+  previews.push(
+    sample("backups doctor", () =>
+      json({
+        platform: platform === "macos" ? "darwin" : platform === "windows" ? "win32" : "linux",
+        bun: "1.4.4",
+        hostname: settings.hostname,
+        intervalHours: settings.intervalHours,
+        repository: settings.profile.repository,
+        jobs: settings.jobs,
+        jobPolicies: settings.jobPolicies,
+        retentionDefaults: settings.profile.forget,
+        sources: settings.sources,
+        stateDirectory: settings.stateDirectory,
+        logDirectory: settings.logDirectory,
+        logFile: settings.logFile,
+        credentials: settings.credentials,
+        scheduleLabel: settings.scheduleLabel,
+        alert: settings.alert,
+        checkedAt: TIME,
+        accessVerified: false,
+        note: "Only Rustic traverses sources. Verify native credentials and source access through the real scheduled executable before cutover.",
+      }),
+    ),
+    sample(
+      "backups snapshots",
+      (empty) =>
+        printBackupJson(SnapshotGroups, [
+          {
+            snapshots: empty
+              ? []
+              : [
+                  {
+                    id: HASH,
+                    tree: "b".repeat(64),
+                    hostname: settings.hostname,
+                    paths: [`${home}/Documents`],
+                    tags: ["documents"],
+                    time: DateTime.makeUnsafe(TIME),
+                    summary: { total_files_processed: 2431, total_bytes_processed: 187654321 },
+                  },
+                ],
+          },
+        ]),
+      { empty: true },
+    ),
+    sample("backups check", (_empty, delay) =>
+      Effect.gen(function* () {
+        yield* lines("Checking repository metadata; this may take a while...");
+        yield* activity("Checking repository metadata", delay);
+        yield* lines(
+          "Repository metadata check passed (42s). Use --read-data to verify file packs.",
+        );
+      }),
+    ),
+    sample("backups restore", () =>
+      lines(
+        `Restored ${HASH} to ${home}/Recovered Documents. Compare the recovered files before relying on this backup.`,
+      ),
+    ),
+    sample(
+      "backups maintenance",
+      (empty) => json({ applied: false, removedSnapshots: empty ? [] : ["d".repeat(64)] }),
+      { empty: true },
+    ),
+    sample(
+      "backups secrets set",
+      () => lines("Stored repository-password in the native credential store."),
+      { input: "auth" },
+    ),
+    sample("backups secrets check", () =>
+      lines(
+        ...secretNames.filter((name) => name !== "alert-token").map((name) => `${name}: available`),
+      ),
+    ),
+    sample("backups schedule", () =>
+      Console.log(
+        platform === "windows"
+          ? formatScheduledTask(
+              `${home}/bin/outfitting-manager.exe`,
+              "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              settings,
+            )
+          : platform === "linux"
+            ? formatSystemdUnits(`${home}/bin/outfitting-manager`, settings)
+            : formatLaunchAgent(`${home}/bin/outfitting-manager`, settings),
+      ),
+    ),
+  );
   return previews;
 }
