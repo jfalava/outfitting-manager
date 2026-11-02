@@ -15,6 +15,7 @@ import {
   selectWindowsByorProfiles,
   validateLinuxByorSource,
   validateMacosByorSource,
+  validateNixosByorSource,
   validateWindowsByorSource,
   windowsPathsFromContract,
 } from "@/source/contract";
@@ -657,4 +658,65 @@ test("windows-only BYOR resolves without a Nix flake", async () => {
   await expect(
     validateOutfittingRepo(windowsOnly, { contract: await contractAt(windowsOnly) }),
   ).resolves.toMatchObject({ flakeKind: "none" });
+});
+
+test("NixOS profiles need a nixosConfigurations flake and resolve to a NixOS flake selection", async () => {
+  const root = await repository();
+  await mkdir(join(root, "system", "box"), { recursive: true });
+  await mkdir(join(root, "packages", "common"), { recursive: true });
+  await writeFile(join(root, "packages", "common", "packages.nix"), "{ }\n");
+  await writeFile(
+    join(root, "system", "box", "flake.nix"),
+    "{ outputs = { self }: { nixosConfigurations.box = {}; }; }\n",
+  );
+  // A Linux Home Manager profile in the same contract must not capture the NixOS selection.
+  await writeContract(root, {
+    schema: 3,
+    profiles: {
+      box: {
+        nixos: {
+          nix: {
+            flake: "system/box",
+            attribute: "nixosConfigurations.box.config.system.build.toplevel",
+          },
+          paths: ["packages/common/packages.nix"],
+        },
+      },
+      laptop: {
+        linux: {
+          nix: { flake: "system/box", attribute: "homeConfigurations.laptop.activationPackage" },
+        },
+      },
+    },
+  });
+  const contract = await contractAt(root);
+
+  await expect(validateNixosByorSource({ root, contract })).resolves.toMatchObject({
+    profile: "box",
+    systemAttr: "nixosConfigurations.box.config.system.build.toplevel",
+  });
+  await expect(
+    validateOutfittingRepo(root, { contract, platform: "nixos" }),
+  ).resolves.toMatchObject({
+    flakeKind: "nixos",
+    nixosName: "box",
+    flakePath: join(await realpath(root), "system", "box"),
+  });
+
+  await writeFile(join(root, "system", "box", "flake.nix"), "{ outputs = { self }: { }; }\n");
+  await expect(validateNixosByorSource({ root, contract })).rejects.toThrow(
+    /nixosConfigurations is required/,
+  );
+  await writeFile(
+    join(root, "system", "box", "flake.nix"),
+    "{ outputs = { self }: { nixosConfigurations.box = {}; }; }\n",
+  );
+  await rm(join(root, "packages", "common", "packages.nix"));
+  await expect(validateNixosByorSource({ root, contract })).rejects.toThrow(
+    /declares missing repository path `packages\/common\/packages.nix`/,
+  );
+
+  expect(() =>
+    parseByorContract({ schema: 3, profiles: { box: { nixos: { paths: [] } } } } as never),
+  ).toThrow("outfitting.json is invalid");
 });

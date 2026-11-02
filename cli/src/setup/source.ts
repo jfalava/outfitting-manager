@@ -31,8 +31,11 @@ import { runCommand } from "@/process";
 import {
   BYOR_CONTRACT_SCHEMA,
   linuxPathsFromProfile,
+  backupPlatformFor,
   macosPathsFromProfile,
+  nixosPathsFromProfile,
   selectByorProfile,
+  selectNixosByorProfile,
   selectMacosByorProfile,
   selectWindowsByorProfiles,
   windowsPathsFromContract,
@@ -138,6 +141,8 @@ function byorClosure(
         return macosPathsFromProfile(selectMacosByorProfile(contract, profile).macos);
       case "linux":
         return linuxPathsFromProfile(selectByorProfile(contract, profile).linux);
+      case "nixos":
+        return nixosPathsFromProfile(selectNixosByorProfile(contract, profile).nixos);
       case "windows":
         return windowsPathsFromContract(
           contract,
@@ -178,7 +183,7 @@ function declarationHash(options: ByorSparseSourceOptions, contract: ByorContrac
 
 function backupFiles(options: ByorSparseSourceOptions): string[] {
   return Object.values(options.config.backups?.profiles ?? {})
-    .filter((profile) => profile.platform === options.platform)
+    .filter((profile) => profile.platform === backupPlatformFor(options.platform))
     .flatMap((profile) => profile.files);
 }
 
@@ -187,7 +192,7 @@ export async function validateBackups(
   options: Pick<ByorSparseSourceOptions, "config" | "platform">,
 ): Promise<void> {
   for (const [profile, declaration] of Object.entries(options.config.backups?.profiles ?? {})) {
-    if (declaration.platform === options.platform) {
+    if (declaration.platform === backupPlatformFor(options.platform)) {
       await composeBackupProfile({ root, profile, declaration });
     }
   }
@@ -327,6 +332,13 @@ function selectedContract(contract: ByorContract, options: ByorSparseSourceOptio
       return {
         schema: BYOR_CONTRACT_SCHEMA,
         profiles: { [selected.name]: { macos: selected.macos } },
+      };
+    }
+    case "nixos": {
+      const selected = selectNixosByorProfile(contract, options.profile);
+      return {
+        schema: BYOR_CONTRACT_SCHEMA,
+        profiles: { [selected.name]: { nixos: selected.nixos } },
       };
     }
     case "windows": {

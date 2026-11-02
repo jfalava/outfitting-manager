@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 
 import type { NixFlakeRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
@@ -16,8 +18,24 @@ export interface NixBuildOptions {
   run?: typeof runCommand;
 }
 
-function flakeRef(repo: NixFlakeRepo): string {
-  return `path:${repo.flakePath}#${repo.systemAttr}`;
+/**
+ * Home Manager and nix-darwin flakes reach repository files through OUTFITTING_REPO, so
+ * their own directory is enough. NixOS system flakes usually import siblings by relative
+ * path (they must also build purely, e.g. for images), so they are addressed inside the
+ * source root: a git checkout contributes only tracked files, like nixos-rebuild; a sparse
+ * source holds only the declared paths.
+ */
+export function flakeRef(
+  repo: NixFlakeRepo,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (repo.flakeKind !== "nixos") {
+    return `path:${repo.flakePath}#${repo.systemAttr}`;
+  }
+  const dir = relative(repo.root, repo.flakePath);
+  const scheme = exists(join(repo.root, ".git")) ? "git+file" : "path";
+  const query = dir === "" ? "" : `?dir=${encodeURIComponent(dir).replaceAll("%2F", "/")}`;
+  return `${scheme}:${repo.root}${query}#${repo.systemAttr}`;
 }
 
 function baseArgs(

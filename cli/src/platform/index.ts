@@ -1,4 +1,5 @@
 export {
+  declareHostPlatform,
   hostPlatform,
   NIX_ACTIONS,
   platformLabel,
@@ -13,3 +14,10 @@ export {
   type LinuxDistributionFamily,
   type LinuxPackageManager,
 } from "@/platform/linux";
+export {
+  checkNixosHost,
+  isNixosHost,
+  isNixosOsRelease,
+  type NixosHostCheck,
+  type NixosHostProbe,
+} from "@/platform/nixos";

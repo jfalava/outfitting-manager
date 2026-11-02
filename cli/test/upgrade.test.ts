@@ -80,6 +80,11 @@ describe("self-update command helpers", () => {
       executable: "outfitting-manager.exe",
     });
     expect(() => releaseAssetFor("win32", "arm64")).toThrow("not supported");
+    // The asset follows the running OS, so a wrong-build install corrects itself.
+    expect(releaseAssetFor("linux", "arm64", true).archive).toBe(
+      "outfitting-manager-nixos-arm64.zip",
+    );
+    expect(releaseAssetFor("linux", "x64", false).archive).toBe("outfitting-manager-linux-x64.zip");
   });
 
   test("only accepts the compiled executable as its replacement target", () => {

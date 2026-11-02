@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import type { ManagerConfig } from "@/config";
 import { CliFailure } from "@/errors";
+import { declareHostPlatform } from "@/platform";
 import { clearNix, recoverNix, type RecoverNixOptions } from "@/update/nix/recover";
 import {
   clearNixRecovery,
@@ -334,4 +335,52 @@ describe("recoverNix", () => {
       expect(await hasNixRecovery(recoveryDir)).toBe(false);
     },
   );
+
+  test("recovers a NixOS checkpoint through the NixOS switch, never Home Manager", async () => {
+    const parent = await tempDir();
+    const recoveryDir = join(parent, "nix-lock-recovery");
+    const lockSource = join(parent, "source.lock");
+    const systemConfig = join(parent, "nixos-system");
+    await mkdir(systemConfig);
+    await writeFile(lockSource, '{"version":7}\n', "utf8");
+    await prepareNixRecovery({
+      ...checkpointContext,
+      platform: "nixos",
+      lockPath: lockSource,
+      systemConfig,
+      recoveryDir,
+    });
+    const config: ManagerConfig = {
+      configPath: join(parent, "state", "config.toml"),
+      stateRoot: join(parent, "state"),
+      machineId: checkpointContext.machine,
+      machineIdOverridden: true,
+    };
+    const calls: string[] = [];
+
+    declareHostPlatform("nixos");
+    try {
+      await Effect.runPromise(
+        recoverNix({
+          config,
+          recoveryDir,
+          activateNixos: async (options) => {
+            calls.push(`nixos:${options.systemConfig}`);
+          },
+          activateHomeManager: async () => {
+            calls.push("unexpected Home Manager activation");
+          },
+          activate: async () => {
+            calls.push("unexpected nix-darwin activation");
+          },
+          push: () => Effect.sync(() => undefined),
+        }),
+      );
+    } finally {
+      declareHostPlatform(undefined);
+    }
+
+    expect(calls).toEqual([`nixos:${systemConfig}`]);
+    expect(await hasNixRecovery(recoveryDir)).toBe(false);
+  });
 });

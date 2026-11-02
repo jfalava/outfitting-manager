@@ -3,7 +3,7 @@ import { Argument, Command, Flag, Prompt } from "effect/cli";
 
 import { outputPreviews, type OutputPreview } from "@/debug/output";
 import { CliFailure } from "@/errors";
-import type { HostPlatform } from "@/platform";
+import { checkNixosHost, type HostPlatform } from "@/platform";
 import { TerminalSession, withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 
@@ -86,6 +86,23 @@ const listPreviews = Effect.fn(function* (platform: HostPlatform, previews: Outp
   );
 });
 
+/** Read-only report of the NixOS host guard; the one debug command that inspects the host. */
+const nixosHostCommand = Command.make("host", {}, () =>
+  Effect.gen(function* () {
+    const checks = checkNixosHost();
+    for (const check of checks) {
+      yield* Console.log(
+        check.ok
+          ? ui.success(`${check.name}: ${check.detail}`)
+          : ui.error(`${check.name}: ${check.detail}`),
+      );
+    }
+    if (checks.some((check) => !check.ok)) {
+      return yield* new CliFailure({ message: "The NixOS host guard would refuse to run." });
+    }
+  }),
+).pipe(Command.withDescription("Report the NixOS host checks (os-release, nix-ld, libraries)."));
+
 /** All effects below render fixed data or wait for disposable input. No real handlers run. */
 export const makeDebugCommand = (hostPlatform: HostPlatform) =>
   Command.make("debug").pipe(
@@ -97,7 +114,7 @@ export const makeDebugCommand = (hostPlatform: HostPlatform) =>
         "output",
         {
           command: Argument.String("command").pipe(Argument.variadic()),
-          platform: Flag.Literals("platform", ["macos", "linux", "windows"]).pipe(
+          platform: Flag.Literals("platform", ["macos", "linux", "nixos", "windows"]).pipe(
             Flag.withDefault(hostPlatform),
             Flag.withDescription("Choose sample data for any platform, without changing the host."),
           ),
@@ -160,5 +177,6 @@ export const makeDebugCommand = (hostPlatform: HostPlatform) =>
           "Render one command, a family, or all commands from safe fixtures; omit the path to list them.",
         ),
       ),
+      ...(hostPlatform === "nixos" ? [nixosHostCommand] : []),
     ]),
   );

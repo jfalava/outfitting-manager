@@ -19,9 +19,11 @@ import { syncByorSparseSource } from "@/setup/source";
 import {
   selectByorProfile,
   selectMacosByorProfile,
+  selectNixosByorProfile,
   selectWindowsByorProfiles,
   type ByorContract,
 } from "@/source/contract";
+import { describeNixosDrift, nixosDrift } from "@/update/nix/nixos-record";
 
 async function sourcePathStatus(source: string): Promise<string | undefined> {
   try {
@@ -93,6 +95,8 @@ function selectedProfile(
       return selectMacosByorProfile(contract, configured).name;
     case "windows":
       return selectWindowsByorProfiles(contract, configured?.split(",")).names.join(",");
+    case "nixos":
+      return selectNixosByorProfile(contract, configured).name;
   }
 }
 
@@ -168,10 +172,27 @@ async function cacheFreshnessLines(
   }
 }
 
+async function nixosSystemLines(drift: typeof nixosDrift): Promise<string[]> {
+  try {
+    const found = await drift();
+    if (found === undefined) {
+      return ["NixOS system: no outfitting-manager activation recorded yet"];
+    }
+    return found.changed ? [describeNixosDrift(found)] : ["NixOS system: managed"];
+  } catch (cause) {
+    return [`NixOS system: unknown (${errorMessage(cause)})`];
+  }
+}
+
 /** Inspect paths and Git without initializing state, fetching, or reading credentials. */
 export async function readStatus(
   platform: HostPlatform,
-  options: { config?: ManagerConfig; run?: typeof runCommand; envRepo?: string } = {},
+  options: {
+    config?: ManagerConfig;
+    run?: typeof runCommand;
+    envRepo?: string;
+    drift?: typeof nixosDrift;
+  } = {},
 ): Promise<string> {
   const config = options.config ?? (await loadConfig());
   const override = options.envRepo ?? envValue("OUTFITTING_REPO");
@@ -187,6 +208,7 @@ export async function readStatus(
       options.run ?? runCommand,
       override === undefined && config.source?.kind === "remote",
     )),
+    ...(platform === "nixos" ? await nixosSystemLines(options.drift ?? nixosDrift) : []),
   ].join("\n");
 }
 

@@ -10,6 +10,7 @@ import {
   profileNames,
   selectByorProfile,
   selectMacosByorProfile,
+  selectNixosByorProfile,
   selectWindowsByorProfiles,
   validateByorSource,
   type ByorContract,
@@ -20,17 +21,24 @@ function resolveValidatePlatform(
   contract: ByorContract,
   platformFlag: string | undefined,
 ): HostPlatform {
-  if (platformFlag === "linux" || platformFlag === "windows" || platformFlag === "macos") {
+  if (
+    platformFlag === "linux" ||
+    platformFlag === "windows" ||
+    platformFlag === "macos" ||
+    platformFlag === "nixos"
+  ) {
     if (profileNames(contract, platformFlag).length === 0) {
       throw new Error(`config.toml does not declare any ${platformLabel(platformFlag)} profiles.`);
     }
     return platformFlag;
   }
   if (platformFlag !== undefined) {
-    throw new Error(`--platform must be linux, windows, or macos (got \`${platformFlag}\`).`);
+    throw new Error(
+      `--platform must be linux, windows, macos, or nixos (got \`${platformFlag}\`).`,
+    );
   }
 
-  const declared = (["linux", "windows", "macos"] as const).filter(
+  const declared = (["linux", "windows", "macos", "nixos"] as const).filter(
     (platform) => profileNames(contract, platform).length > 0,
   );
   if (declared.length > 1) {
@@ -41,7 +49,7 @@ function resolveValidatePlatform(
   if (declared.length === 1) {
     return declared[0]!;
   }
-  throw new Error("config.toml does not declare any Linux, Windows, or macOS profiles.");
+  throw new Error("config.toml does not declare any Linux, Windows, macOS, or NixOS profiles.");
 }
 
 /** Summary lines for the declarations that were just validated. */
@@ -61,6 +69,10 @@ function validatedDetails(
     case "macos": {
       const { name, macos } = selectMacosByorProfile(contract, profile);
       return [`profile: ${name}`, `flake: ${macos.nix.flake}`, `attribute: ${macos.nix.attribute}`];
+    }
+    case "nixos": {
+      const { name, nixos } = selectNixosByorProfile(contract, profile);
+      return [`profile: ${name}`, `flake: ${nixos.nix.flake}`, `attribute: ${nixos.nix.attribute}`];
     }
     case "windows": {
       const { names, wingetPaths } = selectWindowsByorProfiles(contract, profile?.split(","));

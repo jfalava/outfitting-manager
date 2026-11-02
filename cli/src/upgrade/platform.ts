@@ -1,3 +1,5 @@
+import { isNixosHost } from "@/platform/nixos";
+
 export interface ReleaseAsset {
   archive: string;
   executable: string;
@@ -14,6 +16,11 @@ const ASSETS = new Map<string, ReleaseAsset>([
   ],
   ["linux:x64", { archive: "outfitting-manager-linux-x64.zip", executable: "outfitting-manager" }],
   [
+    "nixos:arm64",
+    { archive: "outfitting-manager-nixos-arm64.zip", executable: "outfitting-manager" },
+  ],
+  ["nixos:x64", { archive: "outfitting-manager-nixos-x64.zip", executable: "outfitting-manager" }],
+  [
     "win32:x64",
     { archive: "outfitting-manager-windows-x64.zip", executable: "outfitting-manager.exe" },
   ],
@@ -24,8 +31,16 @@ const normalizePath = (path: string): string => path.replaceAll("\\", "/").toLow
 const isCompiledBinaryPath = (normalizedPath: string): boolean =>
   normalizedPath.startsWith("/$bunfs/") || /^[a-z]:\/~bun\/root\//.test(normalizedPath);
 
-export function releaseAssetFor(platform = process.platform, arch = process.arch): ReleaseAsset {
-  const asset = ASSETS.get(`${platform}:${arch}`);
+/**
+ * The release asset for this host. NixOS is detected from the running OS, not the binary,
+ * so a Linux build on NixOS (or the reverse) replaces itself with the matching build.
+ */
+export function releaseAssetFor(
+  platform = process.platform,
+  arch = process.arch,
+  nixos = isNixosHost(),
+): ReleaseAsset {
+  const asset = ASSETS.get(`${platform === "linux" && nixos ? "nixos" : platform}:${arch}`);
   if (asset === undefined) {
     throw new Error(`Self-update is not supported on ${platform}/${arch}.`);
   }

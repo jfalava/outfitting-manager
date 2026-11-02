@@ -13,6 +13,7 @@ import {
   macosDarwinRelativePath,
   selectByorProfile,
   selectMacosByorProfile,
+  selectNixosByorProfile,
   type ByorContract,
   type ByorProfileDeclaration,
   profileNames,
@@ -45,10 +46,25 @@ interface HomeManagerFlakeSelection {
   homeManagerName: string;
 }
 
-type FlakeSelection = MacosFlakeSelection | HomeManagerFlakeSelection | { flakeKind: "none" };
+interface NixosFlakeSelection {
+  flakeKind: "nixos";
+  /** Absolute path to the flake root declared by the selected BYOR profile. */
+  flakePath: string;
+  /** Flake output attribute, e.g. `nixosConfigurations.<host>.config.system.build.toplevel`. */
+  systemAttr: string;
+  /** Selected NixOS profile name. */
+  nixosName: string;
+}
+
+type FlakeSelection =
+  | MacosFlakeSelection
+  | HomeManagerFlakeSelection
+  | NixosFlakeSelection
+  | { flakeKind: "none" };
 
 /** A source root whose selected BYOR profile declares a Nix flake. */
-export type NixFlakeRepo = SourceRoot & (MacosFlakeSelection | HomeManagerFlakeSelection);
+export type NixFlakeRepo = SourceRoot &
+  (MacosFlakeSelection | HomeManagerFlakeSelection | NixosFlakeSelection);
 
 /** A validated source root; `flakeKind` says whether and which Nix flake it drives. */
 export type OutfittingRepo = SourceRoot & FlakeSelection;
@@ -215,6 +231,26 @@ async function resolveByorFlakeSelection(
   };
 }
 
+async function resolveNixosFlakeSelection(
+  absolute: string,
+  contract: ByorContract,
+  profile: string | undefined,
+): Promise<NixosFlakeSelection> {
+  const selected = selectNixosByorProfile(contract, profile);
+  const flakePath = join(absolute, selected.nixos.nix.flake);
+  if (!(await pathExists(join(flakePath, "flake.nix")))) {
+    throw new Error(
+      `BYOR profile \`${selected.name}\` declares a missing Nix flake at ${join(flakePath, "flake.nix")}.`,
+    );
+  }
+  return {
+    flakeKind: "nixos",
+    flakePath,
+    systemAttr: selected.nixos.nix.attribute,
+    nixosName: selected.name,
+  };
+}
+
 /** Validate a source root against declarations loaded from config.toml. */
 export async function validateOutfittingRepo(
   candidate: string,
@@ -231,7 +267,9 @@ export async function validateOutfittingRepo(
   const selection: FlakeSelection =
     options.platform === "windows"
       ? { flakeKind: "none" }
-      : await resolveByorFlakeSelection(absolute, options.contract, options.profile);
+      : options.platform === "nixos"
+        ? await resolveNixosFlakeSelection(absolute, options.contract, options.profile)
+        : await resolveByorFlakeSelection(absolute, options.contract, options.profile);
   return { root: absolute, contract: options.contract, ...selection };
 }
 

@@ -75,6 +75,16 @@ export interface MacosProfileDeclaration {
   paths?: string[];
 }
 
+export interface NixosProfileDeclaration {
+  /** System flake; `attribute` selects a `nixosConfigurations.*.config.system.build.toplevel`. */
+  nix: LinuxNixDeclaration;
+  /**
+   * Files outside the flake directory that Nix reads from the sparse source.
+   * An empty array means the user confirmed there are no out-of-flake reads.
+   */
+  paths?: string[];
+}
+
 export interface ByorWindowsShared {
   defaultProfiles?: string[];
   scoop?: WindowsManifestDeclaration;
@@ -105,6 +115,7 @@ export interface ByorProfileDeclaration {
   linux?: LinuxProfileDeclaration;
   windows?: WindowsProfileDeclaration;
   macos?: MacosProfileDeclaration;
+  nixos?: NixosProfileDeclaration;
 }
 
 export interface ByorContract {
@@ -124,6 +135,11 @@ export interface SelectedMacosByorProfile {
   macos: MacosProfileDeclaration;
 }
 
+export interface SelectedNixosByorProfile {
+  name: string;
+  nixos: NixosProfileDeclaration;
+}
+
 export interface SelectedWindowsByorProfiles {
   names: string[];
   wingetPaths: Record<string, string>;
@@ -136,6 +152,16 @@ export interface ValidatedLinuxByorProfile {
   contract: ByorContract;
   linux: LinuxProfileDeclaration;
   backends: ReadonlyArray<LinuxPackageBackend | "nix">;
+}
+
+export interface ValidatedNixosByorProfile {
+  root: string;
+  profile: string;
+  contract: ByorContract;
+  nixos: NixosProfileDeclaration;
+  /** Absolute flake directory (contains flake.nix). */
+  flakePath: string;
+  systemAttr: string;
 }
 
 export interface ValidatedMacosByorProfile {
@@ -209,6 +235,11 @@ const MacosProfileSchema = Schema.Struct({
   paths: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const NixosProfileSchema = Schema.Struct({
+  nix: NixDeclarationSchema,
+  paths: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const WindowsPathSchema = Schema.Struct({
   path: Schema.String,
 });
@@ -247,6 +278,7 @@ const ByorProfileSchema = Schema.Struct({
   linux: Schema.optionalKey(LinuxProfileSchema),
   windows: Schema.optionalKey(WindowsProfileSchema),
   macos: Schema.optionalKey(MacosProfileSchema),
+  nixos: Schema.optionalKey(NixosProfileSchema),
 });
 
 const ByorContractSchema = Schema.Struct({
@@ -261,6 +293,7 @@ type DecodedNixDeclaration = Schema.Schema.Type<typeof NixDeclarationSchema>;
 type DecodedLinuxProfile = Schema.Schema.Type<typeof LinuxProfileSchema>;
 type DecodedWindowsProfile = Schema.Schema.Type<typeof WindowsProfileSchema>;
 type DecodedMacosProfile = Schema.Schema.Type<typeof MacosProfileSchema>;
+type DecodedNixosProfile = Schema.Schema.Type<typeof NixosProfileSchema>;
 type DecodedWindowsShared = Schema.Schema.Type<typeof ByorWindowsSharedSchema>;
 type DecodedContract = Schema.Schema.Type<typeof ByorContractSchema>;
 
@@ -451,6 +484,16 @@ function parseLinuxProfile(value: DecodedLinuxProfile, label: string): LinuxProf
   return linux;
 }
 
+function parseNixosProfile(value: DecodedNixosProfile, label: string): NixosProfileDeclaration {
+  const nixos: NixosProfileDeclaration = { nix: parseNixDeclaration(value.nix, `${label}.nix`) };
+  if (value.paths !== undefined) {
+    nixos.paths = value.paths.map((path, index) =>
+      relativeSourcePath(path, `${label}.paths[${index}]`),
+    );
+  }
+  return nixos;
+}
+
 function parseWindowsProfile(
   value: DecodedWindowsProfile,
   label: string,
@@ -564,8 +607,16 @@ function parseProfileEntry(
   if (valueForProfile.macos !== undefined) {
     profile.macos = parseMacosProfile(valueForProfile.macos, `${name}.macos`);
   }
-  if (profile.linux === undefined && profile.windows === undefined && profile.macos === undefined) {
-    throw new Error(`${name} must declare linux, windows, and/or macos.`);
+  if (valueForProfile.nixos !== undefined) {
+    profile.nixos = parseNixosProfile(valueForProfile.nixos, `${name}.nixos`);
+  }
+  if (
+    profile.linux === undefined &&
+    profile.windows === undefined &&
+    profile.macos === undefined &&
+    profile.nixos === undefined
+  ) {
+    throw new Error(`${name} must declare linux, windows, macos, and/or nixos.`);
   }
   return { name, profile };
 }
@@ -709,7 +760,7 @@ export function macosPathsFromProfile(decl: MacosProfileDeclaration): string[] {
  * Select the one active profile for an exclusive platform: the requested name, or the only
  * declared profile. Shared by validation and flake resolution so messages stay identical.
  */
-function selectExclusiveProfile<Platform extends "linux" | "macos">(
+function selectExclusiveProfile<Platform extends "linux" | "macos" | "nixos">(
   contract: ByorContract,
   platform: Platform,
   requested: string | undefined,
@@ -747,6 +798,14 @@ export function selectMacosByorProfile(
 ): SelectedMacosByorProfile {
   const { name, declaration } = selectExclusiveProfile(contract, "macos", requested);
   return { name, macos: declaration };
+}
+
+export function selectNixosByorProfile(
+  contract: ByorContract,
+  requested: string | undefined,
+): SelectedNixosByorProfile {
+  const { name, declaration } = selectExclusiveProfile(contract, "nixos", requested);
+  return { name, nixos: declaration };
 }
 
 /**
@@ -802,6 +861,20 @@ export function linuxPathsFromProfile(decl: LinuxProfileDeclaration): string[] {
     pushUnique(paths, path);
   }
   return paths;
+}
+
+/** Repository-relative flake directory and extra paths a NixOS profile declares. */
+export function nixosPathsFromProfile(decl: NixosProfileDeclaration): string[] {
+  const paths = [decl.nix.flake];
+  for (const path of decl.paths ?? []) {
+    pushUnique(paths, path);
+  }
+  return paths;
+}
+
+/** Backups use the kernel's mechanics: NixOS hosts run Linux backup profiles. */
+export function backupPlatformFor(platform: HostPlatform): BackupPlatform {
+  return platform === "nixos" ? "linux" : platform;
 }
 
 /**
@@ -1057,6 +1130,37 @@ export async function validateWindowsByorSource(options: {
   };
 }
 
+/** Validate a user-provided NixOS BYOR repository without changing the host. */
+export async function validateNixosByorSource(options: {
+  root: string;
+  contract: ByorContract;
+  profile?: string;
+}): Promise<ValidatedNixosByorProfile> {
+  const root = await resolveByorRoot(options.root);
+  const selected = selectNixosByorProfile(options.contract, options.profile);
+  const flakeContent = await readDeclaredFlake(root, selected.name, selected.nixos.nix.flake);
+  if (!/\bnixosConfigurations\b/.test(flakeContent)) {
+    throw new Error(
+      `BYOR profile \`${selected.name}\` has an invalid flake.nix: nixosConfigurations is required.`,
+    );
+  }
+  for (const path of selected.nixos.paths ?? []) {
+    if (!(await fileOrDirectoryExists(join(root, path)))) {
+      throw new Error(
+        `BYOR NixOS profile \`${selected.name}\` declares missing repository path \`${path}\`.`,
+      );
+    }
+  }
+  return {
+    root,
+    profile: selected.name,
+    contract: options.contract,
+    nixos: selected.nixos,
+    flakePath: join(root, selected.nixos.nix.flake),
+    systemAttr: selected.nixos.nix.attribute,
+  };
+}
+
 /** Validate a user-provided macOS BYOR repository without changing the host. */
 export async function validateMacosByorSource(options: {
   root: string;
@@ -1136,6 +1240,9 @@ export async function validateByorSource(
       return;
     case "windows":
       await validateWindowsByorSource({ root, profiles: profile?.split(","), contract });
+      return;
+    case "nixos":
+      await validateNixosByorSource({ root, profile, contract });
       return;
     default: {
       const exhaustive: never = platform;

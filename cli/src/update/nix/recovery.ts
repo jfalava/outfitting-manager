@@ -10,7 +10,7 @@ import { isNixRecoveryPhase, type NixRecoveryPhase } from "@/update/nix/types";
 
 const NixRecoveryContextSchema = Schema.Struct({
   machine: Schema.String,
-  platform: Schema.Literals(["linux", "macos"] as const),
+  platform: Schema.Literals(["linux", "macos", "nixos"] as const),
   profile: Schema.optionalKey(Schema.String),
   /** Pinned store path built before activation; recovery never rebuilds. */
   systemConfig: Schema.String,

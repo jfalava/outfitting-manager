@@ -23,6 +23,7 @@ import { readGitFile } from "@/setup/source";
 import {
   BYOR_CONTRACT_PATH,
   BYOR_CONTRACT_SCHEMA,
+  backupPlatformFor,
   normalizeBackups,
   normalizeBackupPath,
   parseByorContract,
@@ -35,6 +36,8 @@ import {
   type ByorWindowsShared,
   type LinuxProfileDeclaration,
   type MacosProfileDeclaration,
+  type NixosProfileDeclaration,
+  type BackupPlatform,
   profileNames,
   isWithinSourcePath,
   validateByorSource,
@@ -59,6 +62,7 @@ interface WizardConfigDocument {
   source: WizardSource;
   linux?: { profile: string };
   macos?: { profile: string };
+  nixos?: { profile: string };
   windows?: { profiles?: string[]; shared?: Omit<ByorWindowsShared, "defaultProfiles"> };
   profiles: ByorContract["profiles"];
 }
@@ -70,6 +74,7 @@ interface ExistingWizardConfigDocument {
   source?: WizardSource;
   linux?: { profile?: string };
   macos?: { profile?: string };
+  nixos?: { profile?: string };
   windows?: { profiles?: string[]; shared?: Omit<ByorWindowsShared, "defaultProfiles"> };
   profiles?: ByorContract["profiles"];
 }
@@ -336,6 +341,38 @@ function collectLinuxProfile(
   });
 }
 
+/** A NixOS system flake plus the paths it reads outside the flake directory. */
+export function collectNixosDeclaration(
+  profileName: string,
+  existing?: ByorProfileDeclaration["nixos"],
+) {
+  return Effect.gen(function* () {
+    const flake = yield* requiredTextPrompt("NixOS system flake directory", existing?.nix.flake);
+    const attribute = yield* requiredTextPrompt(
+      "NixOS system attribute",
+      existing?.nix.attribute ?? `nixosConfigurations.${profileName}.config.system.build.toplevel`,
+    );
+    const paths = yield* collectLinuxPaths(existing?.paths);
+    return { nix: { flake, attribute }, paths } satisfies NixosProfileDeclaration;
+  });
+}
+
+function collectNixosProfile(
+  defaultName: string | undefined,
+  existing?: ByorContract,
+  candidates: string[] = [],
+) {
+  return Effect.gen(function* () {
+    const name = yield* profileNamePrompt("NixOS profile name", defaultName, candidates);
+    const nixos = yield* collectNixosDeclaration(name, existing?.profiles[name]?.nixos);
+    const contract = parseByorContract({
+      schema: BYOR_CONTRACT_SCHEMA,
+      profiles: { [name]: { nixos } },
+    });
+    return { contract, profiles: [name] };
+  });
+}
+
 export function collectMacosNix(existing?: MacosProfileDeclaration["nix"]) {
   return Effect.gen(function* () {
     const flake = yield* requiredTextPrompt("Nix flake directory", existing?.flake);
@@ -497,13 +534,12 @@ function windowsProfileSetupPrompt(
 }
 
 function singleProfileSetupPrompt(
-  platform: "linux" | "macos",
+  platform: "linux" | "macos" | "nixos",
   existing: ExistingWizardConfig | undefined,
   defaults: ByorContract | undefined,
 ) {
   const candidates = profileNames(defaults, platform);
-  const selected =
-    platform === "linux" ? existing?.document.linux?.profile : existing?.document.macos?.profile;
+  const selected = existing?.document[platform]?.profile;
   const defaultName =
     selected !== undefined && candidates.includes(selected)
       ? selected
@@ -512,6 +548,9 @@ function singleProfileSetupPrompt(
         : undefined;
   if (platform === "linux") {
     return collectLinuxProfile(defaultName, defaults, candidates);
+  }
+  if (platform === "nixos") {
+    return collectNixosProfile(defaultName, defaults, candidates);
   }
   return collectMacosProfile(defaultName, defaults, candidates);
 }
@@ -527,6 +566,7 @@ function profileSetupPrompt(
       return windowsProfileSetupPrompt(existing, defaults);
     case "linux":
     case "macos":
+    case "nixos":
       return singleProfileSetupPrompt(platform, existing, defaults);
   }
 }
@@ -598,6 +638,9 @@ function preserveExistingConfig(
   if (existing.macos?.profile !== undefined) {
     document.macos = { profile: existing.macos.profile };
   }
+  if (existing.nixos?.profile !== undefined) {
+    document.nixos = { profile: existing.nixos.profile };
+  }
   if (existing.windows !== undefined) {
     preserveExistingWindowsConfig(document, existing.windows);
   }
@@ -636,7 +679,7 @@ export function buildWizardConfigDocument(
 
   preserveExistingConfig(document, existing);
 
-  const backups = importedBackups(manifest, existing?.backups, platform);
+  const backups = importedBackups(manifest, existing?.backups, backupPlatformFor(platform));
   if (backups !== undefined) {
     document.backups = backups;
   }
@@ -648,6 +691,9 @@ export function buildWizardConfigDocument(
     case "macos":
       document.macos = { profile: profiles[0]! };
       break;
+    case "nixos":
+      document.nixos = { profile: profiles[0]! };
+      break;
     case "windows":
       selectWindowsConfig(document, contract, profiles);
       break;
@@ -658,7 +704,7 @@ export function buildWizardConfigDocument(
 function importedBackups(
   manifest: ByorContract | undefined,
   existing: BackupsConfig | undefined,
-  platform: HostPlatform,
+  platform: BackupPlatform,
 ): BackupsConfig | undefined {
   if (manifest === undefined) {
     return existing;
@@ -691,7 +737,8 @@ function importedBackups(
   return config;
 }
 
-function backupSetupPrompt(document: WizardConfigDocument, platform: HostPlatform, root?: string) {
+function backupSetupPrompt(document: WizardConfigDocument, host: HostPlatform, root?: string) {
+  const platform = backupPlatformFor(host);
   return Effect.gen(function* () {
     const current = document.backups;
     if (
@@ -947,7 +994,7 @@ function selectedNixDeclaration(
   if (platform === "macos") {
     return declaration?.macos?.nix !== undefined;
   }
-  return false;
+  return platform === "nixos" && declaration?.nixos !== undefined;
 }
 
 interface LinuxNixWizardState {
@@ -1291,7 +1338,9 @@ function continueNixSetup(
     const message =
       platform === "macos"
         ? "Activate the nix-darwin system now? This may require administrator access."
-        : "Activate the selected Home Manager profile now?";
+        : platform === "nixos"
+          ? "Switch this NixOS system now? This requires administrator access."
+          : "Activate the selected Home Manager profile now?";
     if (yield* confirm(message)) {
       yield* withActivity(
         "Switching the Nix profile",
@@ -1324,6 +1373,8 @@ function continueSetup(options: {
       linux: continueLinuxSetup,
       macos: continueMacosSetup,
       windows: continueWindowsSetup,
+      // The NixOS system flake owns packages; only the Nix switch remains.
+      nixos: () => Effect.succeed<string[]>([]),
     }[platform];
     const nextCommands = yield* platformSetup(config, profiles, prefix, strict);
     nextCommands.push(...(yield* continueNixSetup(config, platform, profiles, nixReady)));

@@ -14,6 +14,7 @@ import {
 import { tryPromise } from "@/effect";
 import { CliFailure, toCliFailure } from "@/errors";
 import type { ManifestFetcher } from "@/fetch/github";
+import { hostPlatform } from "@/platform";
 import { which } from "@/process";
 import { resolveSetupSource } from "@/setup/run";
 import { syncByorSparseSource } from "@/setup/source";
@@ -23,9 +24,10 @@ import { isGitTrackedFile } from "@/sync/files";
 import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { prepareLinuxSource, resolveLinuxProfile } from "@/update/linux-source";
-import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
+import { activateHomeManager, activateNixos, activateNixSystem } from "@/update/nix/activate";
 import { buildNixSystem, rootNixBuild } from "@/update/nix/build";
 import { closeNixLock, openNixLock, type NixLock } from "@/update/nix/lock";
+import { describeNixosDrift, nixosDrift } from "@/update/nix/nixos-record";
 import {
   clearNixRecovery,
   prepareNixRecovery,
@@ -52,23 +54,24 @@ export interface UpdateNixOptions {
 
 type NixSelection =
   | { platform: "macos"; profile: string | undefined }
-  | { platform: "linux"; profile: string };
+  | { platform: "linux" | "nixos"; profile: string };
 
 function selectNixProfile(
   config: ManagerConfig,
   override: string | undefined,
 ): Effect.Effect<NixSelection, CliFailure> {
-  if (process.platform === "darwin") {
+  const platform = hostPlatform();
+  if (platform === "macos") {
     return Effect.succeed({
       platform: "macos",
       profile: configuredProfile(config, "macos", override),
     });
   }
   return Effect.try({
-    try: (): NixSelection => ({
-      platform: "linux",
-      profile: resolveLinuxProfile(config, override),
-    }),
+    try: (): NixSelection => {
+      const linux = platform === "nixos" ? "nixos" : "linux";
+      return { platform: linux, profile: resolveLinuxProfile(config, override, linux) };
+    },
     catch: toCliFailure,
   });
 }
@@ -118,6 +121,7 @@ function resolveActiveRepo(
   return tryPromise(() =>
     prepareLinuxSource({
       config,
+      platform: selection.platform,
       profile: selection.profile,
       refresh: options.noRefresh !== true,
       fetcher: options.sourceFetcher,
@@ -126,9 +130,18 @@ function resolveActiveRepo(
 }
 
 function nixTargetLabel(repo: NixFlakeRepo): string {
-  return repo.flakeKind === "macos"
-    ? "nix-darwin system"
-    : `Home Manager (${repo.homeManagerName})`;
+  switch (repo.flakeKind) {
+    case "macos":
+      return "nix-darwin system";
+    case "home-manager":
+      return `Home Manager (${repo.homeManagerName})`;
+    case "nixos":
+      return `NixOS system (${repo.nixosName})`;
+    default: {
+      const exhaustive: never = repo;
+      return exhaustive;
+    }
+  }
 }
 
 async function localFlakeLockPath(repo: NixFlakeRepo): Promise<string | undefined> {
@@ -170,8 +183,15 @@ function activateNixProfile(repo: NixFlakeRepo, systemConfig: string) {
       );
       return;
     }
-    yield* Console.log(ui.heading("Activating nix-darwin system…"));
     const session = yield* TerminalSession;
+    if (repo.flakeKind === "nixos") {
+      yield* Console.log(ui.heading(`Activating ${nixTargetLabel(repo)}…`));
+      yield* tryPromise(() =>
+        activateNixos({ systemConfig, alert: session.alert, resume: session.resume }),
+      );
+      return;
+    }
+    yield* Console.log(ui.heading("Activating nix-darwin system…"));
     yield* tryPromise(() =>
       activateNixSystem({ systemConfig, alert: session.alert, resume: session.resume }),
     );
@@ -218,7 +238,9 @@ function runNixAction(
           ui.success(
             repo.flakeKind === "home-manager"
               ? "Home Manager switch complete."
-              : "nix-darwin switch complete.",
+              : repo.flakeKind === "nixos"
+                ? "NixOS switch complete."
+                : "nix-darwin switch complete.",
           ),
         );
         return;
@@ -369,6 +391,13 @@ export const updateNix = (options: UpdateNixOptions) =>
       return yield* new CliFailure({
         message: `An unfinished Nix recovery checkpoint exists at ${recovery.dir}. Run: outfitting-manager recover nix`,
       });
+    }
+
+    if (selection.platform === "nixos") {
+      const drift = yield* tryPromise(() => nixosDrift());
+      if (drift?.changed === true) {
+        yield* Console.log(ui.warning(describeNixosDrift(drift)));
+      }
     }
 
     yield* setTerminalPhase("Preparing source");

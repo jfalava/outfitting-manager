@@ -10,6 +10,10 @@ export interface MacosConfig {
   profile: string;
 }
 
+export interface NixosConfig {
+  profile: string;
+}
+
 export interface WindowsConfig {
   profiles: string[];
 }
@@ -46,6 +50,7 @@ export interface ManagerConfigFile {
   source?: ConfiguredSource;
   linux?: LinuxConfig;
   macos?: MacosConfig;
+  nixos?: NixosConfig;
   windows?: WindowsConfig;
   fonts?: FontsConfig;
   backups?: BackupsConfig;
@@ -66,6 +71,7 @@ export interface ManagerConfig {
   /** Configured platform selections; flags/environment may override per invocation. */
   linux?: LinuxConfig;
   macos?: MacosConfig;
+  nixos?: NixosConfig;
   windows?: WindowsConfig;
   fonts?: FontsConfig;
   backups?: BackupsConfig;

@@ -47,27 +47,39 @@ const actionDescriptions = {
   build: {
     macos: "Build the nix-darwin system without activating.",
     linux: "Build the Home Manager activation package without activating.",
+    nixos: "Build this host's NixOS system without activating.",
   },
   switch: {
     macos: "Build and activate the nix-darwin system.",
     linux: "Build and activate the selected Home Manager profile.",
+    nixos: "Build and switch this host to its NixOS system.",
   },
   test: {
     macos: "Test-build the nix-darwin system without activating.",
     linux: "Test-build the Home Manager activation package without activating.",
+    // Not switch-to-configuration test: nothing is activated.
+    nixos: "Test-build this host's NixOS system without activating anything.",
   },
   "dry-run": {
     macos: "Dry-run the nix-darwin build without activating.",
     linux: "Dry-run the Home Manager build without activating.",
+    nixos: "Dry-run this host's NixOS build without activating.",
   },
   update: {
     macos: "Update flake inputs, build, and activate the nix-darwin system.",
     linux: "Update flake inputs, build, and activate the Home Manager profile.",
+    nixos: "Update flake inputs, build, and switch this host's NixOS system.",
   },
-} as const satisfies Record<NixAction, Record<"macos" | "linux", string>>;
+} as const satisfies Record<NixAction, Record<"macos" | "linux" | "nixos", string>>;
+
+const nixDescriptions = {
+  macos: "Build, test, dry-run, update, or activate the nix-darwin profile.",
+  linux: "Build, test, dry-run, update, or activate the Home Manager profile.",
+  nixos: "Build, test, dry-run, update, or switch this host's NixOS system.",
+} as const;
 
 /** Build, test, dry-run, update, or activate the configured Nix profile. */
-export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux">) {
+export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux" | "nixos">) {
   const updateFlags = platform === "linux" ? linuxUpdateFlags : macosUpdateFlags;
   const actionFlags = { ...updateFlags, noPush: noPushFlag };
   const actions = NIX_ACTIONS.filter(
@@ -82,11 +94,7 @@ export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux"
   ).pipe(Command.withDescription(actionDescriptions.update[platform]));
 
   return Command.make("nix").pipe(
-    Command.withDescription(
-      platform === "macos"
-        ? "Build, test, dry-run, update, or activate the nix-darwin profile."
-        : "Build, test, dry-run, update, or activate the Home Manager profile.",
-    ),
+    Command.withDescription(nixDescriptions[platform]),
     Command.withSubcommands([...actions, updateCommand]),
   );
 }

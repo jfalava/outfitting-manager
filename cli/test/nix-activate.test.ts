@@ -1,7 +1,7 @@
-import { expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { runCommand } from "@/process";
-import { activateNixSystem } from "@/update/nix/activate";
+import { activateNixos, activateNixSystem, NIXOS_SWITCH_APPROVAL } from "@/update/nix/activate";
 
 function commandResult(code: number) {
   return { code, stdout: "", stderr: "" };
@@ -89,3 +89,75 @@ test.each(["exit", "spawn"])(
     expect(run).toHaveBeenCalledTimes(2);
   },
 );
+
+describe("activateNixos", () => {
+  const system = "/nix/store/abc-nixos-system-box";
+  const exists = async () => true;
+
+  test("approves the exact system, sets the profile, then switches in a transient unit", async () => {
+    const calls: string[][] = [];
+    const recorded: string[] = [];
+    const run = vi.fn<typeof runCommand>().mockImplementation(async (command, args) => {
+      calls.push([command, ...args]);
+      return commandResult(0);
+    });
+
+    await activateNixos({
+      systemConfig: system,
+      run,
+      exists,
+      record: async (path) => {
+        recorded.push(path);
+      },
+    });
+
+    const approval = calls.findIndex((call) => call.includes("sh"));
+    const profile = calls.findIndex((call) => call.includes("nix-env"));
+    const switching = calls.findIndex((call) => call.includes("systemd-run"));
+    expect(approval).toBeGreaterThan(-1);
+    // The pre-switch check compares the approval with $1, so it must carry the incoming path.
+    expect(calls[approval]).toContain(system);
+    expect(calls[approval]!.join(" ")).toContain(NIXOS_SWITCH_APPROVAL);
+    expect(approval).toBeLessThan(profile);
+    expect(profile).toBeLessThan(switching);
+    expect(calls[switching]).toEqual(
+      expect.arrayContaining([
+        "--wait",
+        "--pipe",
+        `${system}/bin/switch-to-configuration`,
+        "switch",
+      ]),
+    );
+    expect(recorded).toEqual([system]);
+  });
+
+  test("drops the approval and records nothing when the switch fails", async () => {
+    const calls: string[][] = [];
+    const recorded: string[] = [];
+    const run = vi.fn<typeof runCommand>().mockImplementation(async (command, args) => {
+      calls.push([command, ...args]);
+      return commandResult(args.includes("systemd-run") ? 1 : 0);
+    });
+
+    await expect(
+      activateNixos({
+        systemConfig: system,
+        run,
+        exists,
+        record: async (path) => {
+          recorded.push(path);
+        },
+      }),
+    ).rejects.toThrow("switch-to-configuration switch failed (exit 1)");
+    expect(calls.at(-1)).toEqual(["sudo", "rm", "-f", NIXOS_SWITCH_APPROVAL]);
+    expect(recorded).toEqual([]);
+  });
+
+  test("refuses a build that is not a NixOS system before any sudo", async () => {
+    const run = vi.fn<typeof runCommand>().mockResolvedValue(commandResult(0));
+    await expect(
+      activateNixos({ systemConfig: "/nix/store/hm-activation", run, exists: async () => false }),
+    ).rejects.toThrow("is not a NixOS system build");
+    expect(run).not.toHaveBeenCalled();
+  });
+});

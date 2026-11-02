@@ -17,6 +17,8 @@ export function configuredProfile(
       return config.linux?.profile;
     case "macos":
       return config.macos?.profile;
+    case "nixos":
+      return config.nixos?.profile;
     case "windows":
       return config.windows?.profiles.join(",");
   }

@@ -2,10 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { Option, Result, Schema } from "effect";
-import {
-  parse as parseToml,
-  type TomlTableWithoutBigInt,
-} from "smol-toml";
+import { parse as parseToml, type TomlTableWithoutBigInt } from "smol-toml";
 
 import { BackupCredentials } from "@/backups/model";
 import { normalizeGitRepository, validateGitRef } from "@/config/git";
@@ -23,6 +20,7 @@ import {
   BYOR_CONTRACT_SCHEMA,
   linuxPathsFromProfile,
   macosPathsFromProfile,
+  nixosPathsFromProfile,
   parseByorContract,
   normalizeBackups,
   BackupProfileSchema,
@@ -72,6 +70,7 @@ const ConfigFileSchema = Schema.Struct({
   source: Schema.optionalKey(SourceFileSchema),
   linux: Schema.optionalKey(LinuxFileSchema),
   macos: Schema.optionalKey(MacosFileSchema),
+  nixos: Schema.optionalKey(MacosFileSchema),
   windows: Schema.optionalKey(WindowsFileSchema),
   fonts: Schema.optionalKey(FontsFileSchema),
   backups: Schema.optionalKey(BackupsFileSchema),
@@ -174,6 +173,9 @@ function profileDeclarationPaths(profile: ByorContract["profiles"][string]): str
   if (profile.macos !== undefined) {
     paths.push(...macosPathsFromProfile(profile.macos));
   }
+  if (profile.nixos !== undefined) {
+    paths.push(...nixosPathsFromProfile(profile.nixos));
+  }
   if (profile.windows !== undefined) {
     paths.push(profile.windows.winget.manifest);
   }
@@ -260,6 +262,9 @@ function configFileFromDecoded(decoded: DecodedConfig, configPath: string): Mana
   }
   if (decoded.macos?.profile !== undefined) {
     file.macos = { profile: validateProfile(decoded.macos.profile, "macOS") };
+  }
+  if (decoded.nixos?.profile !== undefined) {
+    file.nixos = { profile: validateProfile(decoded.nixos.profile, "NixOS") };
   }
   if (decoded.windows?.profiles !== undefined) {
     const profiles = decoded.windows.profiles.map((profile) => validateProfile(profile, "Windows"));

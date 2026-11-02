@@ -5,10 +5,11 @@ import { Console, Effect } from "effect";
 import { loadConfig, type ManagerConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
+import { hostPlatform } from "@/platform";
 import { pushLockfile } from "@/sync";
 import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
-import { activateHomeManager, activateNixSystem } from "@/update/nix/activate";
+import { activateHomeManager, activateNixos, activateNixSystem } from "@/update/nix/activate";
 import {
   clearNixRecovery,
   defaultNixRecoveryDir,
@@ -24,6 +25,7 @@ export interface RecoverNixOptions {
   recoveryDir?: string;
   activate?: typeof activateNixSystem;
   activateHomeManager?: typeof activateHomeManager;
+  activateNixos?: typeof activateNixos;
   push?: typeof pushLockfile;
 }
 
@@ -45,7 +47,18 @@ function activatePreparedNix(
       });
     }
     yield* setTerminalPhase("Activating recovered profile");
-    if (state.platform === "linux") {
+    if (state.platform === "nixos") {
+      const activateNixosFn = options.activateNixos ?? activateNixos;
+      const session = yield* TerminalSession;
+      yield* Console.log(ui.heading("Activating the recovered NixOS system…"));
+      yield* tryPromise(() =>
+        activateNixosFn({
+          systemConfig: state.systemConfig,
+          alert: session.alert,
+          resume: session.resume,
+        }),
+      );
+    } else if (state.platform === "linux") {
       const activateHomeManagerFn = options.activateHomeManager ?? activateHomeManager;
       yield* Console.log(ui.heading("Activating the recovered Home Manager profile…"));
       yield* tryPromise(() =>
@@ -103,7 +116,7 @@ export const recoverNix = (options: RecoverNixOptions = {}) =>
     }
 
     const config = options.config ?? (yield* tryPromise(() => loadConfig()));
-    const platform = process.platform === "darwin" ? "macos" : "linux";
+    const platform = hostPlatform();
     if (state.platform !== platform) {
       return yield* new CliFailure({
         message: `Nix recovery checkpoint belongs to ${state.platform}, not ${platform}.`,

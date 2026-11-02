@@ -10,6 +10,7 @@ import {
   collectLinuxDeclaration,
   collectMacosExtras,
   collectMacosNix,
+  collectNixosDeclaration,
   collectWindowsProfileDeclarations,
   collectWindowsShared,
   mergeByorContractDefaults,
@@ -110,6 +111,22 @@ function collectMacosProfiles(existing?: ByorContract) {
   });
 }
 
+function collectNixosProfiles(existing?: ByorContract) {
+  return Effect.gen(function* () {
+    const names = yield* profileNamesPrompt(
+      "NixOS profiles to include (comma-separated)",
+      profileNames(existing, "nixos"),
+    );
+    const profiles: Record<string, ByorProfileDeclaration> = {};
+    for (const name of names) {
+      profiles[name] = {
+        nixos: yield* collectNixosDeclaration(name, existing?.profiles[name]?.nixos),
+      };
+    }
+    return parseByorContract({ schema: BYOR_CONTRACT_SCHEMA, profiles });
+  });
+}
+
 function collectWindowsProfiles(existing?: ByorContract, selectedProfiles?: ReadonlyArray<string>) {
   return Effect.gen(function* () {
     const names = yield* profileNamesPrompt(
@@ -137,6 +154,8 @@ function collectPlatformManifest(
       return collectMacosProfiles(defaults);
     case "windows":
       return collectWindowsProfiles(defaults, selectedWindowsProfiles);
+    case "nixos":
+      return collectNixosProfiles(defaults);
   }
 }
 
@@ -258,7 +277,7 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
       Prompt.MultiSelect({
         message: "Choose platforms to include in the repo manifest",
         min: 1,
-        choices: (["linux", "macos", "windows"] as const).map((platform) => ({
+        choices: (["linux", "macos", "nixos", "windows"] as const).map((platform) => ({
           title: platformLabel(platform),
           value: platform,
           selected:

@@ -38,7 +38,10 @@ export interface OutputPreview {
 const HASH = "a31d8f924ae78011cfa6a64dc5df22871c6f1f2c67de637654b2b66366c50192";
 const TIME = "2026-10-26T10:00:00Z";
 const API = "https://outfitting.example.test/api";
-const architectures = { macos: "arm64", linux: "arm64", windows: "x64" };
+const architectures = { macos: "arm64", linux: "arm64", nixos: "arm64", windows: "x64" };
+const nixLabels = { linux: "Home Manager", nixos: "NixOS system", macos: "nix-darwin" };
+/** Commands the NixOS command tree leaves out: the system flake owns packages and fonts. */
+const NIXOS_EXCLUDED = /^(apply|update|diff|fonts)\b/;
 const faces: PlannedFace[] = [
   {
     family: "Example Sans",
@@ -227,14 +230,16 @@ export function outputPreviews(platform: HostPlatform): OutputPreview[] {
           ? "backends: apt, nix"
           : platform === "macos"
             ? "flake: nix\nattribute: darwinConfigurations.workstation.system"
-            : "winget: workstation=windows/workstation.json, shared=windows/shared.json",
+            : platform === "nixos"
+              ? "flake: nixos\nattribute: nixosConfigurations.workstation.config.system.build.toplevel"
+              : "winget: workstation=windows/workstation.json, shared=windows/shared.json",
       ),
     ),
     sample(
       "diff",
       (empty) =>
         printDiff({
-          platform,
+          platform: platform === "nixos" ? "linux" : platform,
           source,
           sections: [
             {
@@ -445,16 +450,16 @@ export function outputPreviews(platform: HostPlatform): OutputPreview[] {
     ),
   ];
 
-  return [...previews, ...platformPreviews(platform), ...backupPreviews(platform)].toSorted(
-    (a, b) => a.path.localeCompare(b.path),
-  );
+  return [...previews, ...platformPreviews(platform), ...backupPreviews(platform)]
+    .filter((preview) => platform !== "nixos" || !NIXOS_EXCLUDED.test(preview.path))
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
 function platformPreviews(platform: HostPlatform): OutputPreview[] {
   const machine = `preview:${architectures[platform]}-${platform}`;
   const previews: OutputPreview[] = [];
   if (platform !== "windows") {
-    const label = platform === "linux" ? "Home Manager" : "nix-darwin";
+    const label = nixLabels[platform];
     for (const action of ["build", "test", "dry-run", "switch", "update"]) {
       previews.push(
         sample(

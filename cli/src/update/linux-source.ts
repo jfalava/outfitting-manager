@@ -4,15 +4,18 @@ import { isAbsolute, join, resolve } from "node:path";
 import { configuredProfile, type ManagerConfig } from "@/config";
 import { validateOutfittingRepo, type OutfittingRepo } from "@/config/repo";
 import type { ManifestFetcher } from "@/fetch/github";
+import { platformLabel } from "@/platform";
 import { runCommand } from "@/process";
 import { envValue } from "@/secrets";
 import { syncByorSparseSource } from "@/setup/source";
-import { profileNames, validateLinuxByorSource } from "@/source/contract";
+import { profileNames, validateByorSource, validateLinuxByorSource } from "@/source/contract";
 import { isProfileName } from "@/source/profile-name";
 
 export interface LinuxSourceOptions {
   config: ManagerConfig;
   profile: string;
+  /** NixOS shares the Linux source flow but validates its own profile kind. */
+  platform?: "linux" | "nixos";
   refresh?: boolean;
   fetcher?: ManifestFetcher;
   run?: typeof runCommand;
@@ -25,23 +28,28 @@ export interface LinuxSource {
 }
 
 /**
- * Select the Linux profile: `override`, OUTFITTING_PROFILE, `linux.profile` in config.toml,
- * or the only declared Linux profile.
+ * Select the Linux (or NixOS) profile: `override`, OUTFITTING_PROFILE, `<platform>.profile`
+ * in config.toml, or the only declared profile for that platform.
  */
-export function resolveLinuxProfile(config: ManagerConfig, override: string | undefined): string {
-  const declared = profileNames(config.declarations, "linux");
+export function resolveLinuxProfile(
+  config: ManagerConfig,
+  override: string | undefined,
+  platform: "linux" | "nixos" = "linux",
+): string {
+  const label = platformLabel(platform);
+  const declared = profileNames(config.declarations, platform);
   const profile =
-    configuredProfile(config, "linux", override) ??
+    configuredProfile(config, platform, override) ??
     (declared.length === 1 ? declared[0] : undefined);
   if (profile === undefined) {
     const choices = declared.length > 1 ? ` (${declared.join(", ")})` : "";
     throw new Error(
-      `No Linux BYOR profile is selected. Set linux.profile in config.toml or pass --profile${choices}.`,
+      `No ${label} BYOR profile is selected. Set ${platform}.profile in config.toml or pass --profile${choices}.`,
     );
   }
   if (!isProfileName(profile)) {
     throw new Error(
-      `Invalid Linux profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
+      `Invalid ${label} profile \`${profile}\`. Use letters, numbers, ., _, and - only.`,
     );
   }
   return profile;
@@ -56,6 +64,7 @@ function selectedLocalRoot(config: ManagerConfig): string | undefined {
 
 /** Use local checkouts directly; otherwise fetch the TOML-declared remote source. */
 export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<LinuxSource> {
+  const platform = options.platform ?? "linux";
   const localRoot = selectedLocalRoot(options.config);
   if (localRoot !== undefined) {
     if (options.config.declarations === undefined) {
@@ -64,18 +73,15 @@ export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<L
     const repo = await validateOutfittingRepo(localRoot, {
       profile: options.profile,
       contract: options.config.declarations,
+      platform,
     });
-    await validateLinuxByorSource({
-      root: repo.root,
-      profile: options.profile,
-      contract: options.config.declarations,
-    });
+    await validateByorSource(repo.root, platform, options.profile, options.config.declarations);
     return { root: repo.root, mode: "checkout", repo };
   }
 
   const source = await syncByorSparseSource({
     config: options.config,
-    platform: "linux",
+    platform,
     profile: options.profile,
     fetcher: options.fetcher,
     run: options.run,
@@ -84,6 +90,7 @@ export async function prepareLinuxSource(options: LinuxSourceOptions): Promise<L
   const repo = await validateOutfittingRepo(source.root, {
     profile: options.profile,
     contract: options.config.declarations!,
+    platform,
   });
   return { root: source.root, mode: "sparse", repo };
 }

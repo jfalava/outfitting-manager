@@ -45,6 +45,16 @@ jobs:
             entrypoint: index.ts
             outfile: dist/outfitting-manager-linux-arm64
             artifact_name: outfitting-manager-linux-arm64
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            entrypoint: index.nixos.ts
+            outfile: dist/outfitting-manager-nixos-x64
+            artifact_name: outfitting-manager-nixos-x64
+          - os: ubuntu-24.04-arm
+            target: bun-linux-arm64
+            entrypoint: index.nixos.ts
+            outfile: dist/outfitting-manager-nixos-arm64
+            artifact_name: outfitting-manager-nixos-arm64
           - os: macos-latest
             target: bun-darwin-arm64
             entrypoint: index.macos.ts
