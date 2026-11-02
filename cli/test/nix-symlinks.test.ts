@@ -30,7 +30,7 @@ async function fixture(
   const home = join(root, "home");
   const repoRoot = join(root, "repo");
   if (kind === "home-manager") {
-    const flakePath = join(repoRoot, "system", "oci-agents");
+    const flakePath = join(repoRoot, "system", "ubuntu-agents");
     await mkdir(flakePath, { recursive: true });
     await writeFile(join(flakePath, "flake.nix"), "{}\n");
     return {
@@ -40,8 +40,8 @@ async function fixture(
         contract: { schema: 3, profiles: {} },
         flakePath,
         flakeKind: "home-manager",
-        systemAttr: "homeConfigurations.oci-agents.activationPackage",
-        homeManagerName: "oci-agents",
+        systemAttr: "homeConfigurations.ubuntu-agents.activationPackage",
+        homeManagerName: "ubuntu-agents",
       },
     };
   }

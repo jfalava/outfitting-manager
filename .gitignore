@@ -17,7 +17,7 @@ result
 result-*
 .direnv/
 **/flake.lock
-!system/oci-agents/flake.lock
+!system/ubuntu-agents/flake.lock
 
 # Monorepo
 node_modules/

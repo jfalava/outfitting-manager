@@ -31,7 +31,7 @@ describe("Nix source dependency discovery", () => {
     const root = await temporaryRoot();
     await write(
       root,
-      "system/oci-agents/home.nix",
+      "system/ubuntu-agents/home.nix",
       `let
   repoFromEnvironment = builtins.getEnv "OUTFITTING_REPO";
   outfittingRepo =
@@ -47,7 +47,7 @@ in {
     );
     await write(
       root,
-      "system/oci-agents/agents.nix",
+      "system/ubuntu-agents/agents.nix",
       `{
   source = "\${outfittingRepo}/system/common/zsh";
   shell = ../../dotfiles/shell.rc;
@@ -74,14 +74,14 @@ in { source = "\${outfittingRepo}/system/common/zsh"; }
 
     const paths = await discoverNixSourcePaths({
       root,
-      flake: "system/oci-agents",
+      flake: "system/ubuntu-agents",
       declaredPaths: ["packages/common"],
     });
 
     expect(paths).toContain("system/common/zsh.nix");
     expect(paths).toContain("system/common/zsh");
     expect(paths).toContain("dotfiles/shell.rc");
-    expect(paths).not.toContain("system/oci-agents/agents.nix");
+    expect(paths).not.toContain("system/ubuntu-agents/agents.nix");
     expect(paths).not.toContain("packages/common/programs.nix");
   });
 
@@ -89,14 +89,14 @@ in { source = "\${outfittingRepo}/system/common/zsh"; }
     const root = await temporaryRoot();
     await write(
       root,
-      "system/oci-agents/home.nix",
+      "system/ubuntu-agents/home.nix",
       `let
   outfittingRepo = builtins.getEnv "OUTFITTING_REPO";
 in { file = "\${outfittingRepo}/packages/private/config.nix"; }
 `,
     );
 
-    await expect(discoverNixSourcePaths({ root, flake: "system/oci-agents" })).resolves.toContain(
+    await expect(discoverNixSourcePaths({ root, flake: "system/ubuntu-agents" })).resolves.toContain(
       "packages/private/config.nix",
     );
   });

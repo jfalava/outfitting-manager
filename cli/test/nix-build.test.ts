@@ -161,7 +161,7 @@ describe("NixOS flake reference", () => {
   const nixosRepo = {
     root: "/repo",
     contract: { schema: 3 as const, profiles: {} },
-    flakePath: "/repo/system/nixos-agents",
+    flakePath: "/repo/system/oci-box",
     flakeKind: "nixos" as const,
     systemAttr: "nixosConfigurations.box.config.system.build.toplevel",
     nixosName: "box",
@@ -171,10 +171,10 @@ describe("NixOS flake reference", () => {
   // directory alone would copy only that directory and break those imports.
   test("addresses the flake inside its git checkout or sparse source root", () => {
     expect(flakeRef(nixosRepo, (path) => path === "/repo/.git")).toBe(
-      "git+file:/repo?dir=system/nixos-agents#nixosConfigurations.box.config.system.build.toplevel",
+      "git+file:/repo?dir=system/oci-box#nixosConfigurations.box.config.system.build.toplevel",
     );
     expect(flakeRef(nixosRepo, () => false)).toBe(
-      "path:/repo?dir=system/nixos-agents#nixosConfigurations.box.config.system.build.toplevel",
+      "path:/repo?dir=system/oci-box#nixosConfigurations.box.config.system.build.toplevel",
     );
     expect(flakeRef(fakeHomeManagerRepo, () => true)).toBe(
       "path:/repo/system/custom-linux#homeConfigurations.workstation.activationPackage",
