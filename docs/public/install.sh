@@ -16,6 +16,12 @@ command -v jq >/dev/null 2>&1 || fail "jq is required."
 
 os=$(uname -s)
 arch=$(uname -m)
+# NixOS has its own build; it needs programs.nix-ld with glib and libsecret.
+linux_build="linux"
+os_release=${OUTFITTING_OS_RELEASE:-/etc/os-release}
+if [ "$os" = "Linux" ] && [ -r "$os_release" ] && grep -Eq '^ID="?nixos"?$' "$os_release"; then
+  linux_build="nixos"
+fi
 case "$os:$arch" in
   Darwin:arm64|Darwin:aarch64)
     asset="outfitting-manager-darwin-arm64.zip"
@@ -28,10 +34,10 @@ case "$os:$arch" in
     fi
     ;;
   Linux:x86_64|Linux:amd64)
-    asset="outfitting-manager-linux-x64.zip"
+    asset="outfitting-manager-$linux_build-x64.zip"
     ;;
   Linux:aarch64|Linux:arm64)
-    asset="outfitting-manager-linux-arm64.zip"
+    asset="outfitting-manager-$linux_build-arm64.zip"
     ;;
   *)
     fail "Unsupported platform: $os/$arch."

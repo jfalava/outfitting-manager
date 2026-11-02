@@ -57,7 +57,12 @@ function release(tag: string, archive: string, names = [archive, `${archive}.sha
 
 type Release = ReturnType<typeof release>;
 
-async function shellFixture(releases: Release[], selectedTag = "cli-v1.0.0", badChecksum = false) {
+async function shellFixture(
+  releases: Release[],
+  selectedTag = "cli-v1.0.0",
+  badChecksum = false,
+  { archive = linuxArchive, osRelease = 'ID=ubuntu\nID_LIKE="debian"\n' } = {},
+) {
   const root = await isolatedRoot();
   const bin = join(root, "bin");
   const home = join(root, "home");
@@ -75,16 +80,14 @@ async function shellFixture(releases: Release[], selectedTag = "cli-v1.0.0", bad
   await writeFile(existingBinary, "existing binary\n");
   const content = `binary from ${selectedTag}\n`;
   await writeFile(join(downloads, "outfitting-manager"), content);
-  const archivePath = join(downloads, linuxArchive);
+  const archivePath = join(downloads, archive);
   const zipped = spawnSync(zip!, ["-q", archivePath, "outfitting-manager"], { cwd: downloads });
   expect(zipped.status).toBe(0);
   const hash = createHash("sha256")
     .update(await readFile(archivePath))
     .digest("hex");
-  await writeFile(
-    `${archivePath}.sha256`,
-    `${badChecksum ? "0".repeat(64) : hash}  ${linuxArchive}\n`,
-  );
+  await writeFile(`${archivePath}.sha256`, `${badChecksum ? "0".repeat(64) : hash}  ${archive}\n`);
+  await writeFile(join(root, "os-release"), osRelease);
   await writeFile(
     join(bin, "uname"),
     `#!${sh}\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; *) exit 1;; esac\n`,
@@ -123,7 +126,13 @@ esac
     content,
     run: () =>
       spawnSync(sh!, [shellInstaller], {
-        env: { PATH: bin, HOME: home, TMPDIR: temporary, FIXTURE_ROOT: root },
+        env: {
+          PATH: bin,
+          HOME: home,
+          TMPDIR: temporary,
+          FIXTURE_ROOT: root,
+          OUTFITTING_OS_RELEASE: join(root, "os-release"),
+        },
         encoding: "utf8",
         timeout: 10000,
       }),
@@ -156,6 +165,28 @@ describe.skipIf(!canRunShell)(
       ]);
       expect(await readdir(fixture.temporary)).toEqual([]);
       expect(await readdir(join(fixture.home, ".local/bin"))).toEqual(["outfitting-manager"]);
+    });
+
+    test("downloads the NixOS build on NixOS", async () => {
+      const nixosArchive = "outfitting-manager-nixos-x64.zip";
+      const fixture = await shellFixture(
+        [
+          release("cli-v1.0.0", linuxArchive, [
+            linuxArchive,
+            nixosArchive,
+            `${nixosArchive}.sha256`,
+          ]),
+        ],
+        "cli-v1.0.0",
+        false,
+        { archive: nixosArchive, osRelease: "NAME=NixOS\nID=nixos\n" },
+      );
+      const result = fixture.run();
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readFile(fixture.existingBinary, "utf8")).toBe(fixture.content);
+      expect(await readFile(join(fixture.root, "requests"), "utf8")).toContain(
+        `/cli-v1.0.0/${nixosArchive}.sha256`,
+      );
     });
 
     test.each([
