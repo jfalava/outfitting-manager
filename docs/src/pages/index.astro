@@ -36,6 +36,12 @@ const platforms = [
     href: "/docs/platforms/linux/commands/",
   },
   {
+    name: "NixOS",
+    icon: "ph:snowflake",
+    detail: "System flake switches and backups",
+    href: "/docs/platforms/nixos/commands/",
+  },
+  {
     name: "macOS",
     icon: "ph:apple-logo",
     detail: "Homebrew and Nix",
@@ -156,7 +162,7 @@ const guides = [
     >
       Pick your platform
     </h2>
-    <div class="mt-6 grid divide-y divide-border border-y border-border md:grid-cols-3 md:divide-x md:divide-y-0">
+    <div class="mt-6 grid divide-y divide-border border-y border-border md:grid-cols-4 md:divide-x md:divide-y-0">
       {platforms.map((platform) => (
         <a
           href={platform.href}

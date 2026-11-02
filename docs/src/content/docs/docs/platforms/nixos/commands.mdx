@@ -1,0 +1,103 @@
+---
+title: Command guide
+description: Run Outfitting on NixOS hosts, where the system flake owns packages.
+sidebar:
+  order: 10
+---
+
+NixOS has its own build of the CLI. The system flake owns packages, fonts, and Home Manager, so the NixOS build has no `apply`, `update`, `diff`, or `fonts` commands. It switches the system it runs on, publishes the flake lock, and runs backups. See the [CLI reference](/docs/cli/) for shared commands and options.
+
+## Requirements
+
+The release binary is a generic glibc executable. It runs through [nix-ld](https://github.com/nix-community/nix-ld), and `Bun.secrets` needs nix-ld to provide glib and libsecret:
+
+```nix
+programs.nix-ld = {
+  enable = true;
+  libraries = with pkgs; [ glib libsecret ];
+};
+```
+
+Every command except `--help`, `--version`, `debug`, and `self-update` checks this first. It refuses to run when `/etc/os-release` is not NixOS, when the loader is not nix-ld, or when nix-ld lacks either library. `outfitting-manager debug host` reports each check.
+
+The Linux build refuses to run on NixOS. On a host with the wrong build, `outfitting-manager self-update` installs the build that matches the running OS.
+
+## Install the CLI
+
+```sh
+curl -fsSL https://outfitting.jfa.dev/install.sh | sh
+```
+
+> **Note:** The installer reads `/etc/os-release` and downloads the NixOS build on NixOS.
+
+## Declare the profile
+
+A NixOS profile names the system flake and the attribute of its `toplevel` build. Backups use Linux backup profiles.
+
+```json
+{
+  "schema": 3,
+  "profiles": {
+    "box": {
+      "nixos": {
+        "nix": {
+          "flake": "system/box",
+          "attribute": "nixosConfigurations.box.config.system.build.toplevel"
+        },
+        "paths": ["packages/common/packages.nix"]
+      }
+    }
+  }
+}
+```
+
+Select it in `config.toml` with `[nixos] profile = "box"`, or pass `--profile`.
+
+## `init`
+
+`init` prepares Outfitting on this machine and checks the selected source. It does not change the system.
+
+```sh
+outfitting-manager init
+```
+
+## `nix`
+
+`build`, `test`, and `dry-run` never activate anything. `nix test` is a build check, not `switch-to-configuration test`.
+
+```sh
+outfitting-manager nix build
+outfitting-manager nix switch
+outfitting-manager nix update
+```
+
+`nix switch` and `nix update` need sudo. They set the system profile and run `switch-to-configuration switch` in a transient `outfitting-nixos-switch` system unit, so restarting user services (an SSH helper or an agent session) cannot interrupt activation. Builds use the machine's published flake lock; `nix update` advances it with compare-and-swap.
+
+### Refusing switches from other machines
+
+Before switching, the CLI writes the incoming system path to `/run/outfitting-manager/approved-switch`. Pair it with a pre-switch check in the system configuration so `nixos-rebuild --target-host` from another machine is refused:
+
+```nix
+system.preSwitchChecks.outfitting-manager = ''
+  incoming="$1"
+  case "$2" in dry-activate) exit 0 ;; esac
+  approval=/run/outfitting-manager/approved-switch
+  if [ "$(${pkgs.coreutils}/bin/cat "$approval" 2>/dev/null)" != "$incoming" ]; then
+    echo "This host switches only through outfitting-manager nix switch." >&2
+    exit 1
+  fi
+  ${pkgs.coreutils}/bin/rm -f "$approval"
+'';
+```
+
+> **Note:** The check inherits `switch-to-configuration`'s `PATH`, which has no coreutils inside the transient unit, so call tools by store path.
+
+`status` and `nix switch` report when the running system or the system profile differs from the last system the CLI activated.
+
+## `recover nix`
+
+Resume an interrupted `nix update`. Recovery switches the saved build and never rebuilds.
+
+```sh
+outfitting-manager recover nix
+```

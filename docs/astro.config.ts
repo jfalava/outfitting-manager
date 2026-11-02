@@ -22,6 +22,10 @@ const nimbusConfig = defineNimbusConfig({
             items: [{ autogenerate: { directory: "docs/platforms/linux" } }],
           },
           {
+            label: "NixOS",
+            items: [{ autogenerate: { directory: "docs/platforms/nixos" } }],
+          },
+          {
             label: "Windows",
             items: [{ autogenerate: { directory: "docs/platforms/windows" } }],
           },
