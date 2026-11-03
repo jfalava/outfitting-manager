@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Effect, FileSystem, Layer, Option, Path, Queue, Terminal } from "effect";
+import type { Prompt } from "effect/cli";
 import { stringify as stringifyToml } from "smol-toml";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -11,6 +13,7 @@ import {
   addLinuxSourcePaths,
   buildWizardConfigDocument,
   mergeByorContractDefaults,
+  profileSetupPrompt,
 } from "@/config/wizard";
 import { publishValidatedConfig } from "@/config/write";
 import { readByorContractFile, type ByorContract } from "@/source/contract";
@@ -46,6 +49,36 @@ const contract: ByorContract = {
     },
   },
 };
+
+/** Accept every prompt's prefilled answer by pressing Enter. */
+function acceptDefaults<A, E>(effect: Effect.Effect<A, E, Prompt.Environment>) {
+  const enter: Terminal.UserInput = {
+    input: Option.none(),
+    key: { name: "enter", ctrl: false, meta: false, shift: false },
+  };
+  const terminal = Terminal.make({
+    columns: Effect.succeed(80),
+    rows: Effect.succeed(24),
+    readInput: Effect.gen(function* () {
+      const queue = yield* Queue.unbounded<Terminal.UserInput, never>();
+      yield* Queue.offer(queue, enter);
+      return queue;
+    }),
+    readLine: Effect.die("unused"),
+    display: () => Effect.void,
+  });
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          FileSystem.layerNoop({}),
+          Path.layer,
+          Layer.succeed(Terminal.Terminal, terminal),
+        ),
+      ),
+    ),
+  );
+}
 
 describe("config wizard document", () => {
   test("imports a repo-relative manifest and rejects traversal or escaping symlinks", async () => {
@@ -102,6 +135,75 @@ describe("config wizard document", () => {
       fonts: { manifest: "repo/fonts.txt" },
     });
   });
+
+  test.each([
+    {
+      platform: "macos" as const,
+      old: {
+        macos: {
+          nix: { flake: "system/macos", attribute: "darwinConfigurations.mac.system" },
+          brewfile: "system/macos/Brewfile",
+          paths: ["system/shared"],
+        },
+      },
+      imported: {
+        macos: {
+          nix: {
+            flake: "nix",
+            attribute: "darwinConfigurations.macos.system",
+            darwin: "nix/hosts/macos/darwin.nix",
+          },
+          brewfile: "packages/macos/Brewfile",
+        },
+      },
+    },
+    {
+      platform: "nixos" as const,
+      old: {
+        nixos: {
+          nix: { flake: "system/oci-box", attribute: "nixosConfigurations.old.toplevel" },
+          paths: ["system/shared", "packages/old"],
+        },
+      },
+      imported: {
+        nixos: {
+          nix: { flake: "nix", attribute: "nixosConfigurations.mac.toplevel" },
+          paths: ["packages/nixos"],
+        },
+      },
+    },
+    {
+      platform: "linux" as const,
+      old: {
+        linux: {
+          apt: { manifest: "system/linux/apt.txt" },
+          nix: { flake: "system/linux", attribute: "homeConfigurations.old.activationPackage" },
+          paths: ["system/shared"],
+        },
+      },
+      imported: {
+        linux: {
+          nix: { flake: "nix", attribute: "homeConfigurations.mac.activationPackage" },
+          paths: ["packages/linux"],
+        },
+      },
+    },
+  ])(
+    "wizard --manifest prefills $platform answers from the manifest, not stale config.toml",
+    async ({ platform, old, imported }) => {
+      const existing = {
+        contents: "",
+        document: { schema: 3, [platform]: { profile: "mac" } },
+        declarations: { schema: 3, profiles: { mac: old } },
+      } as Parameters<typeof profileSetupPrompt>[1];
+      const manifest: ByorContract = { schema: 3, profiles: { mac: imported } };
+
+      const answers = await acceptDefaults(profileSetupPrompt(platform, existing, manifest));
+
+      expect(answers.profiles).toEqual(["mac"]);
+      expect(answers.contract.profiles.mac).toEqual(imported);
+    },
+  );
 
   test("copies all manifest platforms into TOML without replacing existing machine values", () => {
     const manifest: ByorContract = {

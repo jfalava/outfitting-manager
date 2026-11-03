@@ -495,25 +495,29 @@ export function collectWindowsProfiles(
   });
 }
 
+/**
+ * Prompt defaults from two contracts. Each platform declaration in `overrides` replaces the
+ * whole matching declaration in `base`, so fields it omits are not carried over.
+ */
 export function mergeByorContractDefaults(
-  manifest?: ByorContract,
-  toml?: ByorContract,
+  base?: ByorContract,
+  overrides?: ByorContract,
 ): ByorContract | undefined {
-  if (manifest === undefined) {
-    return toml;
+  if (base === undefined) {
+    return overrides;
   }
-  if (toml === undefined) {
-    return manifest;
+  if (overrides === undefined) {
+    return base;
   }
 
-  const profiles = mergeProfiles(manifest.profiles, toml.profiles);
-  const windows = { ...manifest.windows, ...toml.windows };
+  const profiles = mergeProfiles(base.profiles, overrides.profiles);
+  const windows = { ...base.windows, ...overrides.windows };
   const merged: ByorContract = {
     schema: BYOR_CONTRACT_SCHEMA,
     profiles,
   };
-  if (toml.backups ?? manifest.backups) {
-    merged.backups = toml.backups ?? manifest.backups;
+  if (overrides.backups ?? base.backups) {
+    merged.backups = overrides.backups ?? base.backups;
   }
   if (Object.keys(windows).length > 0) {
     merged.windows = windows;
@@ -555,12 +559,13 @@ function singleProfileSetupPrompt(
   return collectMacosProfile(defaultName, defaults, candidates);
 }
 
-function profileSetupPrompt(
+/** The imported manifest's declarations win over config.toml's as prompt defaults. */
+export function profileSetupPrompt(
   platform: HostPlatform,
   existing?: ExistingWizardConfig,
   manifest?: ByorContract,
 ) {
-  const defaults = mergeByorContractDefaults(manifest, existing?.declarations);
+  const defaults = mergeByorContractDefaults(existing?.declarations, manifest);
   switch (platform) {
     case "windows":
       return windowsProfileSetupPrompt(existing, defaults);
