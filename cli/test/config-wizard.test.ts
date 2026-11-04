@@ -205,7 +205,7 @@ describe("config wizard document", () => {
     },
   );
 
-  test("copies all manifest platforms into TOML without replacing existing machine values", () => {
+  test("replaces config.toml declarations with the manifest's but keeps machine values", () => {
     const manifest: ByorContract = {
       schema: 3,
       windows: {
@@ -226,7 +226,13 @@ describe("config wizard document", () => {
       source: { path: "/repo" },
       linux: { profile: "desk" },
       windows: { profiles: ["desk"], shared: { scoop: { manifest: "toml/scoop.json" } } },
-      profiles: { desk: { linux: { apt: { manifest: "toml/linux.txt" } } } },
+      profiles: {
+        desk: {
+          linux: { apt: { manifest: "toml/linux.txt" } },
+          windows: { winget: { manifest: "toml/winget.txt" } },
+        },
+        local: { linux: { apt: { manifest: "toml/local.txt" } } },
+      },
     };
     const contractEdits: ByorContract = {
       schema: 3,
@@ -249,16 +255,19 @@ describe("config wizard document", () => {
       windows: {
         profiles: ["desk"],
         shared: {
-          scoop: { manifest: "toml/scoop.json" },
+          scoop: { manifest: "repo/scoop.json" },
           fonts: { manifest: "repo/fonts.txt" },
         },
       },
       profiles: {
+        // desk.linux is the prompted answer; the unprompted platforms come from the manifest.
         desk: {
           linux: { apt: { manifest: "toml/linux.txt" } },
           macos: manifest.profiles.desk?.macos,
           windows: manifest.profiles.desk?.windows,
         },
+        // A profile only config.toml declares is kept.
+        local: existing.profiles.local,
       },
     });
   });

@@ -611,7 +611,7 @@ function preserveExistingWindowsConfig(
   document: WizardConfigDocument,
   existing: NonNullable<ExistingWizardConfigDocument["windows"]>,
 ): void {
-  const shared = { ...document.windows?.shared, ...existing.shared };
+  const shared = { ...existing.shared, ...document.windows?.shared };
   const windows = {
     ...document.windows,
     ...existing,
@@ -676,7 +676,8 @@ export function buildWizardConfigDocument(
   const document: WizardConfigDocument = {
     schema: 2,
     source,
-    profiles: mergeProfiles(manifest?.profiles, existing?.profiles, contract.profiles),
+    // Declarations are repo data: the manifest replaces config.toml's, per profile and platform.
+    profiles: mergeProfiles(existing?.profiles, manifest?.profiles, contract.profiles),
   };
   if (manifestShared !== undefined) {
     document.windows = { shared: manifestShared };
