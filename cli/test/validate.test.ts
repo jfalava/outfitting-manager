@@ -120,27 +120,15 @@ describe("BYOR contract", () => {
     ).toThrow(/repository-relative path without traversal/);
   });
 
-  test("normalizes repository-rooted paths to repository-relative paths", () => {
-    const contract = parseByorContract({
-      schema: 3,
-      windows: {
-        scoop: { manifest: "/packages/windows/scoop.txt" },
-        powershell: { path: "/dotfiles/Microsoft.PowerShell_profile.ps1" },
-        fonts: { manifest: "/fonts/fontget.txt" },
-        registry: { path: "/system/windows/registry" },
-      },
-      profiles: {
-        qol: { windows: { winget: { manifest: "/packages/windows/qol.txt" } } },
-      },
-    });
-
-    expect(contract.windows).toMatchObject({
-      scoop: { manifest: "packages/windows/scoop.txt" },
-      powershell: { path: "dotfiles/Microsoft.PowerShell_profile.ps1" },
-      fonts: { manifest: "fonts/fontget.txt" },
-      registry: { path: "system/windows/registry" },
-    });
-    expect(contract.profiles.qol?.windows?.winget.manifest).toBe("packages/windows/qol.txt");
+  test("rejects absolute declaration paths instead of treating them as repository-rooted", () => {
+    expect(() =>
+      parseByorContract({
+        schema: 3,
+        profiles: {
+          qol: { windows: { winget: { manifest: "/packages/windows/qol.txt" } } },
+        },
+      }),
+    ).toThrow(/repository-relative path without traversal/);
   });
 
   test("rejects an invalid package manifest", async () => {

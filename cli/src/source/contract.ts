@@ -1,5 +1,5 @@
 import { readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 import { Result, Schema } from "effect";
 
@@ -408,9 +408,24 @@ export function isWithinSourcePath(path: string, parent: string): boolean {
   return parent === "." || path === parent || path.startsWith(`${parent}/`);
 }
 
-/** Normalize repository paths, accepting one leading slash but rejecting traversal and platform escapes. */
-export function relativeSourcePath(value: string, label: string): string {
-  const path = requiredString(value, label).replace(/^\//, "");
+/** Convert an absolute path inside the local checkout `root` to its repository-relative form. */
+export function checkoutRelativePath(path: string, root: string | undefined): string {
+  if (root === undefined || !isAbsolute(path)) {
+    return path;
+  }
+  const fromRoot = relative(root, path);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    return path;
+  }
+  return fromRoot.split(sep).join("/") || ".";
+}
+
+/**
+ * Normalize repository paths, rejecting absolute paths, traversal, and platform escapes. With a
+ * local checkout `root`, an absolute path inside it is converted to its repository-relative path.
+ */
+export function relativeSourcePath(value: string, label: string, root?: string): string {
+  const path = checkoutRelativePath(requiredString(value, label), root);
   const segments = path.split("/");
   if (
     isAbsolute(path) ||
@@ -684,7 +699,7 @@ export async function readByorContractFile(
   root: string,
   path = BYOR_CONTRACT_PATH,
 ): Promise<ByorContract> {
-  const manifestPath = relativeSourcePath(path, "BYOR manifest path");
+  const manifestPath = relativeSourcePath(path, "BYOR manifest path", root);
   const realRoot = await realpath(root);
   let filePath: string;
   try {

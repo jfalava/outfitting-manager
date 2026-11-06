@@ -12,8 +12,10 @@ import { buildManifestWithPlatformEdits, publishByorManifest } from "@/config/ma
 import {
   addLinuxSourcePaths,
   buildWizardConfigDocument,
+  collectLinuxDeclaration,
   mergeByorContractDefaults,
   profileSetupPrompt,
+  WizardSourceRoot,
 } from "@/config/wizard";
 import { publishValidatedConfig } from "@/config/write";
 import { readByorContractFile, type ByorContract } from "@/source/contract";
@@ -52,16 +54,26 @@ const contract: ByorContract = {
 
 /** Accept every prompt's prefilled answer by pressing Enter. */
 function acceptDefaults<A, E>(effect: Effect.Effect<A, E, Prompt.Environment>) {
-  const enter: Terminal.UserInput = {
-    input: Option.none(),
-    key: { name: "enter", ctrl: false, meta: false, shift: false },
-  };
+  return answerPrompts(effect, []);
+}
+
+/** Type each answer into the next prompt and press Enter; later prompts accept their defaults. */
+function answerPrompts<A, E>(
+  effect: Effect.Effect<A, E, Prompt.Environment>,
+  answers: ReadonlyArray<string>,
+) {
+  const key = (name: string, input?: string): Terminal.UserInput => ({
+    input: input === undefined ? Option.none() : Option.some(input),
+    key: { name, ctrl: false, meta: false, shift: false },
+  });
+  let prompt = 0;
   const terminal = Terminal.make({
     columns: Effect.succeed(80),
     rows: Effect.succeed(24),
     readInput: Effect.gen(function* () {
       const queue = yield* Queue.unbounded<Terminal.UserInput, never>();
-      yield* Queue.offer(queue, enter);
+      const answer = answers[prompt++] ?? "";
+      yield* Queue.offerAll(queue, [...[...answer].map((char) => key(char, char)), key("enter")]);
       return queue;
     }),
     readLine: Effect.die("unused"),
@@ -97,6 +109,35 @@ describe("config wizard document", () => {
     await expect(readByorContractFile(root, "escape.json")).rejects.toThrow(
       /outside the repository/,
     );
+  });
+
+  test("converts an absolute manifest path inside the checkout and rejects other absolute paths", async () => {
+    const root = await temporaryRoot();
+    await mkdir(join(root, "machine"));
+    await writeFile(join(root, "machine", "outfitting.json"), JSON.stringify(contract));
+
+    await expect(
+      readByorContractFile(root, join(root, "machine", "outfitting.json")),
+    ).resolves.toEqual(contract);
+    await expect(readByorContractFile(root, "/machine/outfitting.json")).rejects.toThrow(
+      /repository-relative/,
+    );
+  });
+
+  test("stores absolute path answers inside the checkout as repository-relative paths", async () => {
+    const root = "/home/me/machines";
+    const linux = await answerPrompts(
+      collectLinuxDeclaration("base", ["apt", "nix"]).pipe(
+        Effect.provideService(WizardSourceRoot, root),
+      ),
+      [`${root}/packages/apt.txt`, `${root}/nix`, "", `${root}/shared, lib/./tools`],
+    );
+
+    expect(linux).toEqual({
+      apt: { manifest: "packages/apt.txt" },
+      nix: { flake: "nix", attribute: "homeConfigurations.base.activationPackage" },
+      paths: ["shared", "lib/tools"],
+    });
   });
 
   test("TOML declarations override conflicting manifest defaults while missing platforms are filled", () => {

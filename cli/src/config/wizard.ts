@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { Console, Effect, Option, Result } from "effect";
+import { Console, Context, Effect, Option, Result } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
@@ -24,6 +24,7 @@ import {
   BYOR_CONTRACT_PATH,
   BYOR_CONTRACT_SCHEMA,
   backupPlatformFor,
+  checkoutRelativePath,
   normalizeBackups,
   normalizeBackupPath,
   parseByorContract,
@@ -182,24 +183,77 @@ function requiredTextPrompt(
   return withTerminalInput(prompt, "question", message);
 }
 
-function optionalTextPrompt(message: string, defaultValue?: string) {
+/** A blank answer is `undefined`; `normalize` validates and rewrites any other answer. */
+function optionalTextPrompt(
+  message: string,
+  defaultValue?: string,
+  normalize?: (value: string) => string,
+) {
+  const validate = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || normalize === undefined) {
+      return Effect.succeed(trimmed);
+    }
+    try {
+      return Effect.succeed(normalize(trimmed));
+    } catch (cause) {
+      return Effect.fail(errorMessage(cause));
+    }
+  };
   return withTerminalInput(
-    Prompt.String({ message, default: defaultValue ?? "" }),
+    Prompt.String({ message, default: defaultValue ?? "", validate }),
     "question",
     message,
-  ).pipe(Effect.map((value) => value.trim() || undefined));
+  ).pipe(Effect.map((value) => value || undefined));
+}
+
+/**
+ * The local checkout that repository-path prompts resolve against, so an absolute answer inside
+ * it (such as one inserted by a terminal path picker) is stored repository-relative.
+ */
+export const WizardSourceRoot = Context.Reference<string | undefined>(
+  "@outfitting/cli/WizardSourceRoot",
+  { defaultValue: () => undefined },
+);
+
+function sourcePathNormalizer(label: string) {
+  return Effect.map(
+    WizardSourceRoot,
+    (root) => (value: string) => relativeSourcePath(value, label, root),
+  );
+}
+
+function requiredSourcePathPrompt(label: string, defaultValue?: string) {
+  return Effect.flatMap(sourcePathNormalizer(label), (normalize) =>
+    requiredTextPrompt(label, defaultValue, { normalize }),
+  );
+}
+
+function optionalSourcePathPrompt(message: string, label: string, defaultValue?: string) {
+  return Effect.flatMap(sourcePathNormalizer(label), (normalize) =>
+    optionalTextPrompt(message, defaultValue, normalize),
+  );
+}
+
+/** Comma-separated repository paths; a blank answer is an empty list. */
+function sourcePathsPrompt(message: string, defaultValue?: string) {
+  return Effect.flatMap(sourcePathNormalizer("Repository path"), (normalize) =>
+    optionalTextPrompt(message, defaultValue, (value) =>
+      commaSeparatedPaths(value).map(normalize).join(", "),
+    ),
+  ).pipe(Effect.map(commaSeparatedPaths));
 }
 
 /** Optional `{ manifest }` declaration; a blank answer skips it. */
 function optionalManifestPrompt(label: string, existing?: { manifest: string }) {
-  return optionalTextPrompt(`${label} (blank to skip)`, existing?.manifest).pipe(
+  return optionalSourcePathPrompt(`${label} (blank to skip)`, label, existing?.manifest).pipe(
     Effect.map((manifest) => (manifest === undefined ? undefined : { manifest })),
   );
 }
 
 /** Optional `{ path }` declaration; a blank answer skips it. */
 function optionalPathPrompt(label: string, existing?: { path: string }) {
-  return optionalTextPrompt(`${label} (blank to skip)`, existing?.path).pipe(
+  return optionalSourcePathPrompt(`${label} (blank to skip)`, label, existing?.path).pipe(
     Effect.map((path) => (path === undefined ? undefined : { path })),
   );
 }
@@ -244,7 +298,7 @@ function profileNamePrompt(message: string, defaultName: string | undefined, can
 }
 
 function collectLinuxManifest(label: string, existing?: { manifest: string }) {
-  return requiredTextPrompt(`${label} manifest path`, existing?.manifest).pipe(
+  return requiredSourcePathPrompt(`${label} manifest path`, existing?.manifest).pipe(
     Effect.map((manifest) => ({ manifest })),
   );
 }
@@ -254,7 +308,7 @@ function collectLinuxNix(
   existing?: NonNullable<ByorProfileDeclaration["linux"]>["nix"],
 ) {
   return Effect.gen(function* () {
-    const flake = yield* requiredTextPrompt("Nix flake directory", existing?.flake);
+    const flake = yield* requiredSourcePathPrompt("Nix flake directory", existing?.flake);
     const attribute = yield* requiredTextPrompt(
       "Nix output derivation attribute (Home Manager example: homeConfigurations.<name>.activationPackage)",
       existing?.attribute ?? `homeConfigurations.${profileName}.activationPackage`,
@@ -266,11 +320,10 @@ function collectLinuxNix(
 function collectLinuxPaths(existing?: ReadonlyArray<string>) {
   return Effect.gen(function* () {
     while (true) {
-      const value = yield* optionalTextPrompt(
+      const paths = yield* sourcePathsPrompt(
         "Extra repository paths read outside the flake directory (comma-separated; blank requires confirmation)",
         existing?.join(", "),
       );
-      const paths = commaSeparatedPaths(value);
       if (paths.length > 0 || existing !== undefined) {
         return paths;
       }
@@ -347,7 +400,10 @@ export function collectNixosDeclaration(
   existing?: ByorProfileDeclaration["nixos"],
 ) {
   return Effect.gen(function* () {
-    const flake = yield* requiredTextPrompt("NixOS system flake directory", existing?.nix.flake);
+    const flake = yield* requiredSourcePathPrompt(
+      "NixOS system flake directory",
+      existing?.nix.flake,
+    );
     const attribute = yield* requiredTextPrompt(
       "NixOS system attribute",
       existing?.nix.attribute ?? `nixosConfigurations.${profileName}.config.system.build.toplevel`,
@@ -375,11 +431,12 @@ function collectNixosProfile(
 
 export function collectMacosNix(existing?: MacosProfileDeclaration["nix"]) {
   return Effect.gen(function* () {
-    const flake = yield* requiredTextPrompt("Nix flake directory", existing?.flake);
+    const flake = yield* requiredSourcePathPrompt("Nix flake directory", existing?.flake);
     const attribute = yield* requiredTextPrompt("Nix output attribute", existing?.attribute);
     const nix: MacosProfileDeclaration["nix"] = { flake, attribute };
-    const darwin = yield* optionalTextPrompt(
+    const darwin = yield* optionalSourcePathPrompt(
       `Darwin configuration path (blank for ${nix.flake}/darwin.nix)`,
+      "Darwin configuration path",
       existing?.darwin,
     );
     if (darwin !== undefined) {
@@ -392,8 +449,9 @@ export function collectMacosNix(existing?: MacosProfileDeclaration["nix"]) {
 export function collectMacosExtras(existing?: ByorProfileDeclaration["macos"]) {
   return Effect.gen(function* () {
     const macos: Omit<MacosProfileDeclaration, "nix"> = {};
-    const brewfile = yield* optionalTextPrompt(
+    const brewfile = yield* optionalSourcePathPrompt(
       "Homebrew Brewfile path (blank to skip)",
+      "Homebrew Brewfile path",
       existing?.brewfile,
     );
     if (brewfile !== undefined) {
@@ -403,10 +461,10 @@ export function collectMacosExtras(existing?: ByorProfileDeclaration["macos"]) {
     if (fonts !== undefined) {
       macos.fonts = fonts;
     }
-    const paths = yield* optionalTextPrompt(
+    const paths = yield* sourcePathsPrompt(
       "Extra repository paths (comma-separated, blank if none)",
       existing?.paths?.join(", "),
-    ).pipe(Effect.map(commaSeparatedPaths));
+    );
     if (paths.length > 0) {
       macos.paths = paths;
     }
@@ -440,7 +498,7 @@ export function collectWindowsProfileDeclarations(
   return Effect.gen(function* () {
     const profiles: Record<string, ByorProfileDeclaration> = {};
     for (const name of names) {
-      const manifest = yield* requiredTextPrompt(
+      const manifest = yield* requiredSourcePathPrompt(
         `WinGet manifest path for ${name}`,
         existing?.profiles[name]?.windows?.winget.manifest,
       );
@@ -765,7 +823,13 @@ function backupSetupPrompt(document: WizardConfigDocument, host: HostPlatform, r
     const files = yield* requiredTextPrompt(
       "Backup TOML files, comma-separated in composition order",
       profiles[name]?.files.join(", "),
-      { normalize: (value) => value.split(",").map(normalizeBackupPath).join(", ") },
+      {
+        normalize: (value) =>
+          value
+            .split(",")
+            .map((file) => normalizeBackupPath(checkoutRelativePath(file.trim(), root)))
+            .join(", "),
+      },
     );
     profiles[name] = {
       ...profiles[name],
@@ -892,10 +956,10 @@ function sourceSetupPrompt(configPath: string, existing?: ExistingWizardConfig) 
   });
 }
 
-function manifestPathPrompt(explicitPath?: string) {
+function manifestPathPrompt(localRoot: string | undefined, explicitPath?: string) {
   if (explicitPath !== undefined) {
     return Effect.try({
-      try: () => relativeSourcePath(explicitPath, "BYOR manifest path"),
+      try: () => relativeSourcePath(explicitPath, "BYOR manifest path", localRoot),
       catch: errorMessage,
     });
   }
@@ -907,7 +971,7 @@ function manifestPathPrompt(explicitPath?: string) {
     Effect.flatMap((importManifest) =>
       importManifest
         ? requiredTextPrompt("Repo-relative manifest path", BYOR_CONTRACT_PATH, {
-            normalize: (value) => relativeSourcePath(value, "BYOR manifest path"),
+            normalize: (value) => relativeSourcePath(value, "BYOR manifest path", localRoot),
           })
         : Effect.void,
     ),
@@ -940,12 +1004,14 @@ function interview(platform: HostPlatform, explicitManifestPath?: string) {
   return Effect.gen(function* () {
     const { configPath, existing, machineId } = yield* configLocationPrompt();
     const { source, localRoot } = yield* sourceSetupPrompt(configPath, existing);
-    const manifestPath = yield* manifestPathPrompt(explicitManifestPath);
+    const manifestPath = yield* manifestPathPrompt(localRoot, explicitManifestPath);
     const manifest =
       manifestPath === undefined
         ? undefined
         : yield* tryPromise(() => readSourceManifest(source, localRoot, manifestPath));
-    const { contract, profiles } = yield* profileSetupPrompt(platform, existing, manifest);
+    const { contract, profiles } = yield* profileSetupPrompt(platform, existing, manifest).pipe(
+      Effect.provideService(WizardSourceRoot, localRoot),
+    );
     return {
       configPath,
       contract,

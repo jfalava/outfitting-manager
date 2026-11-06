@@ -16,6 +16,7 @@ import {
   mergeByorContractDefaults,
   requiredProfileNames,
   selectLinuxBackends,
+  WizardSourceRoot,
 } from "@/config/wizard";
 import { publishFileAtomically } from "@/config/write";
 import { tryPromise } from "@/effect";
@@ -293,7 +294,7 @@ const runManifest = (repoPath: string | undefined, force: boolean) =>
         platform,
         defaults,
         configured.windows?.profiles,
-      );
+      ).pipe(Effect.provideService(WizardSourceRoot, root));
     }
     const contract = buildManifestWithPlatformEdits(defaults, selected, edits);
     yield* tryPromise(() => validateManifestArtifacts(root, contract));
