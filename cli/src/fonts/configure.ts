@@ -16,8 +16,11 @@ export const configureEndpoint = (requestedEndpoint?: string) =>
       requestedEndpoint ??
       (yield* promptCredential(R2_ENDPOINT_PROMPT, false, R2_ENDPOINT_MISSING));
 
-    const endpoint = yield* tryPromise(() => storeR2Endpoint(value));
+    const { endpoint, bucket } = yield* tryPromise(() => storeR2Endpoint(value));
     yield* Console.log(ui.success(`Stored R2 endpoint: ${ui.key(endpoint)}`));
+    if (bucket !== undefined) {
+      yield* Console.log(ui.success(`Stored R2 bucket: ${ui.key(bucket)}`));
+    }
     return undefined;
   });
 

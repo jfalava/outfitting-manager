@@ -14,9 +14,10 @@ import { checksumSidecar } from "@/fonts/archive";
 import { FONT_ARCHIVE_KEY, FONT_CHECKSUM_KEY } from "@/fonts/constants";
 import { createR2ObjectStore } from "@/fonts/r2";
 
-const { sendMock, credentialsMock } = vi.hoisted(() => ({
+const { sendMock, credentialsMock, storedBucketMock } = vi.hoisted(() => ({
   sendMock: vi.fn(),
   credentialsMock: vi.fn(),
+  storedBucketMock: vi.fn(),
 }));
 
 vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
@@ -31,6 +32,7 @@ vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
 
 vi.mock("@/fonts/keychain", () => ({
   r2Credentials: Effect.suspend(() => Effect.promise(() => credentialsMock())),
+  r2StoredBucket: Effect.suspend(() => Effect.promise(async () => storedBucketMock())),
 }));
 
 let root: string;
@@ -112,6 +114,18 @@ describe("R2 font archive writes", () => {
       Bucket: "alternate-font-library",
       Key: FONT_CHECKSUM_KEY,
     });
+  });
+
+  test("uses the bucket stored by configure-endpoint only when TOML and environment omit one", async () => {
+    storedBucketMock.mockReturnValue("stored-font-library");
+    expect((await Effect.runPromise(createR2ObjectStore())).bucket).toBe("team-font-library");
+
+    vi.stubEnv("OUTFITTING_PRIVATE_FONTS_BUCKET", "alternate-font-library");
+    expect((await Effect.runPromise(createR2ObjectStore())).bucket).toBe("alternate-font-library");
+
+    vi.stubEnv("OUTFITTING_PRIVATE_FONTS_BUCKET", undefined);
+    await writeFile(configPath, "schema = 2\n");
+    expect((await Effect.runPromise(createR2ObjectStore())).bucket).toBe("stored-font-library");
   });
 
   test("requires an explicit runtime bucket before credential or object access", async () => {

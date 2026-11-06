@@ -16,13 +16,13 @@ Archive commands require an explicit bucket in this machine's `config.toml`:
 bucket = "my-private-fonts"
 ```
 
-This table is preserved by `config wizard`. `OUTFITTING_PRIVATE_FONTS_BUCKET` overrides the TOML bucket. There is no implicit bucket default. Font commands do not read `outfitting.deploy.json` or `OUTFITTING_DEPLOY_CONFIG`; provisioning settings cannot select a runtime font target. Plain `fonts list` reads only the sync inventory and does not require a bucket.
+This table is preserved by `config wizard`. `OUTFITTING_PRIVATE_FONTS_BUCKET` overrides the TOML bucket. Without either, archive commands use the bucket stored by `configure-endpoint` from a bucket URL. There is no implicit bucket default. Font commands do not read `outfitting.deploy.json` or `OUTFITTING_DEPLOY_CONFIG`; provisioning settings cannot select a runtime font target. Plain `fonts list` reads only the sync inventory and does not require a bucket.
 
 Environment variables take precedence over native font credentials on every host:
 
 | Variable                   | Purpose                                     |
 | -------------------------- | ------------------------------------------- |
-| `OUTFITTING_S3_ENDPOINT`   | HTTPS S3 endpoint or Cloudflare account ID. |
+| `OUTFITTING_S3_ENDPOINT`   | Bare HTTPS S3 endpoint or Cloudflare account ID. |
 | `OUTFITTING_S3_ACCESS_KEY` | Archive access key ID.                      |
 | `OUTFITTING_S3_SECRET_KEY` | Archive secret access key.                  |
 
@@ -36,7 +36,9 @@ The bucket must contain `releases/fonts.tar.gz`, with font files under `fonts/`,
 
 **Syntax:** `outfitting-manager fonts configure-endpoint [<endpoint>]`
 
-Save the archive endpoint for later font commands. Enter an HTTPS endpoint or a 32-character Cloudflare account ID.
+Save the archive endpoint for later font commands. Enter an HTTPS endpoint, a 32-character Cloudflare account ID, or the bucket URL Cloudflare shows on the bucket page, such as `https://<account>.r2.cloudflarestorage.com/my-private-fonts`. A bucket URL is split: the bare endpoint and the bucket are stored as separate `outfitting-fonts` native entries. Saving an endpoint without a bucket clears a previously stored bucket. `[fonts].bucket` and `OUTFITTING_PRIVATE_FONTS_BUCKET` still take precedence over the stored bucket.
+
+URLs with more than one path segment, a query, or a fragment are rejected. A stored or `OUTFITTING_S3_ENDPOINT` endpoint that includes a bucket path is rejected; rerun `configure-endpoint` with the bucket URL to split it.
 
 ```sh
 outfitting-manager fonts configure-endpoint

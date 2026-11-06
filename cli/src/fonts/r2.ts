@@ -6,7 +6,7 @@ import { tryPromise } from "@/effect";
 import { CliFailure } from "@/errors";
 import { emptyFontArchive, sha256Hex, unpackFontArchive, type FontArchive } from "@/fonts/archive";
 import { FONT_ARCHIVE_KEY, FONT_CHECKSUM_KEY } from "@/fonts/constants";
-import { r2Credentials, type R2Credentials } from "@/fonts/keychain";
+import { r2Credentials, r2StoredBucket, type R2Credentials } from "@/fonts/keychain";
 import { envValue } from "@/secrets";
 
 export interface FontObjectStore {
@@ -27,11 +27,12 @@ async function bodyBytes(
 
 export const createR2ObjectStore = Effect.fnUntraced(function* () {
   const config = yield* tryPromise(() => loadConfig());
-  const bucket = envValue("OUTFITTING_PRIVATE_FONTS_BUCKET") ?? config.fonts?.bucket;
+  const bucket =
+    envValue("OUTFITTING_PRIVATE_FONTS_BUCKET") ?? config.fonts?.bucket ?? (yield* r2StoredBucket);
   if (bucket === undefined) {
     return yield* new CliFailure({
       message:
-        "Configure [fonts].bucket in config.toml or OUTFITTING_PRIVATE_FONTS_BUCKET before accessing the font archive.",
+        'Configure [fonts].bucket in config.toml, OUTFITTING_PRIVATE_FONTS_BUCKET, or run "fonts configure-endpoint" with the bucket URL before accessing the font archive.',
     });
   }
   const credentials = yield* r2Credentials;

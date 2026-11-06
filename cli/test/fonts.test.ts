@@ -6,8 +6,9 @@ import { Effect } from "effect";
 import { describe, expect, test, vi } from "vitest";
 
 import { emptyFontArchive, packFontArchive, unpackFontArchive } from "@/fonts/archive";
+import { configureEndpoint } from "@/fonts/configure";
 import { inventoriesEqual, inventoryFromFaces, pullInventory, quotedHash } from "@/fonts/inventory";
-import { normalizeR2Endpoint } from "@/fonts/keychain";
+import { normalizeR2Endpoint, parseR2Location, r2StoredBucket } from "@/fonts/keychain";
 import { archivePathFor, keepNamePath, readFontNames, slugifyName } from "@/fonts/names";
 import { collectIncomingFonts, planPublish, planRemove } from "@/fonts/plan";
 
@@ -96,6 +97,56 @@ describe("fonts helpers", () => {
     );
     expect(() => normalizeR2Endpoint("not a url")).toThrow("HTTPS URL");
     expect(() => normalizeR2Endpoint("http://example.r2.cloudflarestorage.com")).toThrow("HTTPS");
+    expect(() => normalizeR2Endpoint("https://abc.r2.cloudflarestorage.com/fonts")).toThrow(
+      "includes a bucket",
+    );
+  });
+
+  test("splits a single-bucket R2 URL into a bare endpoint and bucket", () => {
+    const endpoint = "https://cb3d0c5cb46f4e801b0b7f4cc3fc78d3.r2.cloudflarestorage.com";
+    expect(parseR2Location(`${endpoint}/outfitting-private-fonts`)).toEqual({
+      endpoint,
+      bucket: "outfitting-private-fonts",
+    });
+    expect(parseR2Location(`${endpoint}/outfitting-private-fonts/`)).toEqual({
+      endpoint,
+      bucket: "outfitting-private-fonts",
+    });
+    expect(parseR2Location(`${endpoint}/`)).toEqual({ endpoint });
+    expect(() => parseR2Location(`${endpoint}/fonts/releases`)).toThrow("at most one bucket");
+    expect(() => parseR2Location(`${endpoint}/fonts?x-id=1`)).toThrow("query");
+    expect(() => parseR2Location(`${endpoint}/Private_Fonts`)).toThrow("not a valid R2 bucket");
+  });
+
+  test("configure-endpoint stores a bucket URL as separate entries and clears it for a bare endpoint", async () => {
+    const entries = new Map<string, string>();
+    const key = ({ service, name }: { service: string; name: string }) => `${service}/${name}`;
+    vi.stubGlobal("Bun", {
+      secrets: {
+        get: async (options: { service: string; name: string }) =>
+          entries.get(key(options)) ?? null,
+        set: async (options: { service: string; name: string; value: string }) => {
+          entries.set(key(options), options.value);
+        },
+        delete: async (options: { service: string; name: string }) => entries.delete(key(options)),
+      },
+    });
+    vi.stubEnv("AMP_ORB", undefined);
+    try {
+      const endpoint = "https://cb3d0c5cb46f4e801b0b7f4cc3fc78d3.r2.cloudflarestorage.com";
+      await Effect.runPromise(configureEndpoint(`${endpoint}/outfitting-private-fonts`));
+      expect([...entries.values()].sort()).toEqual([endpoint, "outfitting-private-fonts"]);
+      expect(await Effect.runPromise(r2StoredBucket)).toBe("outfitting-private-fonts");
+
+      await Effect.runPromise(configureEndpoint("0123456789abcdef0123456789abcdef"));
+      expect([...entries.values()]).toEqual([
+        "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      ]);
+      expect(await Effect.runPromise(r2StoredBucket)).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   test("accepts strong and weak SHA-256 ETags", () => {
