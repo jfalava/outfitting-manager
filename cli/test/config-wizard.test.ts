@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Effect, FileSystem, Layer, Option, Path, Queue, Terminal } from "effect";
+import { Cause, Effect, FileSystem, Layer, Option, Path, Queue, Terminal } from "effect";
 import type { Prompt } from "effect/cli";
 import { stringify as stringifyToml } from "smol-toml";
 import { afterEach, describe, expect, test } from "vitest";
@@ -70,6 +70,11 @@ function answerPrompts<A, E>(
   const terminal = Terminal.make({
     columns: Effect.succeed(80),
     rows: Effect.succeed(24),
+    size: Effect.gen(function* () {
+      const queue = yield* Queue.sliding<Terminal.Size, Cause.Done>(1);
+      yield* Queue.offer(queue, { columns: 80, rows: 24 });
+      return queue;
+    }),
     readInput: Effect.gen(function* () {
       const queue = yield* Queue.unbounded<Terminal.UserInput, never>();
       const answer = answers[prompt++] ?? "";

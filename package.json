@@ -30,10 +30,10 @@
         "@cloudflare/workers-types": "5.20261004.1"
       },
       "effect": {
-        "effect": "4.0.1",
-        "@effect/platform-bun": "4.0.1",
-        "@effect/platform-node": "4.0.0",
-        "@effect/platform-node-shared": "4.0.0"
+        "effect": "4.1.2",
+        "@effect/platform-bun": "4.1.2",
+        "@effect/platform-node": "4.1.2",
+        "@effect/platform-node-shared": "4.1.2"
       }
     }
   },
