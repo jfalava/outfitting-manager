@@ -13,7 +13,13 @@ See the [backups CLI reference](/docs/cli/backups/) for command syntax and examp
 
 Install [Rustic](https://github.com/rustic-rs/rustic) 0.10 or later (with named backup selection) and put `rustic` on your `PATH`. To use a different executable, set `BACKUP_RUSTIC` to its path. The schedule generator requires absolute paths for both Rustic and the Outfitting Manager executable.
 
-On Windows, the CLI requires PowerShell 7 (`pwsh.exe`) on `PATH` and never falls back to Windows PowerShell 5.1. Per-job process guards and generated scheduled tasks run through `pwsh.exe`; `backups schedule` resolves its absolute path and fails if it is missing.
+On Windows, the CLI requires PowerShell 7 (`pwsh.exe`) on `PATH` and never falls back to Windows PowerShell 5.1. Per-job process guards and generated scheduled tasks run through `pwsh.exe`; `backups schedule` resolves its absolute path and fails if it is missing. On Windows, `backups schedule` also requires `--launcher`, the absolute path of a JScript file the task runs through `wscript.exe` to start `pwsh.exe` hidden. Without it, each run would open a focused terminal window. The launcher returns the run's exit code to Task Scheduler. Its whole content is:
+
+```js
+var a = WScript.Arguments, p = [];
+for (var i = 0; i < a.length; i++) p.push('"' + a(i) + '"');
+WScript.Quit(new ActiveXObject("WScript.Shell").Run(p.join(" "), 0, true));
+```
 
 ```sh
 rustic --version

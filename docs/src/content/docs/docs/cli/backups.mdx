@@ -198,12 +198,13 @@ outfitting-manager backups schedule --binary ~/.local/bin/outfitting-manager
 outfitting-manager backups schedule --binary ~/.local/bin/outfitting-manager
 
 # Generate Windows Task Scheduler XML
-outfitting-manager backups schedule --binary "C:\Users\username\AppData\Local\Programs\OutfittingManager\outfitting-manager.exe"
+outfitting-manager backups schedule --binary "C:\Users\username\AppData\Local\Programs\OutfittingManager\outfitting-manager.exe" --launcher "C:\Users\username\AppData\Local\rustic-backup\run-hidden.js"
 ```
 
 | Option            | Description                                                               |
 | ----------------- | ------------------------------------------------------------------------- |
 | `--binary <path>` | Path to the installed `outfitting-manager` executable to run on schedule. |
+| `--launcher <path>` | Windows only, required. Absolute path to the [hidden launcher](/docs/backups/setup/#install-rustic) that starts `pwsh.exe` without a window and returns its exit code. |
 
 ## Global options
 

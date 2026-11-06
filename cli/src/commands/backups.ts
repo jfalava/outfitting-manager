@@ -287,11 +287,19 @@ const secrets = Command.make("secrets").pipe(
 
 const schedule = Command.make(
   "schedule",
-  { binary: Flag.String("binary") },
-  Effect.fn("cli.schedule")(function* ({ binary }) {
+  {
+    binary: Flag.String("binary"),
+    launcher: Flag.String("launcher").pipe(
+      Flag.withDescription(
+        "Windows only: absolute path to the JScript launcher that starts pwsh without a console window.",
+      ),
+      Flag.optional,
+    ),
+  },
+  Effect.fn("cli.schedule")(function* ({ binary, launcher }) {
     yield* configured(
       (process.platform === "win32"
-        ? scheduledTask(binary)
+        ? scheduledTask(binary, Option.getOrUndefined(launcher))
         : process.platform === "linux"
           ? systemdUnits(binary)
           : launchAgent(binary)

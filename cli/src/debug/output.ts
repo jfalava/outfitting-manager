@@ -652,6 +652,7 @@ function backupPreviews(platform: HostPlatform): OutputPreview[] {
           ? formatScheduledTask(
               `${home}/bin/outfitting-manager.exe`,
               "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              `${home}/AppData/Local/rustic-backup/run-hidden.js`,
               settings,
             )
           : platform === "linux"

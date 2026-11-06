@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join, win32 } from "node:path";
 
 import { Effect } from "effect";
 
@@ -33,12 +33,20 @@ async function findPwsh(path: string): Promise<string | undefined> {
   return undefined;
 }
 
-export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: string) {
+export const scheduledTask = Effect.fn("scheduledTask")(function* (
+  binary: string,
+  launcher: string | undefined,
+) {
   const config = yield* Settings;
-  if (!isAbsolute(binary) || !isAbsolute(config.rustic)) {
+  if (
+    !isAbsolute(binary) ||
+    !isAbsolute(config.rustic) ||
+    launcher === undefined ||
+    !isAbsolute(launcher)
+  ) {
     return yield* new BackupError({
       message:
-        "Use absolute paths for --binary and BACKUP_RUSTIC when generating a scheduled task.",
+        "Use absolute paths for --binary, --launcher, and BACKUP_RUSTIC when generating a scheduled task.",
     });
   }
   if (config.configPath === undefined || config.backupProfile === undefined) {
@@ -55,7 +63,7 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
       message: "PowerShell 7 (pwsh) must be on PATH to generate a scheduled task.",
     });
   }
-  return formatScheduledTask(binary, pwsh, {
+  return formatScheduledTask(binary, pwsh, launcher, {
     ...config,
     configPath: config.configPath,
     backupProfile: config.backupProfile,
@@ -65,11 +73,20 @@ export const scheduledTask = Effect.fn("scheduledTask")(function* (binary: strin
 export function formatScheduledTask(
   binary: string,
   pwsh: string,
+  launcher: string,
   config: SettingsData & { configPath: string; backupProfile: string },
 ): string {
   const user = `${config.environment.USERDOMAIN ?? config.hostname}\\${config.account}`;
   const script = `$ErrorActionPreference = 'Stop'; $env:BACKUP_RUSTIC = ${quote(config.rustic)}; & ${quote(binary)} --config ${quote(config.configPath)} backups --profile ${quote(config.backupProfile)} run-due; exit $LASTEXITCODE`;
+  // pwsh is a console program: started directly, it opens a focused Windows Terminal window on
+  // every run. The windowless wscript launcher starts it hidden and returns its exit code;
+  // `conhost --headless` also hides it but always exits 0.
+  const systemRoot =
+    Object.entries(config.environment).find(([key]) => key.toUpperCase() === "SYSTEMROOT")?.[1] ??
+    "C:\\Windows";
   const args = [
+    launcher,
+    pwsh,
     "-NoProfile",
     "-NonInteractive",
     "-EncodedCommand",
@@ -85,6 +102,6 @@ export function formatScheduledTask(
   </Triggers>
   <Principals><Principal id="BackupUser"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
-  <Actions Context="BackupUser"><Exec><Command>${xml(pwsh)}</Command><Arguments>${xml(args.map((arg) => `"${arg}"`).join(" "))}</Arguments><WorkingDirectory>${xml(config.repoRoot)}</WorkingDirectory></Exec></Actions>
+  <Actions Context="BackupUser"><Exec><Command>${xml(win32.join(systemRoot, "System32", "wscript.exe"))}</Command><Arguments>//B //Nologo ${xml(args.map((arg) => `"${arg}"`).join(" "))}</Arguments><WorkingDirectory>${xml(config.repoRoot)}</WorkingDirectory></Exec></Actions>
 </Task>`;
 }

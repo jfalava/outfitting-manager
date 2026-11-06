@@ -604,13 +604,21 @@ test("scheduling prints a quoted manager invocation without running processes or
   const pwsh = join(bin, process.platform === "win32" ? "pwsh.exe" : "pwsh");
   await writeFile(pwsh, "", { mode: 0o755 });
   f.settings.environment.PATH = join(f.root, "no-pwsh");
-  const missing = await f.run(scheduledTask(binary).pipe(Effect.flip));
+  const launcher = join(f.root, "run-hidden.js");
+  expect((await f.run(scheduledTask(binary, undefined).pipe(Effect.flip))).message).toContain(
+    "--launcher",
+  );
+  const missing = await f.run(scheduledTask(binary, launcher).pipe(Effect.flip));
   expect(missing.message).toContain("PowerShell 7 (pwsh) must be on PATH");
   // Windows copies process.env with the key spelled `Path`.
   delete f.settings.environment.PATH;
   f.settings.environment.Path = bin;
-  const task = await f.run(scheduledTask(binary));
-  expect(task).toContain(`<Command>${pwsh}</Command>`);
+  const task = await f.run(scheduledTask(binary, launcher));
+  // A bare pwsh action opens a focused terminal window on every run.
+  expect(task).toMatch(/<Command>[^<]*\\System32\\wscript\.exe<\/Command>/);
+  expect(task).toContain(
+    `<Arguments>//B //Nologo &quot;${launcher}&quot; &quot;${pwsh}&quot; &quot;-NoProfile&quot;`,
+  );
   const encoded = task.match(/-EncodedCommand&quot; &quot;([A-Za-z0-9+/=]+)&quot;/)?.[1];
   expect(encoded).toBeDefined();
   const script = Buffer.from(encoded!, "base64").toString("utf16le");
