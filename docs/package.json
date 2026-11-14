@@ -26,7 +26,7 @@
     "@fontsource/ibm-plex-sans": "5.3.0",
     "@fontsource/zilla-slab": "5.3.0",
     "@iconify-json/ph": "1.2.2",
-    "astro": "7.3.5",
+    "astro": "7.4.7",
     "astro-icon": "1.2.0",
     "astro-og-canvas": "0.13.2",
     "canvaskit-wasm": "0.42.0",
