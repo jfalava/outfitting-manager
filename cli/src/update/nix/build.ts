@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 
 import type { NixFlakeRepo } from "@/config/repo";
 import { runCommand, type RunCommandResult } from "@/process";
+import { createNixBuildProgress, type NixBuildSession } from "@/update/nix/progress";
 import { nixEnv } from "@/update/nix/types";
 
 export type NixBuildMode = "build" | "test" | "dry";
@@ -15,6 +16,10 @@ export interface NixBuildOptions {
   /** Write Nix's evaluated lock to this path instead of the source flake. */
   outputLockPath?: string;
   mode: NixBuildMode;
+  /** Receives the build's phase and progress for the terminal title. */
+  session?: NixBuildSession;
+  /** Where build progress renders (default stderr). */
+  stream?: NodeJS.WriteStream;
   run?: typeof runCommand;
 }
 
@@ -45,7 +50,8 @@ function baseArgs(
 ): string[] {
   const args = ["build", "--impure", "--no-link"];
   if (mode === "build" || mode === "test") {
-    args.push("--print-out-paths");
+    // Progress events on stderr; the CLI draws them instead of Nix's own bar.
+    args.push("--print-out-paths", "--log-format", "internal-json");
   }
   if (mode === "dry") {
     args.push("--dry-run", "--no-write-lock-file");
@@ -96,18 +102,32 @@ export async function buildNixSystem(options: NixBuildOptions): Promise<string> 
     flakeRef(options.repo),
   ];
 
-  const result: RunCommandResult = await run("nix", args, {
-    inherit: options.mode === "dry",
-    env: nixEnv(options.repo.root),
-  });
-
-  if (result.code !== 0) {
-    const detail = (result.stderr || result.stdout).trim();
-    throw new Error(`nix build failed (exit ${result.code})${detail ? `: ${detail}` : ""}`);
+  if (options.mode === "dry") {
+    const result: RunCommandResult = await run("nix", args, {
+      inherit: true,
+      env: nixEnv(options.repo.root),
+    });
+    if (result.code !== 0) {
+      throw new Error(`nix build failed (exit ${result.code}).`);
+    }
+    return "";
   }
 
-  if (options.mode === "dry") {
-    return "";
+  const progress = createNixBuildProgress({ session: options.session, stream: options.stream });
+  let result: RunCommandResult | undefined;
+  try {
+    result = await run("nix", args, {
+      inherit: false,
+      env: nixEnv(options.repo.root),
+      onStderrLine: progress.feed,
+    });
+  } finally {
+    progress.finish(result?.code === 0);
+  }
+
+  if (result.code !== 0) {
+    const detail = progress.failureDetail() || result.stdout.trim();
+    throw new Error(`nix build failed (exit ${result.code})${detail ? `: ${detail}` : ""}`);
   }
 
   await verifyOutputLock(options);

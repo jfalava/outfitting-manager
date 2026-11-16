@@ -25,7 +25,7 @@ import { setTerminalPhase, TerminalSession } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { prepareLinuxSource, resolveLinuxProfile } from "@/update/linux-source";
 import { activateHomeManager, activateNixos, activateNixSystem } from "@/update/nix/activate";
-import { buildNixSystem, rootNixBuild } from "@/update/nix/build";
+import { buildNixSystem, rootNixBuild, type NixBuildOptions } from "@/update/nix/build";
 import { closeNixLock, openNixLock, type NixLock } from "@/update/nix/lock";
 import { describeNixosDrift, nixosDrift } from "@/update/nix/nixos-record";
 import {
@@ -198,6 +198,12 @@ function activateNixProfile(repo: NixFlakeRepo, systemConfig: string) {
   });
 }
 
+/** Build with the live progress view, which also reports to the terminal title. */
+const buildWithProgress = (options: Omit<NixBuildOptions, "session">) =>
+  Effect.flatMap(TerminalSession, (session) =>
+    tryPromise(() => buildNixSystem({ ...options, session })),
+  );
+
 function runNixAction(
   action: Exclude<NixAction, "update">,
   repo: NixFlakeRepo,
@@ -209,14 +215,14 @@ function runNixAction(
       case "build": {
         yield* setTerminalPhase("Building");
         yield* Console.log(ui.heading(`Building ${label}…`));
-        const path = yield* tryPromise(() => buildNixSystem({ repo, lockPath, mode: "build" }));
+        const path = yield* buildWithProgress({ repo, lockPath, mode: "build" });
         yield* Console.log(ui.success(`Built ${path}`));
         return;
       }
       case "test": {
         yield* setTerminalPhase("Testing build");
         yield* Console.log(ui.heading(`Testing ${label} build…`));
-        yield* tryPromise(() => buildNixSystem({ repo, lockPath, mode: "test" }));
+        yield* buildWithProgress({ repo, lockPath, mode: "test" });
         yield* Console.log(ui.success("Build successful — ready to switch."));
         return;
       }
@@ -230,9 +236,7 @@ function runNixAction(
       case "switch": {
         yield* setTerminalPhase("Building");
         yield* Console.log(ui.heading(`Building ${label}…`));
-        const systemConfig = yield* tryPromise(() =>
-          buildNixSystem({ repo, lockPath, mode: "build" }),
-        );
+        const systemConfig = yield* buildWithProgress({ repo, lockPath, mode: "build" });
         yield* activateNixProfile(repo, systemConfig);
         yield* Console.log(
           ui.success(
@@ -286,14 +290,12 @@ function runNixUpdate(
 
       yield* setTerminalPhase("Building updated profile");
       yield* Console.log(ui.heading(`Building updated ${nixTargetLabel(repo)}…`));
-      const systemConfig = yield* tryPromise(() =>
-        buildNixSystem({
-          repo,
-          lockPath: candidateLockPath,
-          outputLockPath: buildLockPath,
-          mode: "build",
-        }),
-      );
+      const systemConfig = yield* buildWithProgress({
+        repo,
+        lockPath: candidateLockPath,
+        outputLockPath: buildLockPath,
+        mode: "build",
+      });
 
       const credentials = yield* resolveLockfileCredentials;
       const checkpoint = yield* tryPromise(() =>

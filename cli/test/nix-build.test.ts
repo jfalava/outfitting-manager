@@ -4,8 +4,22 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import type { RunCommandResult } from "@/process";
+import type { RunCommandOptions, RunCommandResult } from "@/process";
 import { buildNixSystem, flakeRef } from "@/update/nix/build";
+import { createNixBuildProgress } from "@/update/nix/progress";
+
+function captureStream() {
+  const chunks: string[] = [];
+  const stream = {
+    isTTY: false,
+    write: (chunk: string) => chunks.push(chunk),
+  } as unknown as NodeJS.WriteStream;
+  // oxlint-disable-next-line no-control-regex -- strip picocolors styling from captured output.
+  return { stream, output: () => chunks.join("").replace(/\u001b\[[0-9;]*m/g, "") };
+}
+
+const nixEvent = (event: Record<string, unknown>) => `@nix ${JSON.stringify(event)}`;
+const drv = (name: string) => `/nix/store/${"a".repeat(32)}-${name}.drv`;
 
 const fakeRepo = {
   root: "/repo",
@@ -43,6 +57,7 @@ describe("buildNixSystem", () => {
       lockPath: "/tmp/flake.lock",
       mode: "build",
       run,
+      stream: captureStream().stream,
     });
     expect(path).toBe("/nix/store/abc-darwin-system");
   });
@@ -67,14 +82,21 @@ describe("buildNixSystem", () => {
     expect(path).toBe("");
   });
 
-  test("fails when nix exits nonzero", async () => {
-    const run = async (): Promise<RunCommandResult> => ({
-      code: 1,
-      stdout: "",
-      stderr: "boom",
-    });
-    await expect(buildNixSystem({ repo: fakeRepo, mode: "build", run })).rejects.toThrow(
-      /nix build failed/,
+  test("fails with Nix's own error from its event stream", async () => {
+    const run = async (
+      _command: string,
+      args: ReadonlyArray<string>,
+      options?: RunCommandOptions,
+    ): Promise<RunCommandResult> => {
+      expect(args).toContain("internal-json");
+      options?.onStderrLine?.(
+        nixEvent({ action: "msg", level: 0, msg: "error: Cannot build 'zed.drv'." }),
+      );
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    const { stream } = captureStream();
+    await expect(buildNixSystem({ repo: fakeRepo, mode: "build", run, stream })).rejects.toThrow(
+      "nix build failed (exit 1): error: Cannot build 'zed.drv'.",
     );
   });
 
@@ -91,6 +113,7 @@ describe("buildNixSystem", () => {
       repo: fakeHomeManagerRepo,
       mode: "build",
       run,
+      stream: captureStream().stream,
     });
     expect(path).toBe("/nix/store/hm-activation");
   });
@@ -123,6 +146,7 @@ describe("buildNixSystem", () => {
           outputLockPath,
           mode: "build",
           run,
+          stream: captureStream().stream,
         }),
       ).resolves.toBe("/nix/store/updated-profile");
       expect(await readFile(outputLockPath)).toEqual(candidate);
@@ -149,11 +173,148 @@ describe("buildNixSystem", () => {
           outputLockPath,
           mode: "build",
           run,
+          stream: captureStream().stream,
         }),
       ).rejects.toThrow(/refusing to activate or publish the update/);
     } finally {
       await rm(root, { force: true, recursive: true });
     }
+  });
+});
+
+describe("nix build progress", () => {
+  test("logs slow builds and counts Nix's planned derivations, not its goal counter", () => {
+    let now = 0;
+    const { stream, output } = captureStream();
+    const reported: Array<[number, number]> = [];
+    const session = {
+      phase: () => undefined,
+      progress: (done: number, total: number) => reported.push([done, total]),
+    };
+    const progress = createNixBuildProgress({ stream, session, now: () => now });
+    for (const event of [
+      { action: "msg", level: 3, msg: "these 2 derivations will be built:" },
+      { action: "msg", level: 3, msg: `  ${drv("etc")}` },
+      { action: "start", id: 1, type: 104, level: 0, text: "" },
+      { action: "start", id: 10, type: 105, level: 3, fields: [drv("etc"), "", 1, 1] },
+      {
+        action: "start",
+        id: 11,
+        type: 105,
+        level: 3,
+        fields: [drv("zed-editor-0.212.4"), "", 1, 1],
+      },
+    ]) {
+      progress.feed(nixEvent(event));
+    }
+    now = 1_000;
+    progress.feed(nixEvent({ action: "result", id: 1, type: 105, fields: [1, 3, 1, 0] }));
+    progress.feed(nixEvent({ action: "stop", id: 10 }));
+    now = 14_000;
+    progress.feed(nixEvent({ action: "result", id: 1, type: 105, fields: [2, 3, 0, 0] }));
+    progress.feed(nixEvent({ action: "stop", id: 11 }));
+    progress.finish(true);
+
+    expect(output().split("\n")).toEqual([
+      "these 2 derivations will be built",
+      "  ✓ Built zed-editor-0.212.4 · 14s",
+      "✓ Built 2 derivations in 14s",
+      "",
+    ]);
+    expect(reported.at(-1)).toEqual([2, 2]);
+  });
+
+  test("marks the failed build and stays silent about builds Nix cancels", () => {
+    let now = 0;
+    const { stream, output } = captureStream();
+    const progress = createNixBuildProgress({ stream, now: () => now });
+    for (const event of [
+      { action: "start", id: 1, type: 104, level: 0, text: "" },
+      {
+        action: "start",
+        id: 10,
+        type: 105,
+        level: 3,
+        fields: [drv("zed-editor-0.212.4"), "", 1, 1],
+      },
+      { action: "start", id: 11, type: 105, level: 3, fields: [drv("gpui"), "", 1, 1] },
+      { action: "result", id: 11, type: 104, fields: ["buildPhase"] },
+    ]) {
+      progress.feed(nixEvent(event));
+    }
+    now = 5_000;
+    progress.feed(nixEvent({ action: "result", id: 1, type: 105, fields: [0, 3, 1, 1] }));
+    progress.feed(nixEvent({ action: "stop", id: 11 }));
+    progress.feed(nixEvent({ action: "stop", id: 10 }));
+    progress.feed(nixEvent({ action: "msg", level: 0, msg: "error: Cannot build 'gpui.drv'." }));
+    progress.finish(false);
+
+    expect(output()).toBe("  ✗ gpui failed after 5s (buildPhase)\n");
+    expect(progress.failureDetail()).toBe("error: Cannot build 'gpui.drv'.");
+  });
+  test("names input fetches, cache lookups and lock waits instead of calling it all evaluation", () => {
+    let now = 0;
+    const { stream, output } = captureStream();
+    const phases: string[] = [];
+    const session = { phase: (label: string) => phases.push(label), progress: () => undefined };
+    const progress = createNixBuildProgress({ stream, session, now: () => now });
+    const rev = "b134951a4c9f3c995fd7be05f3243f8ecd65d798";
+    for (const event of [
+      {
+        action: "start",
+        id: 1,
+        type: 101,
+        level: 4,
+        text: `downloading 'https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz'`,
+      },
+      {
+        action: "start",
+        id: 2,
+        type: 0,
+        level: 3,
+        text: `unpacking 'github:NixOS/nixpkgs/${rev}' into the Git cache`,
+      },
+      { action: "stop", id: 1 },
+      { action: "stop", id: 2 },
+      {
+        action: "start",
+        id: 3,
+        type: 109,
+        level: 4,
+        text: "querying info about '/nix/store/x-zed' on 'https://cache.nixos.org'",
+      },
+      {
+        action: "start",
+        id: 4,
+        type: 101,
+        level: 4,
+        text: "downloading 'https://cache.nixos.org/x.narinfo'",
+      },
+      { action: "stop", id: 4 },
+      { action: "stop", id: 3 },
+      {
+        action: "start",
+        id: 5,
+        type: 111,
+        level: 1,
+        text: `waiting for lock on \u001b[35;1m'${drv("zed-editor-0.212.4").replace(/\.drv$/, "")}'\u001b[0m`,
+      },
+    ]) {
+      progress.feed(nixEvent(event));
+    }
+    now = 12_000;
+    progress.feed(nixEvent({ action: "stop", id: 5 }));
+    progress.finish(true);
+
+    expect(phases).toEqual([
+      "Fetching flake inputs",
+      "Evaluating",
+      "Checking binary cache",
+      "Evaluating",
+      "Waiting for another Nix process",
+      "Evaluating",
+    ]);
+    expect(output()).toBe("✓ Already built by another Nix process (waited 12s)\n");
   });
 });
 

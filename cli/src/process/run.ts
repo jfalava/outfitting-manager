@@ -5,6 +5,8 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   /** Inherit stdio (default true). */
   inherit?: boolean;
+  /** With inherit false, receive stderr line by line instead of capturing it. */
+  onStderrLine?: (line: string) => void;
 }
 
 export interface RunCommandResult {
@@ -37,9 +39,28 @@ export function runCommand(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    const onStderrLine = options.onStderrLine;
     if (!inherit) {
       child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-      child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+      if (onStderrLine === undefined) {
+        child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+      } else {
+        let pending = "";
+        child.stderr?.setEncoding("utf8");
+        child.stderr?.on("data", (chunk: string) => {
+          const lines = (pending + chunk).split("\n");
+          pending = lines.pop() ?? "";
+          for (const line of lines) {
+            onStderrLine(line.replace(/\r$/, ""));
+          }
+        });
+        // "close" follows the end of every stdio stream, so the last line arrives first.
+        child.stderr?.on("end", () => {
+          if (pending.length > 0) {
+            onStderrLine(pending);
+          }
+        });
+      }
     }
 
     child.on("error", (error) => {
