@@ -5,5 +5,11 @@
     "nimbus/internal-link": "error"
   },
   "collections": {},
-  "site": "https://outfitting.jfa.dev"
+  "site": "https://outfitting.jfa.dev",
+  "markdownFeatures": {
+    "gfm": true,
+    "smartPunctuation": true
+  },
+  "base": "",
+  "configHash": "06bc8bdcf0884b00dc0a24e9f759545dd624546809d892a2d6a364fd516e798e"
 }

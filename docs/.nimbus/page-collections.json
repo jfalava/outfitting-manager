@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "collections": [
+    "docs"
+  ],
+  "mdxFiles": [
+    "src/content/docs/docs/api.mdx",
+    "src/content/docs/docs/backups/how-it-works.mdx",
+    "src/content/docs/docs/backups/prerequisites.mdx",
+    "src/content/docs/docs/backups/setup.mdx",
+    "src/content/docs/docs/cli/apply.mdx",
+    "src/content/docs/docs/cli/backups.mdx",
+    "src/content/docs/docs/cli/config.mdx",
+    "src/content/docs/docs/cli/diff.mdx",
+    "src/content/docs/docs/cli/fonts.mdx",
+    "src/content/docs/docs/cli/homebrew.mdx",
+    "src/content/docs/docs/cli/index.mdx",
+    "src/content/docs/docs/cli/init.mdx",
+    "src/content/docs/docs/cli/nix.mdx",
+    "src/content/docs/docs/cli/provision.mdx",
+    "src/content/docs/docs/cli/recover.mdx",
+    "src/content/docs/docs/cli/scoop.mdx",
+    "src/content/docs/docs/cli/self-update.mdx",
+    "src/content/docs/docs/cli/source.mdx",
+    "src/content/docs/docs/cli/status.mdx",
+    "src/content/docs/docs/cli/sync.mdx",
+    "src/content/docs/docs/cli/terminal-integration.mdx",
+    "src/content/docs/docs/cli/update.mdx",
+    "src/content/docs/docs/cli/validate.mdx",
+    "src/content/docs/docs/cli/winget.mdx",
+    "src/content/docs/docs/installation.mdx",
+    "src/content/docs/docs/platforms/linux/commands.mdx",
+    "src/content/docs/docs/platforms/linux/example-flow.mdx",
+    "src/content/docs/docs/platforms/macos/commands.mdx",
+    "src/content/docs/docs/platforms/macos/example-flow.mdx",
+    "src/content/docs/docs/platforms/nixos/commands.mdx",
+    "src/content/docs/docs/platforms/windows/commands.mdx",
+    "src/content/docs/docs/platforms/windows/example-flow.mdx",
+    "src/content/docs/docs/source/local-sources.mdx",
+    "src/content/docs/docs/source/sparse-artifacts.mdx"
+  ]
+}

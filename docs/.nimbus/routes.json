@@ -3,6 +3,8 @@
   "base": "/",
   "knownRoutes": [
     "/",
+    "/.well-known/ai-catalog.json",
+    "/.well-known/ard.json",
     "/404",
     "/android-chrome-192x192.png",
     "/android-chrome-512x512.png",
@@ -113,6 +115,7 @@
     "/favicon-16x16.png",
     "/favicon-32x32.png",
     "/favicon.ico",
+    "/index.md",
     "/install.ps1",
     "/install.sh",
     "/llms-full.txt",
@@ -158,5 +161,9 @@
   "redirects": [],
   "redirectPages": [],
   "redirectRules": "cloudflare",
-  "opaqueNamespaces": []
+  "mounts": {
+    "docs": ""
+  },
+  "opaqueNamespaces": [],
+  "builtAt": "2026-11-16T10:58:27.972Z"
 }
