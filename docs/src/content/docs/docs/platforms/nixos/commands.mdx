@@ -94,6 +94,23 @@ system.preSwitchChecks.outfitting-manager = ''
 
 `status` and `nix switch` report when the running system or the system profile differs from the last system the CLI activated.
 
+### Rolling back
+
+`nix rollback` switches to a system that is already built, through the same approval and transient unit as `nix switch`, so the pre-switch check accepts it. It never builds and needs no source.
+
+```sh
+outfitting-manager nix rollback                  # previous generation that differs from the running system
+outfitting-manager nix rollback --generation 45  # an existing system generation
+outfitting-manager nix mark-safe                 # pin the running system as known good
+outfitting-manager nix rollback --safe           # return to the pinned system
+```
+
+Rollback always adds a new system generation, like `nix switch`; it never points the profile back at an old one, because `nh clean` keeps the newest generations, not the one the profile points at. Without flags it picks the newest older generation that differs from the running system, so running it twice undoes the first rollback; use `--generation N` to go further back.
+
+A rollback only changes the running system. The flake source and the remote Nix lock still describe the system you left, so the next `nix switch` or `nix update`, including a scheduled one, rebuilds it: revert the commit or the input bump that broke it first. If an interrupted `nix update` left a checkpoint, rollback warns you, because `recover nix` would switch back to that build; abandon it with `recover nix --clear`.
+
+`mark-safe` stores the running system in `/nix/var/nix/profiles/system-profiles/outfitting_safe` and deletes the previous pin. Profiles there are garbage-collection roots that `nh clean` does not prune, and GRUB lists them in their own submenu, **NixOS - Profile 'outfitting_safe'**, so the pinned system stays bootable even when the host cannot start a shell. The entry appears after the next system switch.
+
 ## `recover nix`
 
 Resume an interrupted `nix update`. Recovery switches the saved build and never rebuilds.

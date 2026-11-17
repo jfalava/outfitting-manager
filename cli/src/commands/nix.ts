@@ -1,7 +1,9 @@
-import { Option } from "effect";
+import { Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
+import { CliFailure } from "@/errors";
 import { type HostPlatform, NIX_ACTIONS, type NixAction } from "@/platform";
+import { markNixosSafe, rollbackNixos } from "@/update/nix/rollback";
 import { updateNix } from "@/update/nix/run";
 
 const noPushFlag = Flag.Boolean("no-push").pipe(
@@ -78,6 +80,39 @@ const nixDescriptions = {
   nixos: "Build, test, dry-run, update, or switch this host's NixOS system.",
 } as const;
 
+const rollbackFlags = {
+  generation: Flag.Int("generation").pipe(
+    Flag.optional,
+    Flag.withDescription("Switch to this existing system generation."),
+  ),
+  safe: Flag.Boolean("safe").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Switch to the system marked with `nix mark-safe`."),
+  ),
+};
+
+const rollbackCommand = Command.make("rollback", rollbackFlags, (values) =>
+  Option.isSome(values.generation) && values.safe
+    ? Effect.fail(new CliFailure({ message: "Pass either --generation or --safe, not both." }))
+    : rollbackNixos(
+        values.safe
+          ? { kind: "safe" }
+          : Option.isSome(values.generation)
+            ? { kind: "generation", number: values.generation.value }
+            : { kind: "previous" },
+      ),
+).pipe(
+  Command.withDescription(
+    "Switch back to an already-built system: the one before the running one, --generation N, or --safe. Never builds.",
+  ),
+);
+
+const markSafeCommand = Command.make("mark-safe", {}, () => markNixosSafe()).pipe(
+  Command.withDescription(
+    "Pin the running system as safe: it survives generation cleanup, gets its own boot menu entry, and `nix rollback --safe` returns to it.",
+  ),
+);
+
 /** Build, test, dry-run, update, or activate the configured Nix profile. */
 export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux" | "nixos">) {
   const updateFlags = platform === "linux" ? linuxUpdateFlags : macosUpdateFlags;
@@ -95,6 +130,10 @@ export function makeNixCommand(platform: Extract<HostPlatform, "macos" | "linux"
 
   return Command.make("nix").pipe(
     Command.withDescription(nixDescriptions[platform]),
-    Command.withSubcommands([...actions, updateCommand]),
+    Command.withSubcommands([
+      ...actions,
+      updateCommand,
+      ...(platform === "nixos" ? [rollbackCommand, markSafeCommand] : []),
+    ]),
   );
 }

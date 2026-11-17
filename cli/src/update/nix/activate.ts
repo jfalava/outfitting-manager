@@ -87,6 +87,8 @@ export async function activateNixSystem(options: ActivateNixSystemOptions): Prom
 /** One-shot approval the NixOS pre-switch check consumes; it must name the incoming system. */
 export const NIXOS_SWITCH_APPROVAL = "/run/outfitting-manager/approved-switch";
 
+export const NIXOS_SYSTEM_PROFILE = "/nix/var/nix/profiles/system";
+
 export interface ActivateNixosOptions {
   /** Store path of the built nixosConfigurations.*.config.system.build.toplevel. */
   systemConfig: string;
@@ -145,7 +147,7 @@ export async function activateNixos(options: ActivateNixosOptions): Promise<void
   try {
     const setProfile = await run(
       "sudo",
-      ["-H", "env", "NIX_PATH=", "nix-env", "-p", "/nix/var/nix/profiles/system", "--set", system],
+      ["-H", "env", "NIX_PATH=", "nix-env", "-p", NIXOS_SYSTEM_PROFILE, "--set", system],
       { inherit: true, env },
     );
     if (setProfile.code !== 0) {
