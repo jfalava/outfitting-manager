@@ -38,7 +38,7 @@
     "@astrojs/compiler": "4.0.0",
     "@oxlint/plugins": "catalog:build",
     "@tailwindcss/vite": "4.3.5",
-    "@typescript-eslint/parser": "8.72.2",
+    "@typescript-eslint/parser": "8.73.0",
     "cross-spawn": "7.0.6",
     "eslint": "10.15.0",
     "eslint-plugin-astro": "3.2.1",
