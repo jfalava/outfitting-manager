@@ -9,7 +9,7 @@ import { composeBackupProfile } from "@/backups/composition";
 import { applyWindows } from "@/commands/windows-apply";
 import { normalizeGitRepository, validateGitRef } from "@/config/git";
 import { loadConfig } from "@/config/load";
-import { configFilePath, stateRoot } from "@/config/paths";
+import { commandPrefix, configFilePath, stateRoot } from "@/config/paths";
 import type { OutfittingRepo } from "@/config/repo";
 import type { BackupsConfig, FontsConfig, ManagerConfig } from "@/config/types";
 import { publishValidatedConfig } from "@/config/write";
@@ -1044,16 +1044,6 @@ function confirm(message: string) {
   );
 }
 
-function commandPrefix(configPath: string, platform: HostPlatform): string {
-  if (resolve(configPath) === resolve(configFilePath(stateRoot()))) {
-    return "outfitting-manager";
-  }
-  if (platform === "windows") {
-    return `$env:OUTFITTING_CONFIG = '${configPath.replaceAll("'", "''")}'; outfitting-manager`;
-  }
-  return `outfitting-manager --config '${configPath.replaceAll("'", "'\\''")}'`;
-}
-
 function selectedNixDeclaration(
   config: ManagerConfig,
   platform: HostPlatform,
@@ -1400,7 +1390,7 @@ function continueNixSetup(
     if (!selectedNixDeclaration(config, platform, profiles)) {
       return [];
     }
-    const prefix = commandPrefix(config.configPath, platform);
+    const prefix = commandPrefix(config.configPath, platform === "windows");
     if (platform === "linux" && !nixReady) {
       yield* Console.log(
         "Nix activation is disabled because the wizard's Nix preflight did not pass.",
@@ -1440,7 +1430,7 @@ function continueSetup(options: {
 }) {
   return Effect.gen(function* () {
     const { config, platform, profiles, nixReady, strict } = options;
-    const prefix = commandPrefix(config.configPath, platform);
+    const prefix = commandPrefix(config.configPath, platform === "windows");
     const platformSetup = {
       linux: continueLinuxSetup,
       macos: continueMacosSetup,

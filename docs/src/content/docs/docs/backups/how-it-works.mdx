@@ -27,17 +27,29 @@ Rustic deduplicates unchanged data. If a snapshot uses `skip-if-unchanged = true
 
 ## Let the schedule catch up
 
-Generated LaunchAgents, Windows Task Scheduler jobs, and Linux systemd user timers call `backups run-due` hourly. The command starts each daily backup after local time reaches 10:00 on macOS, 09:00 on Windows, or 00:00 on Linux. Profiles with `intervalHours` run once per slot instead; see [setup](/docs/backups/setup/#back-up-more-often-than-daily). It also checks repository metadata after Sunday at 15:00, if a weekly check is due. A failed job stays due for the next invocation; a candidate marked `review-required` waits for manual acceptance. A wake-up with nothing due does not read credentials or contact the repository.
+Generated LaunchAgents, Windows Task Scheduler jobs, and Linux systemd user timers call `backups run-due` hourly. The command starts each daily backup after local time reaches 10:00 on macOS, 09:00 on Windows, or 00:00 on Linux. Profiles with `intervalHours` run once per slot instead; see [setup](/docs/backups/setup/#back-up-more-often-than-daily). It also checks repository metadata after Sunday at 15:00, if a weekly check is due; a failed job does not skip that check. A failed job stays due for the next invocation; a candidate marked `review-required` waits until you accept or reject it. A wake-up with nothing due does not read credentials or contact the repository, except to read the alert token for a daily review reminder.
 
 `backups schedule` prints the LaunchAgent, Task Scheduler definition, or systemd service and timer; it does not install them. The Linux timer uses `Persistent=true`, so a wake-up missed while the machine was off runs at the next boot.
 
 ## When a snapshot needs review
 
-The CLI rejects a backup that processes zero files. It marks a candidate `review-required` if either its processed file count or logical bytes drop by more than 50% from the last accepted snapshot. The candidate does not become a recovery point until you inspect it and accept that exact snapshot with `backups accept`.
+The CLI rejects a backup that processes zero files. It marks a candidate `review-required` if either its processed file count or logical bytes drop by more than 50% from the last accepted snapshot. The candidate does not become a recovery point until you inspect it and accept that exact snapshot with `backups accept`. While it waits, that job is not backed up.
+
+The first alert and every reminder include the candidate and last accepted counts, plus the exact `snapshots`, `accept`, and `reject` commands for this configuration and profile. `run-due` sends a reminder once per local day after the profile's daily hour, regardless of `intervalHours`, and records the last confirmed alert as `alertedAt` in the receipt. An alert the service did not confirm is retried at the next wake-up. Manual `backups run` never sends reminders.
+
+If the shrinkage is a mistake, discard the candidate with `backups reject`. The job keeps its accepted recovery anchors and backs up again in its next scheduled slot; if the shrinkage is real, the new candidate goes back to review. Accepting a wrong candidate is not a safe substitute: after the next backup it becomes the protected previous snapshot, and the last good snapshot loses protection.
 
 On Windows, a job with `skipIfProcessesRunning` checks its configured process names before backing up. If any match, it skips only that job without changing its receipt or recovery anchors, leaving it due for the next run. The guard also applies to manual runs. A failed, malformed, or timed-out process check fails closed. Jobs without this policy have no process guard. This is a preflight check, not a guarantee that an application cannot start during the backup.
 
-Failed backups, candidates that need review, and failed repository checks attempt a v1 webhook alert unless local `backups.alertsDisabled = true`. The [setup guide](/docs/backups/setup/#configure-alerts-or-explicitly-disable-them) describes the required generic `/v1/alerts` endpoint and credential policy. There is no default endpoint or legacy payload. Missing alert configuration blocks backup commands until configured or explicitly disabled. Opt-out skips alert-token lookup; the four-key credential service-name mapping remains required.
+These failures attempt a v1 webhook alert unless local `backups.alertsDisabled = true`:
+
+- A failed backup, and a failed repository check, at every scheduled run until they pass, which is hourly.
+- A candidate that needs review: once, then a daily reminder until you accept or reject it.
+- A failed `maintenance --apply`, each time it runs. Previews never alert.
+- A scheduled run that fails before any backup starts, such as an unreadable receipt or a failed process check: at most once per local day until a scheduled run succeeds.
+- A stale repository lock, whose owning process exited or which predates the last reboot or is a day old: at most once per local day until you remove it. A lock held by another running operation is not a fault; the jobs stay due and the next wake-up retries without an alert.
+
+Rustic warnings normally reject an operation. The one exception is a warning that a cache file it was removing is already gone, which does not affect the repository. The [setup guide](/docs/backups/setup/#configure-alerts-or-explicitly-disable-them) describes the required generic `/v1/alerts` endpoint and credential policy. There is no default endpoint or legacy payload. Missing alert configuration blocks backup commands until configured or explicitly disabled. Opt-out skips alert-token lookup; the four-key credential service-name mapping remains required.
 
 All jobs in the selected profile use its locally configured endpoint and native token service name; known job names appear in the title and metadata. Repository checks use the same credential without a job label. Nothing fans out to job-specific routes. The bearer token selects a server policy containing the sender and complete recipient list; the CLI sends no address, severity, or top-level identity fields. A v1 success confirms provider acceptance, not inbox delivery. A rejected request, timeout, or missing token logs a warning without changing the original backup result or advancing recovery anchors.
 

@@ -200,13 +200,13 @@ alertsDisabled = true
 
 Opt-out is mutually exclusive with `alertUrl`. It skips alert delivery and all alert-token lookups, including `secrets check`. Keep all four keys in `[backups.credentials]`. Changing credentials, `scheduleLabel`, or `alertsDisabled` does not invalidate the source cache. The alert endpoint remains part of the source hash; refresh the validated remote cache after changing it.
 
-The CLI sends `POST` to the configured endpoint using `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains only `title`, `message`, an ISO `timestamp` with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. No sender, recipient, severity, source, or top-level identity fields are sent; Canary rejects unknown top-level fields. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Repository-wide/check failures use the same endpoint and token, with `metadata: { hostname, operation }` and no invented job name. The job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
+The CLI sends `POST` to the configured endpoint using `Content-Type: application/json` and `Authorization: Bearer <alert-token>`. The JSON contains only `title`, `message`, an ISO `timestamp` with `Z`, and `metadata: { hostname, operation, job }` for job failures or review-required candidates. No sender, recipient, severity, source, or top-level identity fields are sent; Canary rejects unknown top-level fields. The title puts the operation and job name before the hostname so a long hostname cannot truncate the job. Review reminders use the operation `backup review reminder (<job>)`, so their subject differs from the first alert. Repository-wide failures use the same endpoint and token, with `metadata: { hostname, operation }` and no invented job name; their operations are `rustic repository check`, `rustic maintenance`, and `rustic backup run`. The job is descriptive, not an authorization boundary. An exit code is omitted because local validation failures do not always have one.
 
 The CLI strips NUL from messages, keeps its existing 4,000 UTF-16-unit message cap, and bounds control-free titles to 200 UTF-16 units. It rejects serialized bodies over 32,768 actual UTF-8 bytes locally, including metadata. Only HTTP 202 with `{ "sent": true, "message_id": "..." }` and a nonempty ID confirms provider acceptance, not inbox delivery.
 
 Rejected responses never confirm acceptance: 400 indicates invalid payload, 401 an invalid/missing token or missing/disabled policy, 404 a wrong route, 413 an oversized body, 415 unsupported media or encoding, 502 provider failure, and 503 a malformed policy or unavailable KV. Fix configuration or provisioning rather than retrying rejected requests.
 
-Requests have a 20-second timeout, no automatic retry, and no idempotency guarantee. A timeout can occur after provider acceptance; retrying manually or on a later failed backup may duplicate email. Alert errors only log a warning and never replace the backup result.
+Requests have a 20-second timeout, no automatic retry, and no idempotency guarantee. A timeout can occur after provider acceptance; retrying manually, on a later failed backup, or on the next wake-up for an unconfirmed review alert may duplicate email. Alert errors only log a warning and never replace the backup result.
 
 After enabling the credential policy and allowing for propagation, verify a controlled request with the service's provisioned token, checking HTTP 202 and separately checking every intended inbox. Do not deliberately fail a real backup. Installing this CLI does not deploy a service, write live KV, edit live host settings or credentials, or replace schedules. Those actions and any native credential approval remain manual.
 
@@ -251,7 +251,7 @@ Use the snapshot's `name` in CLI job arguments and any matching `jobs` policy ke
 
 ### Back up more often than daily
 
-By default each job is due once per local day. Set `intervalHours` on the profile to one of 1, 2, 3, 4, 6, 8, or 12 for shorter slots, anchored at the platform's daily hour (10:00 on macOS, 09:00 on Windows, 00:00 on Linux). A job is due when nothing was accepted since the current slot started. Slots wrap across midnight, so a missed slot catches up on the next wake-up.
+By default each job is due once per local day. Set `intervalHours` on the profile to one of 1, 2, 3, 4, 6, 8, or 12 for shorter slots, anchored at the platform's daily hour (10:00 on macOS, 09:00 on Windows, 00:00 on Linux). A job is due when nothing was accepted since the current slot started. Slots wrap across midnight, so a missed slot catches up on the next wake-up. Review reminders and other repeating alerts stay daily, from the same daily hour, whatever the interval.
 
 ```toml
 [backups.profiles.agent]

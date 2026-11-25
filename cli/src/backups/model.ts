@@ -2,6 +2,8 @@ import { Schema } from "effect";
 
 export class BackupError extends Schema.TaggedError<BackupError>()("BackupError", {
   message: Schema.String,
+  // lock: another operation holds the repository lock; stale-lock: its owner is gone.
+  reason: Schema.optionalKey(Schema.Literals(["lock", "stale-lock"])),
 }) {}
 
 export const secretNames = [
@@ -85,6 +87,8 @@ export const JobState = Schema.Struct({
   current: Schema.optionalKey(Anchor),
   previous: Schema.optionalKey(Anchor),
   candidate: Schema.optionalKey(Anchor),
+  // Last confirmed review alert; reminders repeat daily until accept or reject.
+  alertedAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
   knownIds: Schema.Array(SnapshotId),
 });
 export type JobState = typeof JobState.Type;
