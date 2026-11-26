@@ -120,7 +120,7 @@ test("Homebrew apply warns and returns normally for a failed bundle unless stric
   session.begin(["outfitting-manager", "apply"]);
   await Effect.runPromise(applyBrew(options).pipe(Effect.provideService(TerminalSession, session)));
   session.close();
-  expect(reports.at(-1)).toContain("state=error");
+  expect(reports.at(-2)).toContain("state=error");
   expect(reports.join("")).not.toContain("state=done");
   await expect(Effect.runPromise(applyBrew({ ...options, strict: true }))).rejects.toThrow(
     /brew bundle failed/,

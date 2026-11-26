@@ -15,7 +15,7 @@ Window titles follow the current phase, such as `Outfitting: Building`, `Outfitt
 
 Interactive setup questions, plan approvals, credential configuration, and Nix sudo authentication report that they are waiting for input. Answers and credential values are never included in status reports.
 
-Completion leaves `Outfitting: Done`; failures leave `Outfitting: Failed`. Cancellation reports an idle state with `Outfitting: Cancelled`. Completed and failed records remain available to the terminal after the command exits. Titles are not restored by Outfitting; your shell may replace them at its next prompt.
+The final status report is titled `Outfitting: Done` on completion and `Outfitting: Failed` on failure. Cancellation reports an idle state titled `Outfitting: Cancelled`. Completed and failed records remain available to the terminal after the command exits. After the final report, Outfitting sends an empty window title, giving the title back to the terminal so tabs stop showing the last phase.
 
 ## Disable status reporting
 
