@@ -1044,7 +1044,9 @@ test("a lock held by a live process never alerts; a stale lock alerts once per l
       JSON.stringify({ pid, startedAt: DateTime.formatIso(DateTime.makeUnsafe(startedAt)) }),
     );
   };
-  await hold(process.pid, localTime(22, 10, 59));
+  // Taken at the pinned time: a lock older than the last boot counts as stale, and a CI
+  // runner may have booted less than a minute ago.
+  await hold(process.pid, localTime(22, 11));
   await fails(scheduled(f, localTime(22, 11)), "lock unavailable");
   expect(f.alerts).toEqual([]);
 
