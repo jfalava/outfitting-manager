@@ -15,5 +15,5 @@
     },
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["*.ts", "scripts/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
 }
