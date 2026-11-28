@@ -2,7 +2,7 @@ name: Outfitting Manager CLI - Release
 
 on:
   push:
-    tags: ["cli-v*"]
+    tags: ["v*"]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -25,7 +25,7 @@ jobs:
           restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       - name: Tag matches the CLI version
-        run: test "${GITHUB_REF_NAME#cli-v}" = "$(jq -r .version cli/package.json)"
+        run: test "${GITHUB_REF_NAME#v}" = "$(jq -r .version cli/package.json)"
       - run: bun run check
 
   build:

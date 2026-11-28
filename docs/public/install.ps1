@@ -24,11 +24,11 @@ $matchingReleases = @(
     $releases | Where-Object {
         $_.draft -eq $false -and
         $_.prerelease -eq $false -and
-        $_.tag_name -match '^cli-v[0-9]+\.[0-9]+\.[0-9]+$'
+        $_.tag_name -match '^(cli-)?v[0-9]+\.[0-9]+\.[0-9]+$'
     }
 )
 $release = $matchingReleases |
-    Sort-Object -Property { [version]($_.tag_name.Substring(5)) } -Descending |
+    Sort-Object -Property { [version]($_.tag_name -replace '^(cli-)?v', '') } -Descending |
     Select-Object -First 1
 
 if ($null -eq $release) {
@@ -101,7 +101,7 @@ try {
         $env:Path = "$installDirectory;$env:Path"
     }
 
-    Write-Host "Installed outfitting-manager $($release.tag_name.Substring(5)) to $binaryPath"
+    Write-Host "Installed outfitting-manager $($release.tag_name -replace '^(cli-)?v', '') to $binaryPath"
     Write-Host 'Added the install folder to your user PATH.'
 }
 finally {

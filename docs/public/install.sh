@@ -60,8 +60,8 @@ curl --fail --location --silent --show-error --retry 3 \
 
 jq '
   map(select(.draft == false and .prerelease == false)
-      | select(.tag_name | test("^cli-v[0-9]+\\.[0-9]+\\.[0-9]+$")))
-  | sort_by(.tag_name | ltrimstr("cli-v") | split(".") | map(tonumber))
+      | select(.tag_name | test("^(cli-)?v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+  | sort_by(.tag_name | sub("^(cli-)?v"; "") | split(".") | map(tonumber))
   | last // empty
 ' "$tmp_dir/releases.json" > "$tmp_dir/release.json"
 tag=$(jq -r '.tag_name' "$tmp_dir/release.json")
@@ -106,7 +106,8 @@ if [ "$os" = "Darwin" ] && command -v codesign >/dev/null 2>&1; then
     printf 'Warning: macOS could not apply an ad-hoc signature; the CLI may be blocked from opening.\n' >&2
 fi
 
-printf 'Installed outfitting-manager %s to %s/outfitting-manager\n' "${tag#cli-v}" "$install_dir"
+version=${tag#cli-}
+printf 'Installed outfitting-manager %s to %s/outfitting-manager\n' "${version#v}" "$install_dir"
 case ":${PATH:-}:" in
   *":$install_dir:"*) ;;
   *) printf 'Add %s to your PATH to run outfitting-manager from any terminal.\n' "$install_dir" ;;
