@@ -5,7 +5,7 @@ sidebar:
   order: 10
 ---
 
-`apply` installs packages declared for the selected profile. It does not upgrade unrelated software. Linux and Windows can also remove packages that are no longer declared; pruning is opt-in. Changes are local and are not uploaded by this command.
+`apply` installs packages declared for the selected profile. It does not upgrade unrelated software. It can also remove packages that are no longer declared; pruning is opt-in. Changes are local and are not uploaded by this command.
 
 On Linux and Windows, installation failures are reported and other packages are still attempted by default; a partial apply exits with an error. Use `--strict` to stop at the first failure. On macOS, `--strict` makes the command return an error if Homebrew reports an installation failure. Requested pruning is skipped after an installation failure.
 
@@ -25,17 +25,21 @@ outfitting-manager apply --strict
 
 Applies the selected profile's Brewfile. Use [`nix`](/docs/cli/nix/) to build or activate its Nix configuration.
 
-| Option                | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
-| `--machine-id <id>`   | Use a different machine ID for this command.                 |
-| `--repo <path>`       | Use a local source directory for this command.               |
-| `--profile <profile>` | Select a macOS profile instead of the configured one.        |
-| `--no-refresh`        | Use the current source without refreshing it.                |
-| `--strict`            | Return an error if Homebrew reports an installation failure. |
+| Option                | Description                                                                 |
+| --------------------- | --------------------------------------------------------------------------- |
+| `--machine-id <id>`   | Use a different machine ID for this command.                                |
+| `--repo <path>`       | Use a local source directory for this command.                              |
+| `--profile <profile>` | Select a macOS profile instead of the configured one.                       |
+| `--no-refresh`        | Use the current source without refreshing it.                               |
+| `--strict`            | Return an error if Homebrew reports an installation failure.                |
+| `--prune`             | Remove Homebrew casks, formulae, and taps that the Brewfile does not list.  |
+| `--yes`               | Prune without prompting.                                                    |
 
 ```sh
 outfitting-manager apply --profile personal
 ```
+
+macOS prune uses `brew bundle cleanup`, so unlike Linux and Windows it does not check ownership: it removes everything the Brewfile does not declare, including packages you installed by hand. It also resets Homebrew's trust store to the Brewfile's `trusted:` values. Review the removal plan before confirming; `--prune --yes` skips confirmation.
 
 ## Linux
 

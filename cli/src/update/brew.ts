@@ -124,15 +124,97 @@ export interface UpdateBrewOptions {
   which?: typeof which;
 }
 
-export interface ApplyBrewOptions extends Omit<UpdateBrewOptions, "noPush"> {
+export interface ApplyBrewOptions<ConfirmR = never> extends Omit<UpdateBrewOptions, "noPush"> {
   /** Stop with an error when Homebrew Bundle fails during apply. */
   strict?: boolean;
+  /** After a successful install, remove everything `brew bundle cleanup` reports as undeclared. */
+  prune?: boolean;
+  /** Prune without prompting. */
+  yes?: boolean;
+  confirm?: Effect.Effect<boolean, never, ConfirmR>;
+}
+
+export interface BrewPruneRemoval {
+  /** The dry-run section without its `Would ` prefix, such as `uninstall casks` or `untap`. */
+  action: string;
+  name: string;
 }
 
 /**
- * First-run Homebrew apply: install missing declarations without upgrading or removing.
+ * Read the removals from `brew bundle cleanup` dry-run output (non-TTY, one item per line).
+ * The `brew cleanup` cache section is skipped because it never removes a package.
  */
-export const applyBrew = (options: ApplyBrewOptions = {}) =>
+export function parseBundleCleanupPlan(output: string): BrewPruneRemoval[] {
+  const removals: BrewPruneRemoval[] = [];
+  let action: string | undefined;
+  for (const line of output.split("\n")) {
+    const heading = /^Would (uninstall .+|untap):$/.exec(line);
+    if (heading !== null) {
+      action = heading[1];
+    } else if (line.startsWith("Would ") || line.startsWith("Run `")) {
+      action = undefined;
+    } else if (action !== undefined && line.trim().length > 0) {
+      removals.push({ action, name: line.trim() });
+    }
+  }
+  return removals;
+}
+
+const pruneBrew = <ConfirmR>(
+  brewfilePath: string,
+  run: typeof runCommand,
+  options: ApplyBrewOptions<ConfirmR>,
+) =>
+  Effect.gen(function* () {
+    yield* setTerminalPhase("Planning Homebrew prune");
+    const dryRun = yield* tryPromise(() =>
+      run("brew", ["bundle", "cleanup", `--file=${brewfilePath}`], { inherit: false }),
+    );
+    const removals = parseBundleCleanupPlan(dryRun.stdout);
+    if (removals.length === 0) {
+      // The dry run exits 1 only when it would remove something, so any other failure is real.
+      if (dryRun.code !== 0) {
+        return yield* new CliFailure({
+          message: `brew bundle cleanup failed (exit ${dryRun.code}): ${`${dryRun.stderr}${dryRun.stdout}`.trim()}`,
+        });
+      }
+      yield* Console.log(
+        ui.muted("Nothing to prune; every installed Homebrew package is declared."),
+      );
+      return;
+    }
+    yield* Console.log(ui.heading("Homebrew packages to be removed:"));
+    for (const removal of removals) {
+      yield* Console.log(`  ${removal.action}: ${removal.name}`);
+    }
+    yield* Console.log(
+      ui.warning(
+        "Prune removes everything the Brewfile does not declare, including packages installed by hand, and resets Homebrew's trust store to the Brewfile's `trusted:` values.",
+      ),
+    );
+    if (!options.yes) {
+      if (options.confirm === undefined) {
+        return yield* new CliFailure({
+          message: "Confirmation is required to prune Homebrew packages; rerun with --yes.",
+        });
+      }
+      if (!(yield* options.confirm)) {
+        (yield* TerminalSession).cancel();
+        yield* Console.log(ui.muted("Aborted. No Homebrew packages were removed."));
+        return;
+      }
+    }
+    yield* requireBrewOk(
+      run,
+      ["bundle", "cleanup", "--force", `--file=${brewfilePath}`],
+      "brew bundle cleanup --force",
+    );
+  });
+
+/**
+ * Homebrew apply: install missing declarations without upgrading; remove undeclared ones only with `prune`.
+ */
+export const applyBrew = <ConfirmR = never>(options: ApplyBrewOptions<ConfirmR> = {}) =>
   Effect.gen(function* () {
     const whichFn = options.which ?? which;
     const run = options.run ?? runCommand;
@@ -171,9 +253,15 @@ export const applyBrew = (options: ApplyBrewOptions = {}) =>
       yield* Console.log(
         ui.warning(`${failure}. Homebrew apply was partial; review the Brewfile and rerun apply.`),
       );
+      if (options.prune) {
+        yield* Console.log(ui.muted("Skipped pruning because the install was partial."));
+      }
       return;
     }
 
+    if (options.prune) {
+      yield* pruneBrew(brewfile.path, run, options);
+    }
     yield* Console.log(ui.success("Homebrew apply complete."));
   });
 
