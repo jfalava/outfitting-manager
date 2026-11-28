@@ -25,15 +25,15 @@ outfitting-manager apply --strict
 
 Applies the selected profile's Brewfile. Use [`nix`](/docs/cli/nix/) to build or activate its Nix configuration.
 
-| Option                | Description                                                                 |
-| --------------------- | --------------------------------------------------------------------------- |
-| `--machine-id <id>`   | Use a different machine ID for this command.                                |
-| `--repo <path>`       | Use a local source directory for this command.                              |
-| `--profile <profile>` | Select a macOS profile instead of the configured one.                       |
-| `--no-refresh`        | Use the current source without refreshing it.                               |
-| `--strict`            | Return an error if Homebrew reports an installation failure.                |
-| `--prune`             | Remove Homebrew casks, formulae, and taps that the Brewfile does not list.  |
-| `--yes`               | Prune without prompting.                                                    |
+| Option                | Description                                                                |
+| --------------------- | -------------------------------------------------------------------------- |
+| `--machine-id <id>`   | Use a different machine ID for this command.                               |
+| `--repo <path>`       | Use a local source directory for this command.                             |
+| `--profile <profile>` | Select a macOS profile instead of the configured one.                      |
+| `--no-refresh`        | Use the current source without refreshing it.                              |
+| `--strict`            | Return an error if Homebrew reports an installation failure.               |
+| `--prune`             | Remove Homebrew casks, formulae, and taps that the Brewfile does not list. |
+| `--yes`               | Prune without prompting.                                                   |
 
 ```sh
 outfitting-manager apply --profile personal
