@@ -1,3 +1,10 @@
+## Commands
+
+- `bun run check` is the read-only gate for the whole repo; `bun run --cwd <package> check` for one package. It never rewrites files.
+- `bun run fix` applies lint autofixes and formatting.
+- CI: `.github/workflows/ci.yml` runs `bun run check` on every push and pull request, and `main` and `stable` should require it before merging. Cloudflare Workers Builds only deploys, on pushes to `stable` (`bun run ci:build`, then `bun run ci:deploy`).
+- `.github/README.md` lists every script, the Workers Builds settings and the documented exceptions.
+
 <!-- machine-memory:start -->
 
 ## Project memory
