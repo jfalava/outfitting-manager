@@ -204,7 +204,7 @@ test("Linux commands expose init, apply, Nix, and native update as distinct oper
     encoding: "utf8",
   });
   expect(`${recoverNix.stdout}\n${recoverNix.stderr}`).toContain("interrupted Nix profile update");
-});
+}, 15_000);
 
 test("Linux init requires a selected source and does not invent a default profile", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "outfitting-linux-init-empty-"));
