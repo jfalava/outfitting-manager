@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "astro build",
-    "check": "bun typecheck && bun lint:fix",
+    "check": "bun run lint && bun run format:check && bun run typecheck",
     "dev": "astro dev",
+    "fix": "bun run lint:fix && bun run format",
     "format": "prettier --write \"src/**/*.{astro,mdx,md}\" && oxfmt",
     "format:check": "prettier --check \"src/**/*.{astro,mdx,md}\" && oxfmt --check",
     "lint": "bun run lint:oxlint && bun run lint:astro && bun run lint:docs",

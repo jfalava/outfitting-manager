@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { adopt } from "alchemy/AdoptPolicy";
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import { adopt } from "alchemy/AdoptPolicy";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 

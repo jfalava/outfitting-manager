@@ -14,12 +14,13 @@
         "@types/node": "26.6.11"
       },
       "build": {
-        "bun-types": "1.4.5",
+        "@effect/tsgo": "0.74.1",
         "@oxlint/plugins": "1.95.0",
-        "oxlint": "1.95.0",
+        "bun-types": "1.4.5",
         "oxfmt": "0.80.0",
-        "vitest": "5.1.2",
+        "oxlint": "1.95.0",
         "tsrs": "7.1.0-beta.tsrs5",
+        "vitest": "5.1.2",
         "wrangler": "4.128.0"
       },
       "backend": {
@@ -38,31 +39,27 @@
   },
   "type": "module",
   "scripts": {
-    "build": "bun run ci:build",
-    "ci:build": "bun run lint:deploy && bun run typecheck:deploy && bun run test:deploy",
-    "ci:deploy": "bun run --filter @outfitting/iac ci:deploy",
-    "deploy": "bun run --filter @outfitting/iac deploy",
-    "destroy": "bun run --filter @outfitting/iac destroy",
-    "format": "oxfmt",
-    "format:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router format",
-    "lint:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router lint",
-    "lint:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router lint",
-    "plan": "bun run --filter @outfitting/iac plan",
-    "test:api": "bun run --filter @outfitting/api test",
-    "test:cli": "bun run --filter @outfitting/cli test",
-    "test:contract": "bun run --filter @outfitting/contract test",
-    "test:iac": "bun run --filter @outfitting/iac test",
-    "test:router": "bun run --filter @outfitting/router test",
-    "test:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/iac --filter @outfitting/router test",
-    "typecheck:deploy": "bun run --filter @outfitting/api --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router typecheck",
-    "typecheck:global": "bun run --filter @outfitting/api --filter @outfitting/cli --filter @outfitting/contract --filter @outfitting/docs --filter @outfitting/iac --filter @outfitting/router typecheck",
-    "prepare": "effect-tsgo patch --no-typescript --tsrs --oxlint"
+    "check": "bun run --workspaces check && oxfmt --check",
+    "ci:build": "bun run check",
+    "ci:deploy": "bun run --cwd iac ci:deploy",
+    "deploy": "bun run --cwd iac deploy",
+    "destroy": "bun run --cwd iac destroy",
+    "dev": "bun run --cwd iac dev",
+    "fix": "bun run --workspaces --if-present fix && oxfmt",
+    "format": "bun run --workspaces --if-present format && oxfmt",
+    "format:check": "bun run --workspaces --if-present format:check && oxfmt --check",
+    "lint": "bun run --workspaces --if-present lint",
+    "plan": "bun run --cwd iac plan",
+    "prepare": "effect-tsgo patch --no-typescript --tsrs --oxlint",
+    "test": "bun run --workspaces --if-present test",
+    "typecheck": "bun run --workspaces --if-present typecheck"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.74.1",
+    "@effect/tsgo": "catalog:build",
     "@oxlint/plugins": "catalog:build",
     "oxfmt": "catalog:build",
     "oxlint": "catalog:build",
     "tsrs": "catalog:build"
-  }
+  },
+  "packageManager": "bun@1.4.5"
 }

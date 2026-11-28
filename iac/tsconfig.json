@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["alchemy.run.ts", "src/**/*.ts"]
+  "include": ["alchemy.run.ts", "src/**/*.ts", "test/**/*.ts"]
 }

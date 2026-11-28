@@ -1,6 +1,10 @@
 {
   "extends": ["astro/tsconfigs/strict", "../tsconfig.base.json"],
   "compilerOptions": {
+    // Exception to the strict base: the UI components under src/components/ui/
+    // come from the nimbus-docs registry and are upgraded with
+    // `nimbus-docs add <slug> --overwrite`, which would undo local fixes.
+    "noUncheckedIndexedAccess": false,
     "paths": {
       "@/*": ["./src/*"]
     }
