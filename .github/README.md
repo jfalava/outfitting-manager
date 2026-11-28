@@ -2,7 +2,7 @@
 
 Outfitting is a cross-platform bootstrap and maintenance system for personal development machines.
 
-[Read the documentation](https://outfitting.jfa.dev/)
+[Official documentation](https://outfitting.jfa.dev/)
 
 ## Install
 
