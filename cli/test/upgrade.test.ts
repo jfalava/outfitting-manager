@@ -65,6 +65,7 @@ function makeZip(fileName: string, contents: string): Uint8Array {
 describe("self-update command helpers", () => {
   test("compares stable CLI versions", () => {
     expect(parseCliVersion("cli-v1.2.3")).toEqual([1, 2, 3]);
+    expect(parseCliVersion("v1.2.3")).toEqual([1, 2, 3]);
     expect(isNewerVersion("1.3.0", "1.2.9")).toBe(true);
     expect(isNewerVersion("1.2.3", "1.2.3")).toBe(false);
     expect(isNewerVersion("1.2.2", "1.2.3")).toBe(false);
@@ -180,17 +181,18 @@ describe("self-update command helpers", () => {
       requestUrl = String(input);
       return new Response(
         JSON.stringify([
-          { draft: false, prerelease: false, tag_name: "v99.0.0", assets: [] },
+          { draft: false, prerelease: false, tag_name: "docs-v99.0.0", assets: [] },
+          { draft: false, prerelease: true, tag_name: "v98.0.0", assets: [] },
           {
             draft: false,
             prerelease: false,
-            tag_name: "cli-v0.2.0",
+            tag_name: "cli-v0.15.3",
             assets: [],
           },
           {
             draft: false,
             prerelease: false,
-            tag_name: "cli-v0.4.0",
+            tag_name: "v0.16.0",
             assets: [
               {
                 name: asset,
@@ -209,7 +211,7 @@ describe("self-update command helpers", () => {
     await expect(
       Effect.runPromise(latestCliReleaseEffect(asset, "outfitting-manager", fetcher)),
     ).resolves.toEqual({
-      version: "0.4.0",
+      version: "0.16.0",
       assetUrl: "https://example.test/archive",
       checksumUrl: "https://example.test/archive-checksum",
       executableName: "outfitting-manager",
@@ -217,6 +219,33 @@ describe("self-update command helpers", () => {
     expect(requestUrl).toBe(
       "https://api.github.com/repos/jfalava/outfitting-manager/releases?per_page=30",
     );
+  });
+
+  test.each([
+    ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+    ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+  ])("selects the v release over its cli-v bridge (%s)", async (_order, tags) => {
+    const asset = "outfitting-manager-linux-x64.zip";
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify(
+          tags.map((tag) => ({
+            draft: false,
+            prerelease: false,
+            tag_name: tag,
+            assets: [
+              { name: asset, browser_download_url: `https://example.test/${tag}.zip` },
+              {
+                name: `${asset}.sha256`,
+                browser_download_url: `https://example.test/${tag}.sha256`,
+              },
+            ],
+          })),
+        ),
+      );
+    await expect(
+      Effect.runPromise(latestCliReleaseEffect(asset, "outfitting-manager", fetcher)),
+    ).resolves.toMatchObject({ version: "0.16.0", assetUrl: "https://example.test/v0.16.0.zip" });
   });
 
   test("does not silently downgrade to an older release when latest lacks this platform's asset", async () => {

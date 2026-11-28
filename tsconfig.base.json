@@ -11,12 +11,14 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
     "plugins": [
       {
         "name": "@effect/language-service",
-        "ignoreEffectWarningsInTscExitCode": true,
         "allowedUnstableApis": [
           "@effect/platform-bun/BunRuntime#runMain",
           "@effect/platform-bun/BunServices#layer",

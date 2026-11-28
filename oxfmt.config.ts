@@ -1,7 +1,6 @@
 import { defineConfig, type OxfmtConfig } from "oxfmt";
 
-// Shared formatting options for the whole repo. Package configs only exist
-// when they need overrides on top of this base (e.g. installer import sort).
+// Shared formatting options for the root, docs, and workspace configs.
 export const fmtBase: OxfmtConfig = {
   printWidth: 100,
   tabWidth: 2,
@@ -16,19 +15,27 @@ export const fmtBase: OxfmtConfig = {
   sortTailwindcss: true,
 };
 
+// Workspace packages also sort package.json scripts.
+export const workspaceFmt: OxfmtConfig = {
+  ...fmtBase,
+  sortPackageJson: { sortScripts: true },
+};
+
+// Repo root only formats top-level files; each workspace formats itself with
+// its own oxfmt.config.ts.
 export default defineConfig({
   ...fmtBase,
   ignorePatterns: [
-    // Nested package oxfmt.config.ts files still apply via nested discovery;
-    // these are paths oxfmt should never touch from any config.
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/.wrangler/**",
-    "**/worker-configuration.d.ts",
-    "**/cloudflare-env.d.ts",
-    // Docs stay on Prettier (Astro).
+    "api/**",
+    "cli/**",
+    "contract/**",
     "docs/**",
-    "result/**",
+    "iac/**",
+    "router/**",
     "tools/**",
+    "node_modules/**",
+    "result/**",
+    // machine-memory init owns the managed block in this file.
+    "AGENTS.md",
   ],
 });

@@ -8,7 +8,7 @@
   "type": "module",
   "module": "index.ts",
   "scripts": {
-    "build": "mkdir -p dist && bun build --compile index.macos.ts --outfile dist/outfitting-manager",
+    "build": "bun scripts/build.ts",
     "build:all": "bun run build:darwin-arm64 && bun run build:linux-x64 && bun run build:linux-arm64 && bun run build:nixos-x64 && bun run build:nixos-arm64 && bun run build:windows-x64",
     "build:darwin-arm64": "mkdir -p dist && bun build --compile --target=bun-darwin-arm64 index.macos.ts --outfile dist/outfitting-manager-darwin-arm64",
     "build:linux-arm64": "mkdir -p dist && bun build --compile --target=bun-linux-arm64 index.ts --outfile dist/outfitting-manager-linux-arm64",
@@ -16,11 +16,14 @@
     "build:nixos-arm64": "mkdir -p dist && bun build --compile --target=bun-linux-arm64 index.nixos.ts --outfile dist/outfitting-manager-nixos-arm64",
     "build:nixos-x64": "mkdir -p dist && bun build --compile --target=bun-linux-x64 index.nixos.ts --outfile dist/outfitting-manager-nixos-x64",
     "build:windows-x64": "mkdir -p dist && bun build --compile --target=bun-windows-x64 index.windows.ts --outfile dist/outfitting-manager-windows-x64.exe",
-    "check": "bun run lint --fix",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run test",
+    "fix": "bun run lint:fix && bun run format",
     "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "lint": "oxlint --type-aware --type-check",
+    "lint:fix": "oxlint --type-aware --type-check --fix",
     "test": "vitest run",
-    "typecheck": "tsrs --noEmit"
+    "typecheck": "effect-tsgo tsrs --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1178.0",

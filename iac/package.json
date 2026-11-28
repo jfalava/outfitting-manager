@@ -3,16 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "oxlint --type-aware --type-check --fix",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run test",
     "ci:deploy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy deploy --yes --adopt",
     "deploy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy deploy",
     "destroy": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy destroy",
     "dev": "alchemy dev",
+    "fix": "bun run lint:fix && bun run format",
     "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "lint": "oxlint --type-aware --type-check",
+    "lint:fix": "oxlint --type-aware --type-check --fix",
     "plan": "OUTFITTING_DEPLOY_CONFIG=./outfitting.production.deploy.json alchemy plan",
-    "test": "bun test test",
-    "typecheck": "tsrs --noEmit"
+    "test": "vitest run",
+    "typecheck": "effect-tsgo tsrs --noEmit"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.87",
@@ -27,6 +30,7 @@
     "@types/node": "catalog:types",
     "oxfmt": "catalog:build",
     "oxlint": "catalog:build",
-    "tsrs": "catalog:build"
+    "tsrs": "catalog:build",
+    "vitest": "catalog:build"
   }
 }

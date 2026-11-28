@@ -5,7 +5,7 @@
     "": {
       "name": "@outfitting/manager-monorepo",
       "devDependencies": {
-        "@effect/tsgo": "0.74.1",
+        "@effect/tsgo": "catalog:build",
         "@oxlint/plugins": "catalog:build",
         "oxfmt": "catalog:build",
         "oxlint": "catalog:build",
@@ -127,6 +127,7 @@
         "oxfmt": "catalog:build",
         "oxlint": "catalog:build",
         "tsrs": "catalog:build",
+        "vitest": "catalog:build",
       },
     },
     "router": {
@@ -149,6 +150,7 @@
       "hono": "4.13.23",
     },
     "build": {
+      "@effect/tsgo": "0.74.1",
       "@oxlint/plugins": "1.95.0",
       "bun-types": "1.4.5",
       "oxfmt": "0.80.0",

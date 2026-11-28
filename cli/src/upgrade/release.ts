@@ -50,12 +50,23 @@ function selectReleaseAsset(
   return checksum ? { asset: archive, checksum } : undefined;
 }
 
-const CLI_TAG_PREFIX = "cli-v";
+// Releases are tagged v<version>; releases up to 0.15.3 were tagged cli-v<version>.
+// Both are read so the newest version wins whichever prefix it has. The first v release
+// also has a cli-v bridge with the same version and assets; the v release wins that tie.
+const CLI_TAG = /^(?:cli-)?v(\d+\.\d+\.\d+)$/;
+
+function outranks(candidate: GitHubRelease, current: GitHubRelease): boolean {
+  if (isNewerVersion(candidate.tag_name, current.tag_name)) {
+    return true;
+  }
+  return (
+    !isNewerVersion(current.tag_name, candidate.tag_name) && candidate.tag_name.startsWith("v")
+  );
+}
 
 function newestRelease(releases: ReadonlyArray<GitHubRelease>): GitHubRelease | undefined {
   return releases.reduce<GitHubRelease | undefined>(
-    (newest, candidate) =>
-      !newest || isNewerVersion(candidate.tag_name, newest.tag_name) ? candidate : newest,
+    (newest, candidate) => (!newest || outranks(candidate, newest) ? candidate : newest),
     undefined,
   );
 }
@@ -97,8 +108,7 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
     return [decoded.value];
   });
   const stableReleases = releases.filter(
-    (candidate) =>
-      !candidate.draft && !candidate.prerelease && /^cli-v\d+\.\d+\.\d+$/.test(candidate.tag_name),
+    (candidate) => !candidate.draft && !candidate.prerelease && CLI_TAG.test(candidate.tag_name),
   );
   const release = newestRelease(stableReleases);
   if (!release) {
@@ -115,7 +125,7 @@ export const latestCliReleaseEffect = Effect.fn("upgrade.latestCliRelease")(func
   }
 
   return {
-    version: release.tag_name.slice(CLI_TAG_PREFIX.length),
+    version: release.tag_name.replace(CLI_TAG, "$1"),
     assetUrl: assets.asset.browser_download_url,
     checksumUrl: assets.checksum.browser_download_url,
     executableName,

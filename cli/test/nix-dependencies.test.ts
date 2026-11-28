@@ -96,9 +96,9 @@ in { file = "\${outfittingRepo}/packages/private/config.nix"; }
 `,
     );
 
-    await expect(discoverNixSourcePaths({ root, flake: "system/ubuntu-agents" })).resolves.toContain(
-      "packages/private/config.nix",
-    );
+    await expect(
+      discoverNixSourcePaths({ root, flake: "system/ubuntu-agents" }),
+    ).resolves.toContain("packages/private/config.nix");
   });
 });
 

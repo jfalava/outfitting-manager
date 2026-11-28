@@ -13,16 +13,7 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "verbatimModuleSyntax": true,
-
-    // Best practices
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  }
+    "verbatimModuleSyntax": true
+  },
+  "include": ["*.ts", "scripts/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
 }

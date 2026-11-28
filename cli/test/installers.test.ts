@@ -143,14 +143,14 @@ describe.skipIf(!canRunShell)(
   "shell installer (real script, isolated commands and downloads)",
   () => {
     test("installs verified content from compact, reordered JSON and ignores nonstable releases", async () => {
-      const selected = "cli-v1.0.0";
+      const selected = "v1.0.0";
       const fixture = await shellFixture(
         [
-          { ...release("cli-v99.0.0", linuxArchive), draft: true },
+          { ...release("v99.0.0", linuxArchive), draft: true },
           release(selected, linuxArchive),
           { ...release("cli-v98.0.0", linuxArchive), prerelease: true },
-          release("cli-v100.0.0-beta.1", linuxArchive),
-          release("v101.0.0", linuxArchive),
+          release("v100.0.0-beta.1", linuxArchive),
+          release("docs-v101.0.0", linuxArchive),
         ],
         selected,
       );
@@ -183,6 +183,7 @@ describe.skipIf(!canRunShell)(
       );
       const result = fixture.run();
       expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("Installed outfitting-manager 1.0.0");
       expect(await readFile(fixture.existingBinary, "utf8")).toBe(fixture.content);
       expect(await readFile(join(fixture.root, "requests"), "utf8")).toContain(
         `/cli-v1.0.0/${nixosArchive}.sha256`,
@@ -193,6 +194,9 @@ describe.skipIf(!canRunShell)(
       ["cli-v2.0.0", "cli-v10.0.0"],
       ["cli-v1.9.0", "cli-v1.10.0"],
       ["cli-v1.0.9", "cli-v1.0.10"],
+      // v<version> replaced cli-v<version>: the version decides, not the prefix.
+      ["cli-v0.15.3", "v0.16.0"],
+      ["v1.9.0", "cli-v1.10.0"],
     ])("orders %s before %s numerically regardless of API order", async (older, newer) => {
       const fixture = await shellFixture(
         [release(newer, linuxArchive), release(older, linuxArchive)],
@@ -203,20 +207,36 @@ describe.skipIf(!canRunShell)(
       expect(await readFile(fixture.existingBinary, "utf8")).toBe(fixture.content);
     });
 
+    // The first v release is mirrored as a cli-v bridge with the same version.
+    test.each([
+      ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+      ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+    ])("installs the v release over its cli-v bridge (%s)", async (_order, tags) => {
+      const fixture = await shellFixture(
+        tags.map((tag) => release(tag, linuxArchive)),
+        "v0.16.0",
+      );
+      const result = fixture.run();
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readFile(join(fixture.root, "requests"), "utf8")).toContain(
+        `/releases/download/v0.16.0/${linuxArchive}`,
+      );
+    });
+
     test.each([linuxArchive, `${linuxArchive}.sha256`])(
       "fails on newest release missing %s instead of falling back",
       async (missing) => {
         const fixture = await shellFixture([
           release("cli-v1.0.0", linuxArchive),
           release(
-            "cli-v2.0.0",
+            "v2.0.0",
             linuxArchive,
             [linuxArchive, `${linuxArchive}.sha256`].filter((name) => name !== missing),
           ),
         ]);
         const result = fixture.run();
         expect(result.status).not.toBe(0);
-        expect(result.stderr).toContain(`Release cli-v2.0.0 is missing ${missing}.`);
+        expect(result.stderr).toContain(`Release v2.0.0 is missing ${missing}.`);
         expect(
           (await readFile(join(fixture.root, "requests"), "utf8")).trim().split("\n"),
         ).toHaveLength(1);
@@ -296,6 +316,9 @@ describe.skipIf(!pwsh)("PowerShell installer selection and parsing", () => {
     ["cli-v2.0.0", "cli-v10.0.0"],
     ["cli-v1.9.0", "cli-v1.10.0"],
     ["cli-v1.0.9", "cli-v1.0.10"],
+    // v<version> replaced cli-v<version>: the version decides, not the prefix.
+    ["cli-v0.15.3", "v0.16.0"],
+    ["v1.9.0", "cli-v1.10.0"],
   ])(
     "selects %s before %s numerically and resolves matching assets",
     async (older, newer) => {
@@ -304,8 +327,8 @@ describe.skipIf(!pwsh)("PowerShell installer selection and parsing", () => {
         release(older, windowsArchive),
         { ...release("cli-v99.0.0", windowsArchive), draft: true },
         { ...release("cli-v98.0.0", windowsArchive), prerelease: true },
-        release("cli-v100.0.0-rc.1", windowsArchive),
-        release("v101.0.0", windowsArchive),
+        release("v100.0.0-rc.1", windowsArchive),
+        release("docs-v101.0.0", windowsArchive),
       ]);
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({
@@ -317,19 +340,32 @@ describe.skipIf(!pwsh)("PowerShell installer selection and parsing", () => {
     30000,
   );
 
+  test.each([
+    ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+    ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+  ])(
+    "selects the v release over its cli-v bridge (%s)",
+    async (_order, tags) => {
+      const result = await selectPowershell(tags.map((tag) => release(tag, windowsArchive)));
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({ tag: "v0.16.0" });
+    },
+    30000,
+  );
+
   test.each([windowsArchive, `${windowsArchive}.sha256`])(
     "fails on newest release missing %s instead of falling back",
     async (missing) => {
       const result = await selectPowershell([
         release("cli-v1.0.0", windowsArchive),
         release(
-          "cli-v2.0.0",
+          "v2.0.0",
           windowsArchive,
           [windowsArchive, `${windowsArchive}.sha256`].filter((name) => name !== missing),
         ),
       ]);
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain(`Release cli-v2.0.0 is missing ${missing}.`);
+      expect(result.stderr).toContain(`Release v2.0.0 is missing ${missing}.`);
     },
     30000,
   );

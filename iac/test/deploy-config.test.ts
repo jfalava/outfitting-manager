@@ -1,7 +1,9 @@
-import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { expect, test } from "vitest";
 
 import { deployConfigToEnv, loadDeployConfig } from "../src/deploy-config";
 
@@ -58,7 +60,7 @@ test("defaults to the Worker URL without selecting a production deployment", () 
 test("explicit production config preserves the existing hostname and resource identities", () => {
   withCleanEnv(() => {
     const config = loadDeployConfig({
-      configPath: join(import.meta.dir, "../outfitting.production.deploy.json"),
+      configPath: fileURLToPath(new URL("../outfitting.production.deploy.json", import.meta.url)),
     });
     expect(config).toMatchObject({
       domain: "outfitting.jfa.dev",
