@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { BunServices } from "@effect/platform-bun";
-import { DateTime, Effect, Layer, Logger, ManagedRuntime, Redacted, Schema } from "effect";
+import { Clock, DateTime, Effect, Layer, Logger, ManagedRuntime, Redacted, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { afterEach, expect, test } from "vitest";
 
@@ -635,21 +635,12 @@ test("scheduling prints a quoted manager invocation without running processes or
 
 test("daily eligibility uses local calendar days, including DST and the 10:00 boundary", () => {
   const zone = DateTime.zoneMakeNamedUnsafe("Europe/Madrid");
-  const state: JobState = {
-    version: 1,
-    repository: "r",
-    hostname: "h",
-    job: "documents",
-    startedAt: DateTime.makeUnsafe("2026-10-24T09:00:00Z"),
-    acceptedAt: DateTime.makeUnsafe("2026-10-24T09:00:00Z"),
-    outcome: "accepted-unchanged",
-    knownIds: [],
-  };
-  expect(isDue(state, DateTime.makeUnsafe("2026-10-25T08:59:59Z"), zone)).toBe(false);
-  expect(isDue(state, DateTime.makeUnsafe("2026-10-25T09:00:00Z"), zone)).toBe(true);
+  const acceptedAt = DateTime.makeUnsafe("2026-10-24T09:00:00Z");
+  expect(isDue(acceptedAt, DateTime.makeUnsafe("2026-10-25T08:59:59Z"), zone)).toBe(false);
+  expect(isDue(acceptedAt, DateTime.makeUnsafe("2026-10-25T09:00:00Z"), zone)).toBe(true);
   expect(
     isDue(
-      { ...state, acceptedAt: DateTime.makeUnsafe("2026-10-25T09:10:00Z") },
+      DateTime.makeUnsafe("2026-10-25T09:10:00Z"),
       DateTime.makeUnsafe("2026-10-25T15:00:00Z"),
       zone,
     ),
@@ -661,18 +652,7 @@ test("shorter intervals use slots from the anchor hour and wrap across midnight"
   const schedule = { hour: 10, intervalHours: 6 }; // Slots at 04, 10, 16 and 22.
   const at = (acceptedAt: string | undefined, now: string) =>
     isDue(
-      acceptedAt === undefined
-        ? undefined
-        : {
-            version: 1,
-            repository: "r",
-            hostname: "h",
-            job: "hermes",
-            startedAt: DateTime.makeUnsafe(acceptedAt),
-            acceptedAt: DateTime.makeUnsafe(acceptedAt),
-            outcome: "accepted-changed",
-            knownIds: [],
-          },
+      acceptedAt === undefined ? undefined : DateTime.makeUnsafe(acceptedAt),
       DateTime.makeUnsafe(now),
       zone,
       schedule,
@@ -852,6 +832,258 @@ test("large shrinkage pauses only that job until the exact candidate is accepted
   expect(accepted.error).toBeUndefined();
 });
 
+// Runs an effect with the clock pinned to `millis`; `run` reads DateTime.now for due slots.
+const atTime =
+  (millis: number) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.updateService(effect, Clock.Clock, (clock) => ({
+      currentTimeMillisUnsafe: () => millis,
+      currentTimeMillis: Effect.succeed(millis),
+      currentTimeNanosUnsafe: () => BigInt(millis) * 1_000_000n,
+      currentTimeNanos: Effect.succeed(BigInt(millis) * 1_000_000n),
+      monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+      monotonicTimeNanos: clock.monotonicTimeNanos,
+      sleep: (duration) => clock.sleep(duration),
+    }));
+// Wall-clock time in the host zone, which `run` uses. The year is far ahead of the fixture's
+// real snapshot times so `accept` (which stamps the snapshot time) never looks newer.
+const localTime = (day: number, hour: number, minute = 0) =>
+  DateTime.toEpochMillis(
+    DateTime.setParts(
+      DateTime.setZone(DateTime.makeUnsafe("2030-11-01T12:00:00Z"), DateTime.zoneMakeLocal()),
+      { year: 2030, month: 11, day, hour, minute, second: 0, millisecond: 0 },
+    ),
+  );
+const scheduled = (f: Awaited<ReturnType<typeof fixture>>, millis: number, due = true) =>
+  f.run(
+    Effect.flatMap(MacBackup, (service) => service.run(f.settings.jobs, due)).pipe(atTime(millis)),
+  );
+const alertBodies = (f: Awaited<ReturnType<typeof fixture>>) =>
+  Promise.all(
+    f.alerts.map(
+      (request) =>
+        request.clone().json() as Promise<{
+          title: string;
+          message: string;
+          metadata: { operation: string };
+        }>,
+    ),
+  );
+const shrinkDocuments = (f: Awaited<ReturnType<typeof fixture>>) =>
+  f.setBackup((job) => {
+    const saved = f.snapshot(job, job === "documents" ? 4 : 10, 1_000);
+    f.inventory.push(saved);
+    return ok(saved);
+  });
+const documentsReceipt = async (f: Awaited<ReturnType<typeof fixture>>) =>
+  (await f.run(Effect.flatMap(MacBackup, (service) => service.status))).find(
+    (state) => state.job === "documents",
+  );
+
+test.each([24, 6] as const)(
+  "review reminders repeat once per local day (intervalHours %i) until the exact candidate is accepted",
+  async (intervalHours) => {
+    const f = await fixture();
+    Object.assign(f.settings, { intervalHours });
+    await scheduled(f, localTime(22, 11));
+    shrinkDocuments(f);
+    // A manual run finds the shrinkage: one alert, stamped so the next wake-up stays quiet.
+    const [review] = await f.run(
+      Effect.flatMap(MacBackup, (service) => service.run(["documents"], false)).pipe(
+        atTime(localTime(22, 18)),
+      ),
+    );
+    expect(review?.outcome).toBe("review-required");
+    expect(review?.alertedAt).toEqual(DateTime.makeUnsafe(localTime(22, 18)));
+    expect(f.alerts).toHaveLength(1);
+    const candidate = review!.candidate!.id;
+    const backups = () =>
+      f.calls.filter((call) => call.args.includes("backup") && call.args.includes("documents"))
+        .length;
+    const ran = backups();
+
+    // 22:00 starts a new 6-hour slot, but reminders follow local days, not slots.
+    await scheduled(f, localTime(22, 23));
+    await scheduled(f, localTime(23, 9, 59));
+    expect(f.alerts).toHaveLength(1);
+
+    const [reminded] = await scheduled(f, localTime(23, 10));
+    expect(reminded?.alertedAt).toEqual(DateTime.makeUnsafe(localTime(23, 10)));
+    expect(f.alerts).toHaveLength(2);
+    const reminder = (await alertBodies(f))[1]!;
+    expect(reminder.title).toBe("Backup alert: backup review reminder (documents) on fixture-host");
+    expect(reminder.metadata.operation).toBe("backup review reminder (documents)");
+    const prefix =
+      process.platform === "win32"
+        ? `$env:OUTFITTING_CONFIG = '${f.settings.configPath}'; outfitting-manager`
+        : `outfitting-manager --config '${f.settings.configPath}'`;
+    expect(reminder.message).toContain(
+      `\nAccept: ${prefix} backups --profile fixture accept documents ${candidate}`,
+    );
+    expect(reminder.message).toContain("Candidate " + candidate + ": 4 files, 1000 bytes.");
+
+    await scheduled(f, localTime(23, 22));
+    await scheduled(f, localTime(24, 12), false);
+    expect(f.alerts).toHaveLength(2);
+    expect(backups()).toBe(ran);
+
+    const accepted = await f.run(
+      Effect.flatMap(MacBackup, (service) => service.accept("documents", candidate)),
+    );
+    expect(accepted.alertedAt).toBeUndefined();
+    f.setBackup((job) => {
+      const saved = f.snapshot(job, 4, 1_000);
+      f.inventory.push(saved);
+      return ok(saved);
+    });
+    await scheduled(f, localTime(24, 12));
+    expect(backups()).toBe(ran + 1);
+    expect((await documentsReceipt(f))?.outcome).toBe("accepted-changed");
+    expect(f.alerts).toHaveLength(2);
+  },
+);
+
+test("an unconfirmed review alert is retried at the next wake-up, before the daily hour", async () => {
+  const f = await fixture();
+  await scheduled(f, localTime(22, 11));
+  shrinkDocuments(f);
+  f.setAlertResponse(502, "{}");
+  await f.run(
+    Effect.flatMap(MacBackup, (service) => service.run(["documents"], false)).pipe(
+      atTime(localTime(22, 18)),
+    ),
+  );
+  expect(f.alerts).toHaveLength(1);
+  expect((await documentsReceipt(f))?.alertedAt).toBeUndefined();
+
+  await scheduled(f, localTime(22, 19));
+  expect(f.alerts).toHaveLength(2);
+  expect((await documentsReceipt(f))?.alertedAt).toBeUndefined();
+
+  f.setAlertResponse(202);
+  await scheduled(f, localTime(23, 8));
+  expect(f.alerts).toHaveLength(3);
+  expect((await documentsReceipt(f))?.alertedAt).toEqual(DateTime.makeUnsafe(localTime(23, 8)));
+  await scheduled(f, localTime(23, 11));
+  expect(f.alerts).toHaveLength(3);
+});
+
+test("disabled alerts never read the token or rewrite a pending review", async () => {
+  const f = await fixture();
+  Object.assign(f.settings, { alert: { protocol: "disabled" } });
+  await scheduled(f, localTime(22, 11));
+  shrinkDocuments(f);
+  await f.run(
+    Effect.flatMap(MacBackup, (service) => service.run(["documents"], false)).pipe(
+      atTime(localTime(22, 18)),
+    ),
+  );
+  const pending = await documentsReceipt(f);
+  await scheduled(f, localTime(23, 11));
+  expect(await documentsReceipt(f)).toEqual(pending);
+  expect(pending?.alertedAt).toBeUndefined();
+  expect(f.alerts).toEqual([]);
+  expect(f.secretReads).not.toContain("alert-token");
+});
+
+test("rejecting the exact candidate keeps the accepted anchors and backs the job up again", async () => {
+  const f = await fixture();
+  const [initial] = await scheduled(f, localTime(22, 11));
+  shrinkDocuments(f);
+  const [review] = await f.run(
+    Effect.flatMap(MacBackup, (service) => service.run(["documents"], false)).pipe(
+      atTime(localTime(22, 18)),
+    ),
+  );
+  await fails(
+    f.run(Effect.flatMap(MacBackup, (service) => service.reject("documents", id(999)))),
+    "exact review-required",
+  );
+  const rejected = await f.run(
+    Effect.flatMap(MacBackup, (service) => service.reject("documents", review!.candidate!.id)),
+  );
+  expect(rejected.outcome).toBe("failed");
+  expect(rejected.current).toEqual(initial?.current);
+  expect(rejected.candidate).toBeUndefined();
+  expect(rejected.alertedAt).toBeUndefined();
+  f.setBackup((job) => {
+    const saved = f.snapshot(job, 10, 1_000);
+    f.inventory.push(saved);
+    return ok(saved);
+  });
+  await scheduled(f, localTime(23, 11));
+  const rerun = await documentsReceipt(f);
+  expect(rerun?.outcome).toBe("accepted-changed");
+  expect(rerun?.previous).toEqual(initial?.current);
+});
+
+test("Rustic's missing-cache-file warning alone does not reject an operation", async () => {
+  const f = await fixture();
+  const cacheWarning =
+    "[WARN] Error in cache backend removing Pack,e8b1ac2f: Error: Failed to remove file at `/cache/data/e8/e8b1` (kind: related to input/output operations): caused by: No such file or directory (os error 2)";
+  f.setBackup((job) => {
+    const saved = f.snapshot(job);
+    f.inventory.push(saved);
+    return {
+      ...ok(saved),
+      stderr: job === "documents" ? cacheWarning : `${cacheWarning}\n[WARN] permission denied`,
+    };
+  });
+  const [documents, images] = await f.backup();
+  expect(documents?.outcome).toBe("accepted-changed");
+  expect(images?.outcome).toBe("failed");
+});
+
+test("a lock held by a live process never alerts; a stale lock alerts once per local day", async () => {
+  const f = await fixture();
+  const lock = join(f.settings.stateDirectory, f.settings.repository, "repository.lock");
+  const hold = async (pid: number, startedAt: number) => {
+    await mkdir(lock, { recursive: true });
+    await writeFile(
+      join(lock, "owner.json"),
+      JSON.stringify({ pid, startedAt: DateTime.formatIso(DateTime.makeUnsafe(startedAt)) }),
+    );
+  };
+  // Taken at the pinned time: a lock older than the last boot counts as stale, and a CI
+  // runner may have booted less than a minute ago.
+  await hold(process.pid, localTime(22, 11));
+  await fails(scheduled(f, localTime(22, 11)), "lock unavailable");
+  expect(f.alerts).toEqual([]);
+
+  const exited = spawnSync(process.execPath, ["-e", ""]).pid;
+  await hold(exited, localTime(22, 10, 59));
+  await fails(scheduled(f, localTime(22, 11)), "Stale repository lock");
+  await fails(scheduled(f, localTime(22, 23)), "Stale repository lock");
+  expect(f.alerts).toHaveLength(1);
+  expect((await alertBodies(f))[0]!.metadata.operation).toBe("rustic backup run");
+  // A manual run is interactive and never alerts.
+  await fails(scheduled(f, localTime(23, 11), false), "Stale repository lock");
+  await fails(scheduled(f, localTime(23, 11)), "Stale repository lock");
+  expect(f.alerts).toHaveLength(2);
+  expect(f.calls).toEqual([]);
+});
+
+test("other scheduled run failures alert once per local day without blocking maintenance", async () => {
+  const f = await fixture();
+  for (const job of jobs) await f.seed(job, [f.snapshot(job), f.snapshot(job)]);
+  const directory = join(f.settings.stateDirectory, f.settings.repository);
+  const valid = await readFile(join(directory, "documents.json"), "utf8");
+  await writeFile(join(directory, "documents.json"), "broken");
+  await fails(scheduled(f, localTime(22, 11)), "Invalid documents state");
+  await fails(scheduled(f, localTime(22, 12)), "Invalid documents state");
+  expect(f.alerts).toHaveLength(1);
+  expect((await alertBodies(f))[0]!.metadata.operation).toBe("rustic backup run");
+
+  // The stamp is not a receipt, so it does not block maintenance --apply.
+  await writeFile(join(directory, "documents.json"), valid);
+  await f.run(Effect.flatMap(MacBackup, (service) => service.maintenance(true, false)));
+  // A successful scheduled run clears the stamp: the next failure alerts at once.
+  await scheduled(f, localTime(22, 13));
+  await writeFile(join(directory, "documents.json"), "broken");
+  await fails(scheduled(f, localTime(22, 14)), "Invalid documents state");
+  expect(f.alerts).toHaveLength(2);
+});
+
 test("all retention previews must validate before any forget is applied", async () => {
   const f = await fixture();
   for (const job of jobs) await f.seed(job, [f.snapshot(job), f.snapshot(job)]);
@@ -939,6 +1171,19 @@ test("unknown history requires acknowledgement, and failed receipts block mainte
     ),
     "unresolved failures",
   );
+  await fails(
+    f.run(
+      Effect.gen(function* () {
+        return yield* (yield* MacBackup).maintenance(false, false);
+      }),
+    ),
+    "unresolved failures",
+  );
+  // Only --apply alerts; the preview above is interactive.
+  expect((await alertBodies(f)).map((body) => body.metadata)).toEqual([
+    { hostname: "fixture-host", operation: "rustic maintenance" },
+    { hostname: "fixture-host", operation: "rustic maintenance" },
+  ]);
 });
 
 test("stale mutexes and corrupt state fail closed without overwriting receipts", async () => {

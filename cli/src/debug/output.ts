@@ -32,7 +32,7 @@ export interface OutputPreview {
   readonly path: string;
   readonly empty?: boolean;
   readonly input?: "permission" | "question" | "auth";
-  readonly render: (empty: boolean, delay: number) => Effect.Effect<void, unknown>;
+  readonly render: (empty: boolean, delay: number) => Effect.Effect<void, Schema.SchemaError>;
 }
 
 const HASH = "a31d8f924ae78011cfa6a64dc5df22871c6f1f2c67de637654b2b66366c50192";
@@ -560,15 +560,21 @@ function backupPreviews(platform: HostPlatform): OutputPreview[] {
     current: { id: HASH, tree: "b".repeat(64), files: 2431, bytes: 187654321 },
     knownIds: [HASH],
   };
-  for (const action of ["status", "run", "run-due", "accept"]) {
+  for (const action of ["status", "run", "run-due", "accept", "reject"]) {
     previews.push(
       sample(
         `backups ${action}`,
         (empty) =>
           action === "accept"
             ? printBackupJson(JobState, receipt)
-            : printBackupJson(Schema.Array(JobState), empty ? [] : [receipt]),
-        action === "accept" ? {} : { empty: true },
+            : action === "reject"
+              ? printBackupJson(JobState, {
+                  ...receipt,
+                  outcome: "failed",
+                  error: `Candidate ${"d".repeat(64)} was rejected; documents backs up again in its next scheduled slot.`,
+                })
+              : printBackupJson(Schema.Array(JobState), empty ? [] : [receipt]),
+        action === "accept" || action === "reject" ? {} : { empty: true },
       ),
     );
   }

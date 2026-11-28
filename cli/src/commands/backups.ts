@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import { BunServices } from "@effect/platform-bun";
-import { Console, DateTime, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { Console, DateTime, Effect, Layer, Option, Redacted, Result, Schema } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
 
@@ -57,6 +57,7 @@ const configured = Effect.fn("configured")(function* <A, E>(
     FetchHttpClient.layer,
   ).pipe(Layer.provide(BunServices.layer));
   const live = Backup.layer.pipe(Layer.provideMerge(dependencies));
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- entry point: the layer depends on this command's --profile flag.
   return yield* program.pipe(Effect.provide(live));
 });
 
@@ -106,9 +107,16 @@ const due = Command.make(
     yield* configured(
       Effect.gen(function* () {
         const service = yield* Backup;
-        const states = yield* service.run((yield* Settings).jobs, true);
+        const ran = yield* Effect.result(service.run((yield* Settings).jobs, true));
+        // A job failure must not skip the weekly check; a held or stale lock blocks it too.
+        if (Result.isFailure(ran) && ran.failure.reason !== undefined) {
+          return yield* ran.failure;
+        }
         yield* service.check(false, true);
-        yield* report(states);
+        if (Result.isFailure(ran)) {
+          return yield* ran.failure;
+        }
+        yield* report(ran.success);
       }),
     );
   }),
@@ -209,6 +217,22 @@ const accept = Command.make(
     );
   }),
 ).pipe(Command.withDescription("Approve the exact saved shrinkage candidate after inspection"));
+
+const reject = Command.make(
+  "reject",
+  { job: jobArgument, id: idArgument },
+  Effect.fn("cli.reject")(function* ({ job, id }) {
+    yield* configured(
+      Effect.gen(function* () {
+        yield* printBackupJson(JobState, yield* (yield* Backup).reject(job, id));
+      }),
+    );
+  }),
+).pipe(
+  Command.withDescription(
+    "Discard the exact saved shrinkage candidate; the job backs up again in its next slot",
+  ),
+);
 
 const restore = Command.make(
   "restore",
@@ -363,6 +387,7 @@ export const makeBackupsCommand = () =>
       check,
       restore,
       accept,
+      reject,
       maintenance,
       secrets,
       schedule,

@@ -6,14 +6,14 @@ import { toError } from "@/effect";
 import { normalizeWorkerUrl, resolveLockfileCredentials } from "@/sync/keychain";
 import type { CliRequestInit, LockfileCredentials } from "@/sync/types";
 
-export class WorkerResponseError extends Schema.TaggedError<WorkerResponseError>()(
-  "WorkerResponseError",
-  {
-    status: Schema.Finite,
-    detail: Schema.String,
-    message: Schema.String,
-  },
-) {}
+export class WorkerResponseError extends Schema.TaggedError<
+  WorkerResponseError,
+  { readonly brand: unique symbol }
+>()("WorkerResponseError", {
+  status: Schema.Finite,
+  detail: Schema.String,
+  message: Schema.String,
+}) {}
 
 function endpoint(workerUrl: string, parts: ReadonlyArray<string>): string {
   return `${workerUrl}/${parts.map(encodeURIComponent).join("/")}`;
@@ -77,6 +77,7 @@ export const requestEffect = Effect.fn("lockfiles.request")(function* (
         new Response(responseBytes, { status: httpResponse.status, headers: httpResponse.headers }),
       catch: toError,
     });
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- also run outside the CLI root (update/nix/lock.ts); FetchHttpClient is stateless.
   }).pipe(Effect.timeout(15_000), Effect.mapError(toError), Effect.provide(FetchHttpClient.layer));
   if (response.ok) {
     return response;

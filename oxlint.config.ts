@@ -50,6 +50,9 @@ const builtinRules: DummyRuleMap = {
   "typescript/no-implied-eval": "error",
   "typescript/no-unsafe-type-assertion": "off",
   "typescript/no-unnecessary-type-assertion": "off",
+  // Contradicts effecttsgo/missing-return-yield-star (`return yield* failure` in
+  // generators); exhaustive switches and return types are already checked by tsrs.
+  "typescript/consistent-return": "off",
   "no-unused-vars": [
     "error",
     {

@@ -9,6 +9,15 @@ import "@fontsource/zilla-slab/600.css";
 import "@fontsource/zilla-slab/700.css";
 import "@fontsource/google-sans-code";
 import "@fontsource/google-sans-code/600.css";
+// Latin IBM Plex Sans faces used above the fold (body 400, links 500,
+// headings and active link 600, header brand 700). Preloading them lets the
+// first paint of every full-page navigation use the webfont instead of
+// swapping from the system font. Vite gives these the same hashed URLs the
+// fontsource CSS references, so nothing downloads twice.
+import plex400 from "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2?url";
+import plex500 from "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2?url";
+import plex600 from "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2?url";
+import plex700 from "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2?url";
 import "../styles/globals.css";
 import "../styles/prose.css";
 import { config } from "virtual:nimbus/config";
@@ -97,6 +106,15 @@ const llmsUrl = Astro.site
         window.nbApplyTheme = applyTheme;
       })();
     </script>
+    {[plex400, plex500, plex600, plex700].map((href) => (
+      <link
+        rel="preload"
+        as="font"
+        type="font/woff2"
+        href={href}
+        crossorigin="anonymous"
+      />
+    ))}
     <NimbusHead
       title={title}
       description={description}

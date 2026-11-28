@@ -58,7 +58,7 @@ function client() {
   const { env, blobs } = storage();
   return {
     blobs,
-    push: (body: string, ifMatch?: string) => {
+    push: async (body: string, ifMatch?: string) => {
       const headers = new Headers(auth);
       if (ifMatch !== undefined) {
         headers.set("If-Match", ifMatch);
@@ -130,7 +130,9 @@ describe("PUT /lockfiles/:machine/:kind", () => {
     const parent = `"${hashOf("base\n")}"`;
     const bodies = ["mine\n", "theirs\n"];
     const responses = await Promise.all(bodies.map((body) => api.push(body, parent)));
-    expect(responses.map((response) => response.status).toSorted()).toEqual([200, 412]);
+    expect(responses.map((response) => response.status).toSorted((a, b) => a - b)).toEqual([
+      200, 412,
+    ]);
     const winner = bodies[responses.findIndex((response) => response.status === 200)]!;
     const loser = responses.find((response) => response.status === 412)!;
     expect(await loser.json()).toMatchObject({ current_hash: hashOf(winner) });

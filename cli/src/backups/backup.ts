@@ -1,8 +1,11 @@
+import { uptime } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { Context, DateTime, Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { stringify } from "smol-toml";
+
+import { commandPrefix } from "@/config/paths";
 
 import {
   Anchor,
@@ -16,18 +19,18 @@ import {
 } from "./model.ts";
 import { Processes, parseJson, successful } from "./process.ts";
 import { Secrets } from "./secrets.ts";
-import { Settings } from "./settings.ts";
+import { Settings, type SettingsData } from "./settings.ts";
 
 const startOfHour = (time: DateTime.Zoned, hour: number) =>
   DateTime.setParts(time, { hour, minute: 0, second: 0, millisecond: 0 });
 
 /**
- * Daily (the default): due once per local day from `hour`; an earlier same-day backup counts.
+ * Daily (the default): due once per local day from `hour`; an earlier same-day event counts.
  * Shorter intervals: slots start every `intervalHours` from `hour`, wrapping across midnight,
- * and a job is due when nothing was accepted since the current slot started.
+ * and something is due when `since` (the last accepted backup or alert) predates the current slot.
  */
 export const isDue = (
-  state: JobState | undefined,
+  since: DateTime.Utc | undefined,
   now: DateTime.Utc,
   zone = DateTime.zoneMakeLocal(),
   { hour = 10, intervalHours = 24 }: { hour?: number; intervalHours?: number } = {},
@@ -49,10 +52,7 @@ export const isDue = (
   } else {
     start = startOfHour(DateTime.subtract(local, { days: 1 }), first + 24 - intervalHours);
   }
-  return (
-    state?.acceptedAt === undefined ||
-    DateTime.toEpochMillis(state.acceptedAt) < DateTime.toEpochMillis(start)
-  );
+  return since === undefined || DateTime.toEpochMillis(since) < DateTime.toEpochMillis(start);
 };
 
 export const isCheckDue = (
@@ -78,6 +78,105 @@ const canonicalPath = (path: string) =>
   process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
 
 const localFailure = (message: string) => new BackupError({ message });
+
+// Rustic warns when a cache file it is removing is already gone; the repository is unaffected.
+const missingCacheFile =
+  /^.*\[WARN\] Error in cache backend removing .*No such file or directory.*$/gm;
+
+const LockOwner = Schema.Struct({ pid: Schema.Int, startedAt: Schema.DateTimeUtcFromString });
+
+const processAlive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: the process exists but belongs to another user.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+const backupDue = (state: JobState | undefined, now: DateTime.Utc, config: SettingsData) =>
+  isDue(state?.acceptedAt, now, DateTime.zoneMakeLocal(), {
+    hour: config.dailyHour,
+    intervalHours: config.intervalHours,
+  });
+
+// Repeating alerts go out once per local day from the profile's daily hour.
+const alertDue = (since: DateTime.Utc | undefined, now: DateTime.Utc, hour: number) =>
+  isDue(since, now, DateTime.zoneMakeLocal(), { hour, intervalHours: 24 });
+
+// An unconfirmed first review alert has no alertedAt and is retried at once,
+// even before the daily hour.
+const reminderDue = (state: JobState, now: DateTime.Utc, hour: number) =>
+  state.alertedAt === undefined || alertDue(state.alertedAt, now, hour);
+
+// Last confirmed run-failure alert. Never a .json file: maintenance treats those as receipts.
+const RUN_ALERT_STAMP = "run-alert.stamp";
+
+function managerCommand(config: SettingsData): string {
+  return [
+    config.configPath === undefined
+      ? "outfitting-manager"
+      : commandPrefix(config.configPath, process.platform === "win32"),
+    "backups",
+    ...(config.backupProfile === undefined ? [] : ["--profile", config.backupProfile]),
+  ].join(" ");
+}
+
+function reviewMessage(state: JobState, command: string): string {
+  const { job, candidate, current } = state;
+  const since = DateTime.formatIso(state.finishedAt ?? state.startedAt);
+  return [
+    `${job} has a candidate snapshot waiting for review since ${since}. Until you accept or reject it, ${job} is not backed up.`,
+    state.error,
+    candidate === undefined
+      ? undefined
+      : `Candidate ${candidate.id}: ${candidate.files} files, ${candidate.bytes} bytes.`,
+    current === undefined
+      ? undefined
+      : `Last accepted ${current.id}: ${current.files} files, ${current.bytes} bytes.`,
+    `Inspect: ${command} snapshots --job ${job}`,
+    candidate === undefined ? undefined : `Accept: ${command} accept ${job} ${candidate.id}`,
+    candidate === undefined ? undefined : `Reject: ${command} reject ${job} ${candidate.id}`,
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
+}
+
+// A lock is stale when its owner exited, the machine rebooted since it was taken,
+// or it is a day old. Anything else is another operation still running.
+const lockFailure = Effect.fn("Backup.lockFailure")(function* (
+  fs: FileSystem.FileSystem,
+  lockPath: string,
+) {
+  const now = DateTime.toEpochMillis(yield* DateTime.now);
+  const owner = yield* fs
+    .readFileString(join(lockPath, "owner.json"))
+    .pipe(Effect.flatMap(parseJson(LockOwner)), Effect.option);
+  let stale: boolean;
+  if (Option.isSome(owner)) {
+    const startedAt = DateTime.toEpochMillis(owner.value.startedAt);
+    stale =
+      !processAlive(owner.value.pid) ||
+      startedAt < now - uptime() * 1_000 ||
+      now - startedAt > 24 * 60 * 60 * 1_000;
+  } else {
+    // The owner file is written right after the directory; give a new lock a moment.
+    const modified = (yield* fs.stat(lockPath).pipe(Effect.option)).pipe(
+      Option.flatMap((info) => info.mtime),
+    );
+    stale = Option.isSome(modified) && now - modified.value.getTime() > 5 * 60 * 1_000;
+  }
+  return stale
+    ? new BackupError({
+        message: `Stale repository lock: ${lockPath}. Its process is gone, so every backup operation is blocked. Confirm nothing is running, then remove that directory.`,
+        reason: "stale-lock",
+      })
+    : new BackupError({
+        message: `Repository lock unavailable: ${lockPath}. Another backup operation is running; this one was skipped.`,
+        reason: "lock",
+      });
+});
 
 function acceptedHistory(
   state: JobState | undefined,
@@ -110,6 +209,7 @@ export class Backup extends Context.Service<
       acknowledgeHistory: boolean,
     ): Effect.Effect<ReadonlyArray<string>, BackupError>;
     accept(job: Job, id: string): Effect.Effect<JobState, BackupError>;
+    reject(job: Job, id: string): Effect.Effect<JobState, BackupError>;
     restore(job: Job, id: string, destination: string): Effect.Effect<void, BackupError>;
   }
 >()("backup/Backup") {
@@ -175,19 +275,15 @@ export class Backup extends Context.Service<
         ),
       );
 
+      const lockPath = join(directory, "repository.lock");
+
       const lock = Effect.fn("MacBackup.lock")(function* () {
         yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 });
-        const path = join(directory, "repository.lock");
+        const path = lockPath;
         yield* Effect.acquireRelease(
           fs
             .makeDirectory(path, { mode: 0o700 })
-            .pipe(
-              Effect.mapError(() =>
-                localFailure(
-                  `Repository lock unavailable: ${path}. Check for another run or an interrupted process; locks are never expired automatically.`,
-                ),
-              ),
-            ),
+            .pipe(Effect.catch(() => Effect.flatMap(lockFailure(fs, path), Effect.fail))),
           () => fs.remove(path, { recursive: true }).pipe(Effect.orDie),
         );
         yield* fs.writeFileString(
@@ -247,7 +343,7 @@ export class Backup extends Context.Service<
             output.stderr,
           );
           yield* successful({ ...output, stderr }, `rustic ${args[0] ?? "operation"}`);
-          if (/\[(WARN|ERROR)\]/.test(stderr)) {
+          if (/\[(WARN|ERROR)\]/.test(stderr.replaceAll(missingCacheFile, ""))) {
             return yield* localFailure(
               `Rustic reported warnings/errors; operation was not accepted. ${stderr.slice(-3_000)}`,
             );
@@ -263,7 +359,7 @@ export class Backup extends Context.Service<
       const notify = Effect.fn("MacBackup.notify")(
         function* (operation: string, message: string, job?: Job) {
           if (config.alert.protocol === "disabled") {
-            return;
+            return false;
           }
           const token = yield* secrets.get("alert-token");
           const timestamp = DateTime.formatIso(yield* DateTime.now);
@@ -298,14 +394,70 @@ export class Backup extends Context.Service<
           yield* Schema.decodeUnknownEffect(
             Schema.Struct({ sent: Schema.Literal(true), message_id: Schema.NonEmptyString }),
           )(yield* response.json);
+          return true;
         },
         Effect.timeout("20 seconds"),
         Effect.catch(() =>
-          Effect.logWarning(
-            "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+          Effect.as(
+            Effect.logWarning(
+              "Failure notification was not confirmed accepted; original backup outcome is unchanged.",
+            ),
+            false,
           ),
         ),
       );
+
+      // The stamp records the last confirmed alert; it is never a .json file, which
+      // maintenance would treat as a retired receipt.
+      const notifyDaily = Effect.fn("Backup.notifyDaily")(
+        function* (stamp: string, operation: string, message: string) {
+          const now = yield* DateTime.now;
+          const last = yield* fs.readFileString(stamp).pipe(
+            Effect.map((text) => DateTime.make(text.trim())),
+            Effect.orElseSucceed(() => Option.none<DateTime.Utc>()),
+          );
+          if (!alertDue(Option.getOrUndefined(last), now, config.dailyHour)) {
+            return;
+          }
+          if (yield* notify(operation, message)) {
+            yield* fs.makeDirectory(dirname(stamp), { recursive: true, mode: 0o700 });
+            yield* fs.writeFileString(stamp, DateTime.formatIso(now), { mode: 0o600 });
+          }
+        },
+        (effect) => Effect.ignore(effect),
+      );
+
+      // The first alert always goes out; reminders only from scheduled runs, once per local
+      // day. An unconfirmed alert is not recorded, so the next scheduled wake-up retries it.
+      const alertReview = Effect.fn("Backup.alertReview")(function* (
+        state: JobState,
+        reminder?: { scheduled: boolean },
+      ) {
+        if (
+          reminder !== undefined &&
+          !(reminder.scheduled && reminderDue(state, yield* DateTime.now, config.dailyHour))
+        ) {
+          return state;
+        }
+        const operation =
+          reminder === undefined
+            ? `rustic backup (${state.job})`
+            : `backup review reminder (${state.job})`;
+        const message = reviewMessage(state, managerCommand(config));
+        if (!(yield* notify(operation, message, state.job))) {
+          return state;
+        }
+        const alerted: JobState = { ...state, alertedAt: yield* DateTime.now };
+        return yield* writeState(alerted).pipe(
+          Effect.as(alerted),
+          Effect.catch(() =>
+            Effect.as(
+              Effect.logWarning("Could not record the review alert; it may be repeated."),
+              state,
+            ),
+          ),
+        );
+      });
 
       const list = Effect.fn("MacBackup.list")(function* (job?: Job) {
         const output = yield* invoke([
@@ -475,8 +627,12 @@ export class Backup extends Context.Service<
         );
         receipt = { ...receipt, finishedAt: yield* DateTime.now };
         yield* writeState(receipt);
-        if (receipt.outcome === "failed" || receipt.outcome === "review-required") {
+        if (receipt.outcome === "failed") {
           yield* notify(`rustic backup (${job})`, receipt.error ?? receipt.outcome, job);
+        }
+        if (receipt.outcome === "review-required") {
+          // Recording the alert keeps the next wake-up from reminding right away.
+          receipt = yield* alertReview(receipt);
         }
         return receipt;
       });
@@ -496,16 +652,10 @@ export class Backup extends Context.Service<
             yield* Effect.gen(function* () {
               const previous = yield* readState(job);
               if (previous?.outcome === "review-required") {
-                results.push(previous);
+                results.push(yield* alertReview(previous, { scheduled: due }));
                 return;
               }
-              if (
-                due &&
-                !isDue(previous, yield* DateTime.now, DateTime.zoneMakeLocal(), {
-                  hour: config.dailyHour,
-                  intervalHours: config.intervalHours,
-                })
-              ) {
+              if (due && !backupDue(previous, yield* DateTime.now, config)) {
                 return;
               }
               const guardedProcesses = policy(job)?.skipIfProcessesRunning ?? [];
@@ -566,6 +716,26 @@ export class Backup extends Context.Service<
         Effect.mapError((error) =>
           Schema.is(BackupError)(error) ? error : localFailure("Could not run backups."),
         ),
+        // Scheduled runs only. A success re-arms the daily run-failure alert. Another
+        // operation holding the lock is not a fault: the jobs stay due and the next
+        // wake-up retries.
+        (effect, _selected, due) =>
+          due
+            ? effect.pipe(
+                Effect.tap(() => fs.remove(join(directory, RUN_ALERT_STAMP)).pipe(Effect.ignore)),
+                Effect.tapError((error) =>
+                  error.reason === "lock"
+                    ? Effect.void
+                    : notifyDaily(
+                        error.reason === "stale-lock"
+                          ? join(lockPath, "alerted-at")
+                          : join(directory, RUN_ALERT_STAMP),
+                        "rustic backup run",
+                        error.message,
+                      ),
+                ),
+              )
+            : effect,
       );
 
       const check = Effect.fn("MacBackup.check")(
@@ -596,7 +766,11 @@ export class Backup extends Context.Service<
         Effect.mapError((error) =>
           Schema.is(BackupError)(error) ? error : localFailure("Repository check failed."),
         ),
-        Effect.tapError((error) => notify("rustic repository check", error.message)),
+        Effect.tapError((error) =>
+          error.reason === undefined
+            ? notify("rustic repository check", error.message)
+            : Effect.void,
+        ),
       );
 
       const maintenanceStates = Effect.gen(function* () {
@@ -763,6 +937,11 @@ export class Backup extends Context.Service<
         Effect.mapError((error) =>
           Schema.is(BackupError)(error) ? error : localFailure("Maintenance failed."),
         ),
+        // Weekly by schedule; previews are interactive and never alert.
+        (effect, apply) =>
+          Effect.tapError(effect, (error) =>
+            apply ? notify("rustic maintenance", error.message) : Effect.void,
+          ),
       );
 
       const accept = Effect.fn("MacBackup.accept")(
@@ -781,13 +960,38 @@ export class Backup extends Context.Service<
             current: state.candidate,
             previous: state.current,
           };
-          const { error: _error, ...clean } = accepted;
+          const { error: _error, alertedAt: _alertedAt, ...clean } = accepted;
           yield* writeState(clean);
           return clean;
         },
         Effect.scoped,
         Effect.mapError((error) =>
           Schema.is(BackupError)(error) ? error : localFailure("Could not accept candidate."),
+        ),
+      );
+
+      // Discards the candidate and leaves the accepted anchors untouched; acceptedAt does not
+      // move, so the job backs up again in its next scheduled slot.
+      const reject = Effect.fn("Backup.reject")(
+        function* (job: Job, id: string) {
+          yield* requireJob(job);
+          yield* lock();
+          const state = yield* readState(job);
+          if (state?.outcome !== "review-required" || state.candidate?.id !== id) {
+            return yield* localFailure("Only the exact review-required candidate can be rejected.");
+          }
+          const { candidate: _candidate, alertedAt: _alertedAt, ...rest } = state;
+          const rejected: JobState = {
+            ...rest,
+            outcome: "failed",
+            error: `Candidate ${id} was rejected; ${job} backs up again in its next scheduled slot.`,
+          };
+          yield* writeState(rejected);
+          return rejected;
+        },
+        Effect.scoped,
+        Effect.mapError((error) =>
+          Schema.is(BackupError)(error) ? error : localFailure("Could not reject candidate."),
         ),
       );
 
@@ -842,7 +1046,7 @@ export class Backup extends Context.Service<
         ),
       );
 
-      return Backup.of({ run, status, snapshots, check, maintenance, accept, restore });
+      return Backup.of({ run, status, snapshots, check, maintenance, accept, reject, restore });
     }),
   );
 }

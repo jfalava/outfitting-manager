@@ -65,9 +65,11 @@ test("reports complete root records with matching window titles, real progress, 
     records.every((record) => record.app === "outfitting-manager" && record.id === undefined),
   ).toBe(true);
   expect(records.at(-1)?.msg).toBe("nix switch: Done");
-  expect(chunks.filter((chunk) => chunk.startsWith("\u001b]2;"))).toEqual(
-    records.map((record) => `\u001b]2;${record.title}\u001b\\`),
-  );
+  expect(chunks.filter((chunk) => chunk.startsWith("\u001b]2;"))).toEqual([
+    ...records.slice(0, -1).map((record) => `\u001b]2;${record.title}\u001b\\`),
+    "\u001b]2;\u001b\\",
+  ]);
+  expect(chunks.at(-1)).toBe("\u001b]2;\u001b\\");
   expect(chunks.join("")).not.toContain("state=clear");
   expect(chunks.join("")).not.toContain("\u0007");
 });
@@ -94,6 +96,15 @@ test.each(["done", "idle", "error"] as const)(
     expect(reports(chunks).at(-1)?.progress).toBeUndefined();
   },
 );
+
+test("a failed command hands the window title back after its error alert", () => {
+  const { session, chunks } = capture();
+  session.begin(["outfitting-manager", "apply"]);
+  session.alert("error");
+  session.close("error");
+  expect(reports(chunks).at(-1)).toMatchObject({ state: "error", title: "Outfitting: Failed" });
+  expect(chunks.at(-1)).toBe("\u001b]2;\u001b\\");
+});
 
 test("partial failures survive a successful close without publishing the summary prematurely", () => {
   const { session, chunks } = capture();

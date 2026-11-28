@@ -160,7 +160,8 @@ function validateJobInventory(profile: Profile, policies: Readonly<Record<string
           tag.length === 0 ||
           tag.trim() !== tag ||
           tag.includes(",") ||
-          [...tag].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+          // oxlint-disable-next-line no-control-regex -- snapshot tags cannot contain controls.
+          /[\u0000-\u001f\u007f]/.test(tag) ||
           (tag !== snapshot.name && names.has(tag)),
       )
     ) {

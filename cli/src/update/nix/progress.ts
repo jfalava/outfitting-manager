@@ -42,10 +42,10 @@ export interface NixBuildProgressOptions {
 
 export interface NixBuildProgress {
   /** One stderr line of `nix build --log-format internal-json`. */
-  feed(line: string): void;
-  finish(success: boolean): void;
+  feed: (line: string) => void;
+  finish: (success: boolean) => void;
   /** Nix's own error messages, or its last raw output lines when it printed none. */
-  failureDetail(): string;
+  failureDetail: () => string;
 }
 
 const NixEventSchema = Schema.Struct({
@@ -680,7 +680,7 @@ function liveRows(stream: NodeJS.WriteStream, state: NixBuildState) {
 export function createNixBuildProgress(options: NixBuildProgressOptions = {}): NixBuildProgress {
   const stream = options.stream ?? process.stderr;
   const now = options.now ?? Date.now;
-  const isTTY = stream.isTTY === true;
+  const isTTY = stream.isTTY;
   let finished = false;
   const log = (message: string) =>
     rows !== undefined && !finished ? rows.log(message) : stream.write(`${message}\n`);

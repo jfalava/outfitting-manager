@@ -373,7 +373,7 @@ describe("recoverNix", () => {
           activate: async () => {
             calls.push("unexpected nix-darwin activation");
           },
-          push: () => Effect.sync(() => undefined),
+          push: () => Effect.undefined,
         }),
       );
     } finally {

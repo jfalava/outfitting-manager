@@ -55,7 +55,7 @@ outfitting-manager backups run --job project-data
 
 **Syntax:** `outfitting-manager backups run-due`
 
-Run backup jobs that are currently due and perform a weekly repository integrity check if due. Jobs are due once per day after 10:00 on macOS, 09:00 on Windows, or 00:00 on Linux, or once per slot when the profile sets `intervalHours`. Weekly checks run after Sunday 15:00.
+Run backup jobs that are currently due and perform a weekly repository integrity check if due. Jobs are due once per day after 10:00 on macOS, 09:00 on Windows, or 00:00 on Linux, or once per slot when the profile sets `intervalHours`. Weekly checks run after Sunday 15:00, even when a job failed. While a candidate waits for review, `run-due` sends a reminder once per local day until you `accept` or `reject` it. A lock held by another running operation skips the run without an alert; a stale lock alerts once per day.
 
 ```sh
 outfitting-manager backups run-due
@@ -101,7 +101,7 @@ outfitting-manager backups check --read-data
 
 **Syntax:** `outfitting-manager backups maintenance [--apply] [--acknowledge-history]`
 
-Preview or apply snapshot retention and pruning. By default, previews planned snapshot deletions while protecting accepted recovery anchors. Use `--apply` to apply retention and run two-phase pruning.
+Preview or apply snapshot retention and pruning. By default, previews planned snapshot deletions while protecting accepted recovery anchors. Use `--apply` to apply retention and run two-phase pruning. A failed `--apply` sends an alert; a failed preview does not.
 
 Retention inherits Rustic `[forget]` with optional per-job Outfitting counter overrides. Overlapping job-identity tags block retention. Receipts for removed jobs block `--apply` until reconciled; `--acknowledge-history` does not bypass these safeguards.
 
@@ -129,6 +129,21 @@ Approve a backup candidate whose file count or processed bytes shrank by more th
 
 ```sh
 outfitting-manager backups accept project-data 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+| Argument        | Description                                                          |
+| --------------- | -------------------------------------------------------------------- |
+| `<job>`         | The configured Rustic snapshot `name` associated with the candidate. |
+| `<snapshot-id>` | The 64-character hexadecimal snapshot ID saved in the receipt.       |
+
+## `reject`
+
+**Syntax:** `outfitting-manager backups reject <job> <snapshot-id>`
+
+Discard a `review-required` candidate after inspection. The receipt becomes `failed`, keeps its accepted recovery anchors, and stops review reminders. The job backs up again in its next scheduled slot; if the shrinkage is real, the new candidate needs review again.
+
+```sh
+outfitting-manager backups reject project-data 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 | Argument        | Description                                                          |
@@ -201,9 +216,9 @@ outfitting-manager backups schedule --binary ~/.local/bin/outfitting-manager
 outfitting-manager backups schedule --binary "C:\Users\username\AppData\Local\Programs\OutfittingManager\outfitting-manager.exe" --launcher "C:\Users\username\AppData\Local\rustic-backup\run-hidden.js"
 ```
 
-| Option            | Description                                                               |
-| ----------------- | ------------------------------------------------------------------------- |
-| `--binary <path>` | Path to the installed `outfitting-manager` executable to run on schedule. |
+| Option              | Description                                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--binary <path>`   | Path to the installed `outfitting-manager` executable to run on schedule.                                                                                              |
 | `--launcher <path>` | Windows only, required. Absolute path to the [hidden launcher](/docs/backups/setup/#install-rustic) that starts `pwsh.exe` without a window and returns its exit code. |
 
 ## Global options

@@ -67,7 +67,7 @@ test("canonical command titles precede the handler and preserve grouped aliases 
   expect(values).toEqual(["private-profile:secret-token"]);
   expect(captured.chunks.join("")).not.toContain("secret-token");
   expect(captured.chunks.join("")).not.toContain("private-profile");
-  expect(captured.chunks.at(-1)).toContain("state=done");
+  expect(captured.chunks.at(-2)).toContain("state=done");
   expect(process.exitCode).toBeUndefined();
 });
 
@@ -113,8 +113,9 @@ test.each(["failure", "defect"])("%s retains the error and preserves exit code",
   await Effect.runPromise(runCli(root, "1.0.0", ["update"], captured.options));
 
   expect(process.exitCode).toBe(1);
-  expect(captured.chunks.at(-1)).toContain("state=error");
+  expect(captured.chunks.at(-2)).toContain("state=error");
   expect(captured.chunks).toContain("\u001b]2;Outfitting: Failed\u001b\\");
+  expect(captured.chunks.at(-1)).toBe("\u001b]2;\u001b\\");
   expect(captured.chunks.join("")).not.toContain("SECRET");
   expect(captured.chunks.join("")).not.toContain("state=clear");
   expect(captured.chunks.join("")).not.toContain("\u0007");
@@ -138,7 +139,7 @@ test("interruption reports idle and seals captured callbacks", async () => {
 
   const exit = await Effect.runPromiseExit(runCli(root, "1.0.0", ["update"], captured.options));
   expect(Exit.hasInterrupts(exit)).toBe(true);
-  expect(captured.chunks.at(-1)).toContain("state=idle");
+  expect(captured.chunks.at(-2)).toContain("state=idle");
   expect(captured.chunks.join("")).not.toContain("state=error");
   const beforeLateCallback = [...captured.chunks];
   callbacks!.resume();
@@ -163,7 +164,7 @@ test("shared activity progress updates the title without inventing a percentage"
   expect(captured.chunks.filter((chunk) => chunk.startsWith("\u001b]2;"))).toEqual([
     "\u001b]2;Outfitting: Working\u001b\\",
     "\u001b]2;Outfitting: Installing packages\u001b\\",
-    "\u001b]2;Outfitting: Done\u001b\\",
+    "\u001b]2;\u001b\\",
   ]);
   expect(captured.chunks.join("")).not.toContain("progress=");
 });
@@ -224,7 +225,8 @@ test.each(["SIGINT", "SIGTERM"])("runMain installs %s handling before titles sta
   expect(result.status).toBe(130);
   expect(result.stdout).toContain("state=idle");
   expect(result.stdout).not.toContain("state=error");
-  expect(result.stdout).toContain("\u001b]2;Outfitting: Cancelled\u001b\\");
+  expect(result.stdout).toContain(Buffer.from("Outfitting: Cancelled").toString("base64"));
+  expect(result.stdout.endsWith("\u001b]2;\u001b\\")).toBe(true);
   expect(result.stdout).not.toContain("state=done");
 });
 
@@ -270,7 +272,7 @@ test.each([0, 7])(
         : ["check:working", "set-profile:blocked"],
     );
     expect(process.exitCode).toBe(code === 0 ? undefined : 1);
-    expect(captured.chunks.at(-1)).toContain(code === 0 ? "state=done" : "state=error");
+    expect(captured.chunks.at(-2)).toContain(code === 0 ? "state=done" : "state=error");
   },
 );
 
@@ -301,7 +303,7 @@ test.each([
     ]),
   );
   await Effect.runPromiseExit(runCli(root, "1.0.0", ["apply"], captured.options));
-  expect(captured.chunks.at(-1)).toContain("state=error");
+  expect(captured.chunks.at(-2)).toContain("state=error");
   expect(captured.chunks.join("")).not.toContain("state=done");
   expect(captured.chunks.join("")).not.toContain("state=idle");
 });
@@ -439,5 +441,5 @@ test("tracked operation progress counts attempts and drops the percentage in the
   expect(observed[1]).toContain("progress=66");
   expect(observed[2]).not.toContain("progress=");
   expect(captured.chunks.some((chunk) => chunk.includes("progress=100"))).toBe(true);
-  expect(captured.chunks.at(-1)).toContain("state=done");
+  expect(captured.chunks.at(-2)).toContain("state=done");
 });

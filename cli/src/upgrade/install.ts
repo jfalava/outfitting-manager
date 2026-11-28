@@ -14,7 +14,10 @@ const quotePowerShellLiteral = (value: string): string => `'${value.replaceAll("
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const DOWNLOAD_ATTEMPTS = 3;
 
-export class DownloadError extends Schema.TaggedError<DownloadError>()("DownloadError", {
+export class DownloadError extends Schema.TaggedError<
+  DownloadError,
+  { readonly brand: unique symbol }
+>()("DownloadError", {
   message: Schema.String,
   retryable: Schema.Boolean,
 }) {}

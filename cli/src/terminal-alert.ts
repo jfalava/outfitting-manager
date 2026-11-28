@@ -14,15 +14,15 @@ const ST = "\u001b\\";
 const APP = "outfitting-manager";
 
 export interface TerminalSessionControls {
-  begin(path: ReadonlyArray<string>): void;
-  phase(label: string): void;
-  progress(done: number, total: number): void;
-  blocked(kind: "permission" | "question" | "auth", label: string): void;
-  cancel(): void;
-  summary(message: string, hasErrors?: boolean): void;
-  alert(alert: TerminalAlert): void;
-  resume(): void;
-  close(outcome?: "done" | "idle" | "error"): void;
+  begin: (path: ReadonlyArray<string>) => void;
+  phase: (label: string) => void;
+  progress: (done: number, total: number) => void;
+  blocked: (kind: "permission" | "question" | "auth", label: string) => void;
+  cancel: () => void;
+  summary: (message: string, hasErrors?: boolean) => void;
+  alert: (alert: TerminalAlert) => void;
+  resume: () => void;
+  close: (outcome?: "done" | "idle" | "error") => void;
 }
 
 export interface TerminalSessionOptions {
@@ -48,15 +48,25 @@ function terminalText(text: string, limit = 192): string {
   return result;
 }
 
-/** Flush bounded reports before runMain exits; embedders may supply their own stream. */
-function writeReport(title: string, sequence: string, stream?: TerminalAlertStream): void {
-  const windowTitle = `\u001b]2;${title}${ST}`;
+/**
+ * Flush bounded reports before runMain exits; embedders may supply their own stream.
+ * The final report hands the window title back to the terminal (empty OSC 2), since
+ * terminals such as Rex name the tab after it; the retained record keeps the outcome.
+ */
+function writeReport(
+  title: string,
+  sequence: string,
+  final: boolean,
+  stream?: TerminalAlertStream,
+): void {
+  const chunks = final ? [sequence, `\u001b]2;${ST}`] : [`\u001b]2;${title}${ST}`, sequence];
   if (stream !== undefined) {
-    stream.write(windowTitle);
-    stream.write(sequence);
+    for (const chunk of chunks) {
+      stream.write(chunk);
+    }
     return;
   }
-  const bytes = Buffer.from(windowTitle + sequence);
+  const bytes = Buffer.from(chunks.join(""));
   let offset = 0;
   while (offset < bytes.length) {
     offset += writeSync(2, bytes, offset, bytes.length - offset);
@@ -107,11 +117,12 @@ export function createTerminalSession(
       pairs.push(`progress=${progress}`);
     }
     const sequence = `\u001b]7501;${pairs.join(":")}${ST}`;
-    if (sequence === previous) {
+    // The final report always writes: an error alert already reported the same record.
+    if (sequence === previous && !closed) {
       return;
     }
     try {
-      writeReport(title, sequence, options.stream);
+      writeReport(title, sequence, closed, options.stream);
       previous = sequence;
     } catch {
       // Terminal output must not fail an operation or its cleanup.

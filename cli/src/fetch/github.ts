@@ -125,7 +125,10 @@ export interface GitHubSourceFile {
   revision: string;
 }
 
-export class GitHubHttpError extends Schema.TaggedError<GitHubHttpError>()("GitHubHttpError", {
+export class GitHubHttpError extends Schema.TaggedError<
+  GitHubHttpError,
+  { readonly brand: unique symbol }
+>()("GitHubHttpError", {
   url: Schema.String,
   status: Schema.Finite,
   message: Schema.String,
@@ -196,7 +199,7 @@ const repositoryJson = Effect.fn("github.repositoryJson")(function* (
 ): Effect.fn.Return<unknown, CliFailure | GitHubHttpError> {
   if (options.repository.transport === "gh") {
     const body = yield* ghApi(options.repository.host, endpoint, options.run ?? runCommand);
-    return yield* Effect.try({ try: () => JSON.parse(body), catch: toError });
+    return yield* Effect.try({ try: (): unknown => JSON.parse(body), catch: toError });
   }
   const response = yield* publicResponse(`https://api.github.com${endpoint}`, options.fetcher);
   return yield* Effect.tryPromise({ try: () => response.json(), catch: toError });
