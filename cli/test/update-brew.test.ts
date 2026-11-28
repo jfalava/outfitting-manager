@@ -87,6 +87,68 @@ test("apply reconciles the local Brewfile without upgrading or cleaning extras",
   expect(recorded).toEqual([["brew", "bundle", "--no-upgrade", `--file=${brewfile}`]]);
 });
 
+test("apply --prune removes only the confirmed dry-run plan and never forces when declined", async () => {
+  const root = await mkdtemp(join(tmpdir(), "outfitting-brew-prune-"));
+  temps.push(root);
+  const brewfile = join(root, "Brewfile");
+  await writeFile(brewfile, 'brew "jq"\n', "utf8");
+  // Captured from Homebrew 7.0.17 with stdout piped; the cache section must not count as removals.
+  const dryRun = [
+    "Would uninstall casks:",
+    "cmux",
+    "t3-code@nightly",
+    "Would uninstall formulae:",
+    "sqlcipher",
+    "Would untap:",
+    "0xerwin1/dbflux",
+    "Would `brew cleanup`:",
+    "Would remove: /Users/me/Library/Caches/Homebrew/ripgrep--15.2.0 (2.1MB)",
+    "Run `brew bundle cleanup --force` to make these changes.",
+    "",
+  ].join("\n");
+  const prune = async (confirmed: boolean) => {
+    const recorded: string[] = [];
+    const output: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line) => output.push(String(line)));
+    await Effect.runPromise(
+      applyBrew({
+        config: {
+          configPath: join(root, "config.toml"),
+          stateRoot: root,
+          machineId: "test:aarch64-darwin",
+          machineIdOverridden: true,
+        },
+        brewfilePath: brewfile,
+        prune: true,
+        confirm: Effect.succeed(confirmed),
+        which: async () => "/opt/homebrew/bin/brew",
+        run: async (_command, args) => {
+          recorded.push(args.join(" "));
+          return args.join(" ") === `bundle cleanup --file=${brewfile}`
+            ? { code: 1, stdout: dryRun, stderr: "" }
+            : { code: 0, stdout: "", stderr: "" };
+        },
+      }),
+    );
+    vi.restoreAllMocks();
+    return { recorded, output: output.join("\n") };
+  };
+
+  const accepted = await prune(true);
+  expect(accepted.recorded).toEqual([
+    `bundle --no-upgrade --file=${brewfile}`,
+    `bundle cleanup --file=${brewfile}`,
+    `bundle cleanup --force --file=${brewfile}`,
+  ]);
+  expect(accepted.output).toContain("uninstall casks: t3-code@nightly");
+  expect(accepted.output).toContain("uninstall formulae: sqlcipher");
+  expect(accepted.output).toContain("untap: 0xerwin1/dbflux");
+  expect(accepted.output).not.toContain("ripgrep");
+
+  const declined = await prune(false);
+  expect(declined.recorded).not.toContain(`bundle cleanup --force --file=${brewfile}`);
+});
+
 test("Homebrew apply warns and returns normally for a failed bundle unless strict", async () => {
   const root = await mkdtemp(join(tmpdir(), "outfitting-brew-partial-"));
   temps.push(root);

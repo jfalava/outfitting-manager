@@ -1,9 +1,10 @@
 import { Console, Effect, Option } from "effect";
-import { Command, Flag } from "effect/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import { configuredProfile, loadConfig } from "@/config";
 import { tryPromise } from "@/effect";
 import { runSetup } from "@/setup/run";
+import { withTerminalInput } from "@/terminal-alert";
 import { ui } from "@/ui";
 import { applyBrew, declaredBrewfile } from "@/update/brew";
 
@@ -31,8 +32,18 @@ export const macosApplyCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription("Fail when Homebrew Bundle reports an installation error."),
     ),
+    prune: Flag.Boolean("prune").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Remove Homebrew packages and taps the Brewfile does not declare (brew bundle cleanup).",
+      ),
+    ),
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Prune the displayed packages without prompting."),
+    ),
   },
-  ({ machineId, repo, profile, noRefresh, strict }) =>
+  ({ machineId, repo, profile, noRefresh, strict, prune, yes }) =>
     Effect.gen(function* () {
       const config = yield* tryPromise(() =>
         loadConfig({
@@ -55,7 +66,20 @@ export const macosApplyCommand = Command.make(
         yield* Console.log(ui.muted("No Brewfile declared; skipping Homebrew apply."));
         return;
       }
-      yield* applyBrew({ config, brewfilePath: brewfile.path, strict });
+      yield* applyBrew({
+        config,
+        brewfilePath: brewfile.path,
+        strict,
+        prune,
+        yes,
+        confirm: process.stdin.isTTY
+          ? withTerminalInput(
+              Prompt.Confirm({ message: "Remove these Homebrew packages?", initial: false }),
+              "permission",
+              "Remove these Homebrew packages?",
+            ).pipe(Effect.orDie)
+          : undefined,
+      });
     }),
 ).pipe(
   Command.withDescription(

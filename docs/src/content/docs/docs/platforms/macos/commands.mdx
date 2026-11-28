@@ -27,10 +27,11 @@ outfitting-manager init
 
 ## `apply`
 
-`apply` installs packages declared in the selected profile's Brewfile. It does not upgrade other packages or activate Nix.
+`apply` installs packages declared in the selected profile's Brewfile. It does not upgrade other packages or activate Nix. Add `--prune` to remove packages the Brewfile no longer lists; it shows the removals and asks before running `brew bundle cleanup --force`.
 
 ```sh
 outfitting-manager apply --profile personal
+outfitting-manager apply --prune
 ```
 
 ## `diff`
