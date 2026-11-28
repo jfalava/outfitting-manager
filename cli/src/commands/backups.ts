@@ -57,6 +57,7 @@ const configured = Effect.fn("configured")(function* <A, E>(
     FetchHttpClient.layer,
   ).pipe(Layer.provide(BunServices.layer));
   const live = Backup.layer.pipe(Layer.provideMerge(dependencies));
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- entry point: the layer depends on this command's --profile flag.
   return yield* program.pipe(Effect.provide(live));
 });
 

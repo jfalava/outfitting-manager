@@ -53,5 +53,6 @@ export function promptCredential(message: string, secret: boolean, missing: stri
       return yield* new CliFailure({ message: missing });
     }
     return value;
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- self-contained prompt run from non-Effect callers; BunServices is stateless.
   }).pipe(Effect.provide(BunServices.layer));
 }

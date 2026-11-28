@@ -1,6 +1,9 @@
 import { Schema } from "effect";
 
-export class BackupError extends Schema.TaggedError<BackupError>()("BackupError", {
+export class BackupError extends Schema.TaggedError<
+  BackupError,
+  { readonly brand: unique symbol }
+>()("BackupError", {
   message: Schema.String,
   // lock: another operation holds the repository lock; stale-lock: its owner is gone.
   reason: Schema.optionalKey(Schema.Literals(["lock", "stale-lock"])),

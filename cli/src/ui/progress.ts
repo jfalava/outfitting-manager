@@ -14,9 +14,9 @@ export interface ProgressOptions {
 }
 
 export interface ProgressRenderer {
-  track<A, E, R>(label: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
-  log(message: string): void;
-  finish(): void;
+  track: <A, E, R>(label: string, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+  log: (message: string) => void;
+  finish: () => void;
 }
 
 export function logCommandOutput(progress: ProgressRenderer, result: RunCommandResult): void {

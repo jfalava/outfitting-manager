@@ -14,15 +14,15 @@ const ST = "\u001b\\";
 const APP = "outfitting-manager";
 
 export interface TerminalSessionControls {
-  begin(path: ReadonlyArray<string>): void;
-  phase(label: string): void;
-  progress(done: number, total: number): void;
-  blocked(kind: "permission" | "question" | "auth", label: string): void;
-  cancel(): void;
-  summary(message: string, hasErrors?: boolean): void;
-  alert(alert: TerminalAlert): void;
-  resume(): void;
-  close(outcome?: "done" | "idle" | "error"): void;
+  begin: (path: ReadonlyArray<string>) => void;
+  phase: (label: string) => void;
+  progress: (done: number, total: number) => void;
+  blocked: (kind: "permission" | "question" | "auth", label: string) => void;
+  cancel: () => void;
+  summary: (message: string, hasErrors?: boolean) => void;
+  alert: (alert: TerminalAlert) => void;
+  resume: () => void;
+  close: (outcome?: "done" | "idle" | "error") => void;
 }
 
 export interface TerminalSessionOptions {

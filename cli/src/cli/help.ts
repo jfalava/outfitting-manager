@@ -32,6 +32,7 @@ export function makeCommandHelpLayer(root: Command.Command.Any) {
   visit(root, [root.name]);
   const base = CliOutput.defaultFormatter();
   return CliOutput.layer({
+    // oxlint-disable-next-line typescript/no-misused-spread -- defaultFormatter() returns a plain object of function properties, not a class instance.
     ...base,
     formatHelpDoc: (doc) => {
       // Built-in usage starts with the canonical command path, even for aliases.

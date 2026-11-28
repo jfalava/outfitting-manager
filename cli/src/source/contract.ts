@@ -322,7 +322,8 @@ export function normalizeBackupPath(path: string): string {
         part === ".." ||
         /[. ]$|^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part) ||
         /[<>:"|?*]/.test(part) ||
-        [...part].some((char) => char.charCodeAt(0) < 32),
+        // oxlint-disable-next-line no-control-regex -- path segments cannot contain controls.
+        /[\u0000-\u001f]/.test(part),
     )
   ) {
     throw new Error(`Unsafe backup TOML path: ${path}.`);

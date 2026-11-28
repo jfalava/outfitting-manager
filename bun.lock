@@ -122,7 +122,6 @@
         "effect": "catalog:effect",
       },
       "devDependencies": {
-        "@cloudflare/workers-types": "catalog:cloudflare",
         "@oxlint/plugins": "catalog:build",
         "@types/node": "catalog:types",
         "oxfmt": "catalog:build",

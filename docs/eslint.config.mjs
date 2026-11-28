@@ -1,3 +1,3 @@
-import eslintPluginAstro from "eslint-plugin-astro";
+import { configs } from "eslint-plugin-astro";
 
-export default [...eslintPluginAstro.configs.recommended];
+export default [...configs.recommended];

@@ -32,7 +32,7 @@ export interface OutputPreview {
   readonly path: string;
   readonly empty?: boolean;
   readonly input?: "permission" | "question" | "auth";
-  readonly render: (empty: boolean, delay: number) => Effect.Effect<void, unknown>;
+  readonly render: (empty: boolean, delay: number) => Effect.Effect<void, Schema.SchemaError>;
 }
 
 const HASH = "a31d8f924ae78011cfa6a64dc5df22871c6f1f2c67de637654b2b66366c50192";

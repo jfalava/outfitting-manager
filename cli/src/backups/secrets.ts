@@ -5,8 +5,8 @@ import { BackupError, type SecretName, type BackupCredentials } from "./model.ts
 export class Secrets extends Context.Service<
   Secrets,
   {
-    get(name: SecretName): Effect.Effect<Redacted.Redacted<string>, BackupError>;
-    set(name: SecretName, value: Redacted.Redacted<string>): Effect.Effect<void, BackupError>;
+    get(name: SecretName): Effect.Effect<Redacted.Redacted, BackupError>;
+    set(name: SecretName, value: Redacted.Redacted): Effect.Effect<void, BackupError>;
   }
 >()("backup/Secrets") {
   static layer(
