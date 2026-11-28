@@ -3,6 +3,15 @@ minimumReleaseAge = 86400
 minimumReleaseAgeExcludes = [
   "@types/node",
   "@effect/tsgo",
+  # @effect/tsgo's native binaries are optional dependencies; without these,
+  # bun skips them silently and `effect-tsgo patch` fails.
+  "@effect/tsgo-darwin-arm64",
+  "@effect/tsgo-darwin-x64",
+  "@effect/tsgo-linux-arm",
+  "@effect/tsgo-linux-arm64",
+  "@effect/tsgo-linux-x64",
+  "@effect/tsgo-win32-arm64",
+  "@effect/tsgo-win32-x64",
   "@cloudflare/workers-types",
   "alchemy",
   "@alchemy.run/cloudflare-runtime",

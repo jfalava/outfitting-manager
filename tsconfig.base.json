@@ -18,10 +18,15 @@
         "name": "@effect/language-service",
         "ignoreEffectWarningsInTscExitCode": true,
         "allowedUnstableApis": [
+          "@effect/platform-bun/BunRuntime#runMain",
+          "@effect/platform-bun/BunServices#layer",
           "effect/cli",
+          "effect/FileSystem",
           "effect/http",
+          "effect/Path#layer",
           "effect/process/ChildProcess#make",
-          "effect/process/ChildProcessSpawner#ChildProcessSpawner"
+          "effect/process/ChildProcessSpawner#ChildProcessSpawner",
+          "effect/Terminal"
         ],
         "diagnosticSeverity": {
           "abortControllerInEffect": "error",
@@ -42,7 +47,8 @@
           "instanceOfSchema": "error",
           "newPromise": "off",
           "nodeBuiltinImport": "off",
-          "preferSchemaOverJson": "off",
+          "globalJson": "off",
+          "globalJsonInEffect": "off",
           "processEnv": "off",
           "processEnvInEffect": "off",
           "schemaSync": "off",

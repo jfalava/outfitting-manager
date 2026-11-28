@@ -17,7 +17,7 @@ export default defineConfig({
     "**/*.astro",
     "*.mdx",
     "*.md",
-    // Astro's compiler owns these .astro-importing barrels; tsgolint cannot
+    // Astro's compiler owns these .astro-importing barrels; the type-aware linter cannot
     // resolve their generated module declarations from a standalone TS run.
     "src/components.ts",
     "src/components/**/index.ts",
