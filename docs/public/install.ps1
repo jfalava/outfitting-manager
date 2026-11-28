@@ -28,7 +28,7 @@ $matchingReleases = @(
     }
 )
 $release = $matchingReleases |
-    Sort-Object -Property { [version]($_.tag_name -replace '^(cli-)?v', '') } -Descending |
+    Sort-Object -Property { [version]($_.tag_name -replace '^(cli-)?v', '') }, { $_.tag_name.StartsWith('v') } -Descending |
     Select-Object -First 1
 
 if ($null -eq $release) {

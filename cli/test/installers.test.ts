@@ -207,6 +207,22 @@ describe.skipIf(!canRunShell)(
       expect(await readFile(fixture.existingBinary, "utf8")).toBe(fixture.content);
     });
 
+    // The first v release is mirrored as a cli-v bridge with the same version.
+    test.each([
+      ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+      ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+    ])("installs the v release over its cli-v bridge (%s)", async (_order, tags) => {
+      const fixture = await shellFixture(
+        tags.map((tag) => release(tag, linuxArchive)),
+        "v0.16.0",
+      );
+      const result = fixture.run();
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readFile(join(fixture.root, "requests"), "utf8")).toContain(
+        `/releases/download/v0.16.0/${linuxArchive}`,
+      );
+    });
+
     test.each([linuxArchive, `${linuxArchive}.sha256`])(
       "fails on newest release missing %s instead of falling back",
       async (missing) => {
@@ -320,6 +336,19 @@ describe.skipIf(!pwsh)("PowerShell installer selection and parsing", () => {
         archive: `https://downloads.test/${newer}/${windowsArchive}`,
         checksum: `https://downloads.test/${newer}/${windowsArchive}.sha256`,
       });
+    },
+    30000,
+  );
+
+  test.each([
+    ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+    ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+  ])(
+    "selects the v release over its cli-v bridge (%s)",
+    async (_order, tags) => {
+      const result = await selectPowershell(tags.map((tag) => release(tag, windowsArchive)));
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({ tag: "v0.16.0" });
     },
     30000,
   );

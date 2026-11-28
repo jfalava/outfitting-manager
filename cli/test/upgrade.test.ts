@@ -221,6 +221,33 @@ describe("self-update command helpers", () => {
     );
   });
 
+  test.each([
+    ["bridge first", ["cli-v0.16.0", "v0.16.0"]],
+    ["v release first", ["v0.16.0", "cli-v0.16.0"]],
+  ])("selects the v release over its cli-v bridge (%s)", async (_order, tags) => {
+    const asset = "outfitting-manager-linux-x64.zip";
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify(
+          tags.map((tag) => ({
+            draft: false,
+            prerelease: false,
+            tag_name: tag,
+            assets: [
+              { name: asset, browser_download_url: `https://example.test/${tag}.zip` },
+              {
+                name: `${asset}.sha256`,
+                browser_download_url: `https://example.test/${tag}.sha256`,
+              },
+            ],
+          })),
+        ),
+      );
+    await expect(
+      Effect.runPromise(latestCliReleaseEffect(asset, "outfitting-manager", fetcher)),
+    ).resolves.toMatchObject({ version: "0.16.0", assetUrl: "https://example.test/v0.16.0.zip" });
+  });
+
   test("does not silently downgrade to an older release when latest lacks this platform's asset", async () => {
     const asset = "outfitting-manager-linux-x64.zip";
     const fetcher = async () =>

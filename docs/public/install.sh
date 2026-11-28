@@ -61,7 +61,8 @@ curl --fail --location --silent --show-error --retry 3 \
 jq '
   map(select(.draft == false and .prerelease == false)
       | select(.tag_name | test("^(cli-)?v[0-9]+\\.[0-9]+\\.[0-9]+$")))
-  | sort_by(.tag_name | sub("^(cli-)?v"; "") | split(".") | map(tonumber))
+  | sort_by((.tag_name | sub("^(cli-)?v"; "") | split(".") | map(tonumber))
+            + [if (.tag_name | startswith("v")) then 1 else 0 end])
   | last // empty
 ' "$tmp_dir/releases.json" > "$tmp_dir/release.json"
 tag=$(jq -r '.tag_name' "$tmp_dir/release.json")

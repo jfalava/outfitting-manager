@@ -120,7 +120,33 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # CLIs up to 0.15.3 only see cli-v<version> releases. The first v<version> release
+      # is mirrored once as cli-v<version>, so they can upgrade to a CLI that reads v tags.
+      # Checked before publishing, ignoring this tag, so a rerun still mirrors.
+      - name: Check whether this is the first v release
+        id: bridge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          earlier=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[].tag_name' \
+            | awk -v ref="${GITHUB_REF_NAME}" '/^v[0-9]+\.[0-9]+\.[0-9]+$/ && $0 != ref { n++ } END { print n + 0 }')
+          echo "needed=$([ "${earlier}" -eq 0 ] && echo true || echo false)" >> "${GITHUB_OUTPUT}"
+
       - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: dist/*
           generate_release_notes: true
+          make_latest: "true"
+
+      - name: Publish the cli-v bridge release
+        if: steps.bridge.outputs.needed == 'true'
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          tag_name: cli-${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: cli-${{ github.ref_name }} (upgrade bridge)
+          body: |
+            This release exists only so outfitting-manager 0.15.3 and older can upgrade: their `upgrade` command only finds `cli-v` releases. It has the same assets and checksums as [${{ github.ref_name }}](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}), and later releases are tagged `v<version>` only.
+          files: dist/*
+          make_latest: "false"
